@@ -105,12 +105,13 @@ The Windows packager script lives in `scripts/build_windows_bundle.ps1`.
 
 Recommended client delivery flow:
 
-1. Build the Windows package on a Windows machine.
-2. Create a GitHub Release.
-3. Upload `dist\Ramseyer Finance-windows.zip` as the release asset.
-4. Send the client the release download link.
+1. Push a version tag from macOS.
+2. GitHub Actions builds the Windows package using a Windows runner.
+3. GitHub creates a Release automatically.
+4. `dist/Ramseyer Finance-windows.zip` is uploaded as the release asset.
+5. Send the client the GitHub Release download link.
 
-That way the client downloads the packaged app directly and does not need to clone the repository.
+That way the client downloads the packaged app directly and does not need to clone the repository or install Go.
 
 ### Secondary release target: macOS
 
