@@ -1,0 +1,91 @@
+{{template "layout" .}} {{define "content"}}
+<div class="page-header reveal">
+    <h2>Backup & Restore</h2>
+</div>
+
+{{if .Message}}
+<div class="alert alert-{{.MessageTone}} alert-float" data-auto-dismiss-alert>{{.Message}}</div>
+{{end}}
+
+<div class="card reveal">
+    <h3>Download Backup</h3>
+    <p>Save a copy of all financial data to your computer.</p>
+    <a href="/api/backup/download" class="btn btn-primary" data-download-backup
+        >Download Backup File</a
+    >
+</div>
+
+<div class="card reveal">
+    <h3>Restore from Backup</h3>
+    <p class="warning">
+        This will replace all current data. Make sure you have a backup first.
+    </p>
+    <form
+        method="POST"
+        action="/api/backup/restore"
+        enctype="multipart/form-data"
+        data-loading-form
+        data-restore-form
+        data-confirm-submit
+        data-confirm-title="Confirm Restore"
+        data-confirm-action-label="Restore"
+        data-confirm-message="Restore this backup and replace all current data? This action cannot be undone."
+    >
+        <div class="form-group">
+            <label>Selected Backup File</label>
+            <input type="hidden" name="backup_path" value="" data-native-file-path />
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" data-native-file-picker>Choose Backup File</button>
+            </div>
+            <p class="section-copy" data-native-file-name>No backup file selected yet.</p>
+            <p class="section-copy">If the desktop picker is unavailable, use the browser file input below.</p>
+        </div>
+        <div class="form-group">
+            <label>Browser Fallback File Input</label>
+            <input
+                class="file-input"
+                id="backup_file"
+                type="file"
+                name="backup_file"
+                accept=".db,.sqlite,.sqlite3"
+                data-restore-file-input
+            />
+            <p class="section-copy">Supported files: .db, .sqlite, .sqlite3</p>
+        </div>
+        <button type="submit" class="btn btn-danger">
+            Restore from Backup
+        </button>
+    </form>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Backup History</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Path</th>
+                <th>Note</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .History}}
+            <tr>
+                <td>{{.CreatedAt}}</td>
+                <td>{{.Kind}}</td>
+                <td>{{.Status}}</td>
+                <td>{{if .FilePath}}{{.FilePath}}{{else}}-{{end}}</td>
+                <td>{{if .Note}}{{.Note}}{{else}}-{{end}}</td>
+            </tr>
+            {{end}}
+            {{if not .History}}
+            <tr>
+                <td colspan="5" class="text-center">No backup activity recorded yet</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

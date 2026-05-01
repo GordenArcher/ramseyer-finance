@@ -1,0 +1,154 @@
+{{template "layout" .}} {{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Statement of Financial Position</h2>
+    <p class="period">As at 31 December {{.Year}}</p>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+</div>
+
+<section class="stats-grid reveal">
+    <div class="stat-card">
+        <div class="stat-label">Total Assets</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalAssets}}">{{formatCompactMoney .TotalAssets}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Liabilities</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalLiabilities}}">{{formatCompactMoney .TotalLiabilities}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Equity</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalEquity}}">{{formatCompactMoney .TotalEquity}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Income Surplus</div>
+        <div class="stat-value compact-money {{if lt .IncomeSurplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .IncomeSurplus}}">{{formatCompactMoney .IncomeSurplus}}</div>
+    </div>
+</section>
+
+<div class="card chart-card reveal">
+    <div class="card-header">
+        <div>
+            <h3>Balance Metrics</h3>
+            <p>Prior-year and current-year position across assets, liabilities, and equity.</p>
+        </div>
+    </div>
+    <div class="chart-shell">
+        <canvas class="finance-chart" width="1080" height="420" data-canvas-chart data-chart-source="balance-chart-data"></canvas>
+    </div>
+    <div class="chart-legend">
+        <span class="legend-item"><i class="legend-swatch legend-swatch-neutral"></i>{{.PriorYear}}</span>
+        <span class="legend-item"><i class="legend-swatch legend-swatch-expense"></i>{{.Year}}</span>
+    </div>
+    <script type="application/json" id="balance-chart-data">{{toJSON .Chart}}</script>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Non-Current Assets</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .NonCurrentAssets}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td class="text-right">{{formatMoney .PriorAmount}}</td>
+            <td class="text-right">{{formatMoney .Amount}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Current Assets</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .CurrentAssets}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td class="text-right">{{formatMoney .PriorAmount}}</td>
+            <td class="text-right">{{formatMoney .Amount}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card reveal">
+    <h3>Total Assets</h3>
+    <table class="data-table">
+        <tbody>
+            <tr><td>{{.PriorYear}}</td><td class="text-right">{{formatMoney .PriorTotalAssets}}</td></tr>
+            <tr class="total-row"><td>{{.Year}}</td><td class="text-right">{{formatMoney .TotalAssets}}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Current Liabilities</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .Liabilities}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td class="text-right">{{formatMoney .PriorAmount}}</td>
+            <td class="text-right">{{formatMoney .Amount}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Financed By</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>Accumulated Fund</td>
+            <td class="text-right">{{formatMoney .PriorAccumulatedFund}}</td>
+            <td class="text-right">{{formatMoney .AccumulatedFund}}</td>
+        </tr>
+        <tr>
+            <td>Income Surplus</td>
+            <td class="text-right">{{formatMoney .PriorIncomeSurplus}}</td>
+            <td class="text-right">{{formatMoney .IncomeSurplus}}</td>
+        </tr>
+        <tr class="total-row">
+            <td>Total Equity</td>
+            <td class="text-right">{{formatMoney .PriorTotalEquity}}</td>
+            <td class="text-right">{{formatMoney .TotalEquity}}</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+{{end}}

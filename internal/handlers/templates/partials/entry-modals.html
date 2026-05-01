@@ -1,0 +1,203 @@
+{{define "entry-modals"}}
+<div class="modal-shell" id="finance-entry" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-income">
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Income And Expenditure</p>
+                <h3>Popup entry console</h3>
+            </div>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+        </div>
+        <div class="modal-tabs" data-tab-group="finance-entry">
+            <button type="button" class="modal-tab active" data-tab-target="income-pane">Income</button>
+            <button type="button" class="modal-tab" data-tab-target="expense-pane">Expenditure</button>
+        </div>
+        <div class="tab-panels">
+            <section id="income-pane" class="modal-form-panel active">
+                <form method="POST" action="/api/transaction/add" data-loading-form>
+                    <input type="hidden" name="type" value="income" />
+                    <input type="hidden" name="return_to" value="{{if eq .Active "data-entry"}}/data-entry?open=finance-entry{{else}}/?open=finance-entry{{end}}" />
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Date</label>
+                            <input type="date" name="date" value="{{.CurrentDate}}" required />
+                        </div>
+                        <div class="form-group">
+                            <label>Income</label>
+                            <select name="category_id" required>
+                                <option value="">Select income</option>
+                                {{range .IncomeCats}}
+                                <option value="{{.ID}}">
+                                    {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label>Description</label>
+                            <input type="text" name="description" placeholder="Optional details" />
+                        </div>
+                        <div class="form-group">
+                            <label>Amount (GHC)</label>
+                            <input type="number" step="0.01" name="amount" required />
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label class="checkbox-row">
+                                <input type="checkbox" name="allow_duplicate" value="1" />
+                                <span>Allow intentional duplicate entry</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Income</button>
+                        <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+                    </div>
+                </form>
+            </section>
+            <section id="expense-pane" class="modal-form-panel">
+                <form method="POST" action="/api/transaction/add" data-loading-form>
+                    <input type="hidden" name="type" value="expenditure" />
+                    <input type="hidden" name="return_to" value="{{if eq .Active "data-entry"}}/data-entry?open=finance-entry{{else}}/?open=finance-entry{{end}}" />
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Date</label>
+                            <input type="date" name="date" value="{{.CurrentDate}}" required />
+                        </div>
+                        <div class="form-group">
+                            <label>Expenditure</label>
+                            <select name="category_id" required>
+                                <option value="">Select expenditure</option>
+                                {{range .ExpenseCats}}
+                                <option value="{{.ID}}">
+                                    {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label>Description</label>
+                            <input type="text" name="description" placeholder="Optional details" />
+                        </div>
+                        <div class="form-group">
+                            <label>Amount (GHC)</label>
+                            <input type="number" step="0.01" name="amount" required />
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label class="checkbox-row">
+                                <input type="checkbox" name="allow_duplicate" value="1" />
+                                <span>Allow intentional duplicate entry</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Expenditure</button>
+                        <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </div>
+</div>
+
+<div class="modal-shell" id="asset-entry" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-assets">
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Assets And Liabilities</p>
+                <h3>Balance sheet entry console</h3>
+            </div>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+        </div>
+        <div class="modal-tabs" data-tab-group="asset-entry">
+            <button type="button" class="modal-tab active" data-tab-target="asset-pane">Assets</button>
+            <button type="button" class="modal-tab" data-tab-target="liability-pane">Liabilities</button>
+        </div>
+        <div class="tab-panels">
+            <section id="asset-pane" class="modal-form-panel active">
+                <form method="POST" action="/api/transaction/add" data-loading-form>
+                    <input type="hidden" name="type" value="asset" />
+                    <input type="hidden" name="return_to" value="{{if eq .Active "data-entry"}}/data-entry?open=asset-entry{{else}}/?open=asset-entry{{end}}" />
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Date</label>
+                            <input type="date" name="date" value="{{.CurrentDate}}" required />
+                        </div>
+                        <div class="form-group">
+                            <label>Assets</label>
+                            <select name="category_id" required>
+                                <option value="">Select asset</option>
+                                {{range .AssetCats}}
+                                <option value="{{.ID}}">
+                                    {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label>Description</label>
+                            <input type="text" name="description" placeholder="Optional details" />
+                        </div>
+                        <div class="form-group">
+                            <label>Amount (GHC)</label>
+                            <input type="number" step="0.01" name="amount" required />
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label class="checkbox-row">
+                                <input type="checkbox" name="allow_duplicate" value="1" />
+                                <span>Allow intentional duplicate entry</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Asset</button>
+                        <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+                    </div>
+                </form>
+            </section>
+            <section id="liability-pane" class="modal-form-panel">
+                <form method="POST" action="/api/transaction/add" data-loading-form>
+                    <input type="hidden" name="type" value="liability" />
+                    <input type="hidden" name="return_to" value="{{if eq .Active "data-entry"}}/data-entry?open=asset-entry{{else}}/?open=asset-entry{{end}}" />
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Date</label>
+                            <input type="date" name="date" value="{{.CurrentDate}}" required />
+                        </div>
+                        <div class="form-group">
+                            <label>Liability</label>
+                            <select name="category_id" required>
+                                <option value="">Select liability</option>
+                                {{range .LiabilityCats}}
+                                <option value="{{.ID}}">
+                                    {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+                                </option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label>Description</label>
+                            <input type="text" name="description" placeholder="Optional details" />
+                        </div>
+                        <div class="form-group">
+                            <label>Amount (GHC)</label>
+                            <input type="number" step="0.01" name="amount" required />
+                        </div>
+                        <div class="form-group form-group-span">
+                            <label class="checkbox-row">
+                                <input type="checkbox" name="allow_duplicate" value="1" />
+                                <span>Allow intentional duplicate entry</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Add Liability</button>
+                        <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </div>
+</div>
+{{end}}

@@ -1,0 +1,76 @@
+{{template "layout" .}}
+{{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Monthly Income & Expenditure</h2>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+</div>
+
+<section class="stats-grid reveal">
+    <div class="stat-card">
+        <div class="stat-label">Year to Date Income</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDIncome}}">{{formatCompactMoney .YTDIncome}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Year to Date Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDExpense}}">{{formatCompactMoney .YTDExpense}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Year to Date Surplus</div>
+        <div class="stat-value compact-money {{if lt .YTDSurplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .YTDSurplus}}">{{formatCompactMoney .YTDSurplus}}</div>
+    </div>
+</section>
+
+<div class="card chart-card reveal">
+    <div class="card-header">
+        <div>
+            <h3>Monthly Metrics</h3>
+            <p>Month-by-month income, expenditure, and surplus for {{.Year}}.</p>
+        </div>
+    </div>
+    <div class="chart-shell">
+        <canvas class="finance-chart" width="1080" height="420" data-canvas-chart data-chart-source="monthly-chart-data"></canvas>
+    </div>
+    <div class="chart-legend">
+        <span class="legend-item"><i class="legend-swatch legend-swatch-income"></i>Income</span>
+        <span class="legend-item"><i class="legend-swatch legend-swatch-expense"></i>Expense</span>
+        <span class="legend-item"><i class="legend-swatch legend-swatch-surplus"></i>Surplus</span>
+    </div>
+    <script type="application/json" id="monthly-chart-data">{{toJSON .Chart}}</script>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Month</th>
+                <th class="text-right">Income (GHC)</th>
+                <th class="text-right">Expenditure (GHC)</th>
+                <th class="text-right">Surplus (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Months}}
+            <tr>
+                <td>{{.Month}}</td>
+                <td class="text-right">{{formatMoney .Income}}</td>
+                <td class="text-right">{{formatMoney .Expense}}</td>
+                <td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td>Year to Date</td>
+                <td class="text-right">{{formatMoney .YTDIncome}}</td>
+                <td class="text-right">{{formatMoney .YTDExpense}}</td>
+                <td class="text-right {{if lt .YTDSurplus 0.0}}negative{{end}}">{{formatMoney .YTDSurplus}}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{{end}}

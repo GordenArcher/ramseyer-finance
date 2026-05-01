@@ -1,0 +1,62 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ramseyer Presbyterian Church — Financial Manager</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/app.js" defer></script>
+    <script src="/static/charts.js" defer></script>
+</head>
+<body class="app-body" data-view="{{.Active}}">
+    <div class="page-progress" aria-hidden="true"></div>
+    <div class="app">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1>Ramseyer</h1>
+                <p>Presbyterian Church</p>
+                <span class="subtitle">Afiaman</span>
+                <span class="sidebar-tag">Workbook flow restored</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="/" data-nav-loading class="nav-item {{if eq .Active "dashboard"}}active{{end}}">Interface</a></li>
+                <li><a href="/data-entry" data-nav-loading class="nav-item {{if eq .Active "data-entry"}}active{{end}}">Data Entry</a></li>
+                <li><a href="/transactions" data-nav-loading class="nav-item {{if eq .Active "transactions"}}active{{end}}">Register</a></li>
+                <li class="nav-section">Reports</li>
+                <li><a href="/monthly" data-nav-loading class="nav-item {{if eq .Active "monthly"}}active{{end}}">Monthly I&amp;E</a></li>
+                <li><a href="/quarterly" data-nav-loading class="nav-item {{if eq .Active "quarterly"}}active{{end}}">Quarterly I&amp;E</a></li>
+                <li><a href="/annual" data-nav-loading class="nav-item {{if eq .Active "annual"}}active{{end}}">Annual I&amp;E</a></li>
+                <li><a href="/balance-sheet" data-nav-loading class="nav-item {{if eq .Active "balance-sheet"}}active{{end}}">Balance Sheet</a></li>
+                <li><a href="/notes" data-nav-loading class="nav-item {{if eq .Active "notes"}}active{{end}}">Notes</a></li>
+                <li class="nav-section">Settings</li>
+                <li><a href="/setup" data-nav-loading class="nav-item {{if eq .Active "setup"}}active{{end}}">Setup</a></li>
+                <li><a href="/backup" data-nav-loading class="nav-item {{if eq .Active "backup"}}active{{end}}">Backup</a></li>
+            </ul>
+        </nav>
+        <main class="content">
+            {{template "content" .}}
+        </main>
+    </div>
+    <div class="modal-shell" id="confirm-delete-modal" aria-hidden="true">
+        <div class="modal-backdrop" data-close-modal></div>
+        <div class="modal-panel modal-panel-income">
+            <div class="modal-header">
+                <div>
+                    <p class="eyebrow" data-confirm-title>Confirm Action</p>
+                    <h3>Are you sure?</h3>
+                </div>
+                <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+            </div>
+            <p class="section-copy" data-confirm-message>
+                This action cannot be undone.
+            </p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-danger" data-confirm-accept>Continue</button>
+                <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+{{end}}

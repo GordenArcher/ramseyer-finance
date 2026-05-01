@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ramseyer Finance Access</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="/static/app.js" defer></script>
+</head>
+<body class="auth-body">
+    <main class="auth-shell">
+        <section class="auth-panel reveal">
+            <div class="auth-copy">
+                <p class="eyebrow">Ramseyer Presby Finance</p>
+                {{if eq .Mode "setup"}}
+                <h1>Create access PIN</h1>
+                <p>
+                    This is the first launch. Set a 4 to 8 digit PIN to lock the
+                    application locally on this computer.
+                </p>
+                {{else}}
+                <h1>Unlock finance records</h1>
+                <p>
+                    Enter the numeric PIN to access statements, posting forms,
+                    and backups.
+                </p>
+                {{end}}
+            </div>
+
+            {{if .Message}}
+            <div class="alert alert-{{.MessageTone}}" data-auto-dismiss-alert>{{.Message}}</div>
+            {{end}}
+
+            <form
+                method="POST"
+                action="{{if eq .Mode "setup"}}/api/auth/setup{{else}}/api/auth/unlock{{end}}"
+                class="auth-form"
+                data-pin-screen
+                data-auth-mode="{{.Mode}}"
+                data-loading-form
+            >
+                <input type="hidden" name="pin" value="" />
+                <div class="pin-display" aria-live="polite">
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                </div>
+                <p class="pin-help">
+                    {{if eq .Mode "setup"}}
+                    Enter your new PIN, then confirm it on the next pass.
+                    {{else}}
+                    Use digits only.
+                    {{end}}
+                </p>
+                <p class="auth-note">
+                    Change the PIN later from Setup after you sign in. A public reset flow is intentionally disabled.
+                </p>
+                <div class="dial-pad">
+                    <button type="button" class="dial-key" data-pin-digit="1">1</button>
+                    <button type="button" class="dial-key" data-pin-digit="2">2</button>
+                    <button type="button" class="dial-key" data-pin-digit="3">3</button>
+                    <button type="button" class="dial-key" data-pin-digit="4">4</button>
+                    <button type="button" class="dial-key" data-pin-digit="5">5</button>
+                    <button type="button" class="dial-key" data-pin-digit="6">6</button>
+                    <button type="button" class="dial-key" data-pin-digit="7">7</button>
+                    <button type="button" class="dial-key" data-pin-digit="8">8</button>
+                    <button type="button" class="dial-key" data-pin-digit="9">9</button>
+                    <button type="button" class="dial-key dial-key-muted" data-pin-clear>Clear</button>
+                    <button type="button" class="dial-key" data-pin-digit="0">0</button>
+                    <button type="button" class="dial-key dial-key-muted" data-pin-backspace>⌫</button>
+                </div>
+                <div class="form-actions auth-actions">
+                    <button type="submit" class="btn btn-primary btn-pill">
+                        {{if eq .Mode "setup"}}Save PIN{{else}}Unlock{{end}}
+                    </button>
+                </div>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

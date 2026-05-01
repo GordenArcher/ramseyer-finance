@@ -1,0 +1,76 @@
+{{template "layout" .}}
+{{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Quarterly Income & Expenditure</h2>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+</div>
+
+<section class="stats-grid reveal">
+    <div class="stat-card">
+        <div class="stat-label">Total Income</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalIncome}}">{{formatCompactMoney .TotalIncome}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalExpense}}">{{formatCompactMoney .TotalExpense}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Surplus</div>
+        <div class="stat-value compact-money {{if lt .TotalSurplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .TotalSurplus}}">{{formatCompactMoney .TotalSurplus}}</div>
+    </div>
+</section>
+
+<div class="card chart-card reveal">
+    <div class="card-header">
+        <div>
+            <h3>Quarterly Metrics</h3>
+            <p>Quarter-by-quarter income, expenditure, and surplus for {{.Year}}.</p>
+        </div>
+    </div>
+    <div class="chart-shell">
+        <canvas class="finance-chart" width="1080" height="420" data-canvas-chart data-chart-source="quarterly-chart-data"></canvas>
+    </div>
+    <div class="chart-legend">
+        <span class="legend-item"><i class="legend-swatch legend-swatch-income"></i>Income</span>
+        <span class="legend-item"><i class="legend-swatch legend-swatch-expense"></i>Expense</span>
+        <span class="legend-item"><i class="legend-swatch legend-swatch-surplus"></i>Surplus</span>
+    </div>
+    <script type="application/json" id="quarterly-chart-data">{{toJSON .Chart}}</script>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Quarter</th>
+                <th class="text-right">Income (GHC)</th>
+                <th class="text-right">Expenditure (GHC)</th>
+                <th class="text-right">Surplus (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Quarters}}
+            <tr>
+                <td>{{.Quarter}}</td>
+                <td class="text-right">{{formatMoney .Income}}</td>
+                <td class="text-right">{{formatMoney .Expense}}</td>
+                <td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+        <tfoot>
+            <tr class="total-row">
+                <td>Total</td>
+                <td class="text-right">{{formatMoney .TotalIncome}}</td>
+                <td class="text-right">{{formatMoney .TotalExpense}}</td>
+                <td class="text-right {{if lt .TotalSurplus 0.0}}negative{{end}}">{{formatMoney .TotalSurplus}}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{{end}}

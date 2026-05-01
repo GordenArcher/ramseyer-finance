@@ -1,0 +1,174 @@
+{{template "layout" .}} {{define "content"}}
+<div class="page-header">
+    <h2>Data Entry</h2>
+    <p class="period">Record income, expenses, assets and liabilities</p>
+</div>
+
+{{if .Message}}
+<div class="alert alert-success">{{.Message}}</div>
+{{end}}
+
+<div class="tabs">
+    <button class="tab active" onclick="showTab(event, 'income')">Income</button>
+    <button class="tab" onclick="showTab(event, 'expenditure')">Expenditure</button>
+    <button class="tab" onclick="showTab(event, 'asset')">Asset</button>
+    <button class="tab" onclick="showTab(event, 'liability')">Liability</button>
+</div>
+
+<form
+    id="income"
+    class="tab-content active"
+    method="POST"
+    action="/api/transaction/add"
+>
+    <input type="hidden" name="type" value="income" />
+    <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    </div>
+    <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" required>
+            <option value="">Select category</option>
+            {{range $.IncomeCats}}
+            <option value="{{.ID}}">
+                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+            </option>
+            {{end}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" placeholder="Optional details" />
+    </div>
+    <div class="form-group">
+        <label>Amount (GHC)</label>
+        <input type="number" step="0.01" name="amount" required />
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Add Income</button>
+        <button type="reset" class="btn btn-secondary">Clear</button>
+    </div>
+</form>
+
+<form
+    id="expenditure"
+    class="tab-content"
+    method="POST"
+    action="/api/transaction/add"
+>
+    <input type="hidden" name="type" value="expenditure" />
+    <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    </div>
+    <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" required>
+            <option value="">Select category</option>
+            {{range $.ExpenseCats}}
+            <option value="{{.ID}}">
+                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+            </option>
+            {{end}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" placeholder="Optional details" />
+    </div>
+    <div class="form-group">
+        <label>Amount (GHC)</label>
+        <input type="number" step="0.01" name="amount" required />
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Add Expenditure</button>
+        <button type="reset" class="btn btn-secondary">Clear</button>
+    </div>
+</form>
+
+<form
+    id="asset"
+    class="tab-content"
+    method="POST"
+    action="/api/transaction/add"
+>
+    <input type="hidden" name="type" value="asset" />
+    <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    </div>
+    <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" required>
+            <option value="">Select category</option>
+            {{range $.AssetCats}}
+            <option value="{{.ID}}">
+                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+            </option>
+            {{end}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" placeholder="Optional details" />
+    </div>
+    <div class="form-group">
+        <label>Amount (GHC)</label>
+        <input type="number" step="0.01" name="amount" required />
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Add Asset</button>
+        <button type="reset" class="btn btn-secondary">Clear</button>
+    </div>
+</form>
+
+<form
+    id="liability"
+    class="tab-content"
+    method="POST"
+    action="/api/transaction/add"
+>
+    <input type="hidden" name="type" value="liability" />
+    <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    </div>
+    <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" required>
+            <option value="">Select category</option>
+            {{range $.LiabilityCats}}
+            <option value="{{.ID}}">
+                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
+            </option>
+            {{end}}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" placeholder="Optional details" />
+    </div>
+    <div class="form-group">
+        <label>Amount (GHC)</label>
+        <input type="number" step="0.01" name="amount" required />
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Add Liability</button>
+        <button type="reset" class="btn btn-secondary">Clear</button>
+    </div>
+</form>
+
+<script>
+    function showTab(event, name) {
+        document
+            .querySelectorAll(".tab-content")
+            .forEach((el) => el.classList.remove("active"));
+        document
+            .querySelectorAll(".tab")
+            .forEach((el) => el.classList.remove("active"));
+        document.getElementById(name).classList.add("active");
+        event.target.classList.add("active");
+    }
+</script>
+{{end}}

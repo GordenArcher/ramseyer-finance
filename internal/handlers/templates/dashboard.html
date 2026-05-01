@@ -1,0 +1,173 @@
+{{template "layout" .}} {{define "content"}}
+<div class="interface-page">
+    <section class="hero-panel reveal">
+        <div class="hero-copy">
+            <p class="eyebrow">Ramseyer Presby Financial Management Software</p>
+            <h2>Financial statement control center for {{.CurrentMonth}}</h2>
+            <p class="hero-text">
+                Record entries, review reports, and move across the same workflow
+                as the original workbook without leaving the application shell.
+            </p>
+        </div>
+        <div class="hero-actions">
+            <div class="hero-balance">
+                <span>Year Surplus</span>
+                <strong
+                    class="compact-money {{if lt .YearSurplus 0.0}}negative{{end}}"
+                    data-money-value="{{formatMoneyRaw .YearSurplus}}"
+                >{{formatCompactMoney .YearSurplus}}</strong>
+            </div>
+            <form method="POST" action="/api/auth/logout" data-loading-form>
+                <button type="submit" class="btn btn-secondary btn-pill">
+                    Sign Out
+                </button>
+            </form>
+        </div>
+    </section>
+
+    {{if .Message}}
+    <div class="alert alert-success alert-float" data-auto-dismiss-alert>{{.Message}}</div>
+    {{end}}
+
+    <section class="launcher-grid reveal">
+        <button
+            type="button"
+            class="launcher-card launcher-card-income"
+            data-open-modal="finance-entry"
+        >
+            <span class="launcher-badge">Quick Entry</span>
+            <strong>Income & Expenditure</strong>
+            <span>Open animated entry popups for weekly posting.</span>
+        </button>
+        <button
+            type="button"
+            class="launcher-card launcher-card-assets"
+            data-open-modal="asset-entry"
+        >
+            <span class="launcher-badge">Quick Entry</span>
+            <strong>Asset & Liability</strong>
+            <span>Capture balance sheet movement with dedicated forms.</span>
+        </button>
+    </section>
+
+    <section class="sheet-ribbon reveal">
+        <a href="/monthly" data-nav-loading class="sheet-chip">Monthly Income & Expenditure</a>
+        <a href="/quarterly" data-nav-loading class="sheet-chip">Quarterly Income & Expenditure</a>
+        <a href="/annual" data-nav-loading class="sheet-chip">Annual Income & Expenditure</a>
+        <a href="/balance-sheet" data-nav-loading class="sheet-chip sheet-chip-accent">Balance Sheet</a>
+        <a href="/notes" data-nav-loading class="sheet-chip">Notes</a>
+        <a href="/transactions" data-nav-loading class="sheet-chip">Register</a>
+        <a href="/setup" data-nav-loading class="sheet-chip">Setup</a>
+        <a href="/backup" data-nav-loading class="sheet-chip">Backup</a>
+    </section>
+
+    <section class="stats-grid workbook-stats reveal">
+        <div class="stat-card">
+            <div class="stat-label">Income This Month</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MonthIncome}}">{{formatCompactMoney .MonthIncome}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Expense This Month</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MonthExpense}}">{{formatCompactMoney .MonthExpense}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Bank Balance</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .BankBalance}}">{{formatCompactMoney .BankBalance}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Cash Balance</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .CashBalance}}">{{formatCompactMoney .CashBalance}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Momo Balance</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MomoBalance}}">{{formatCompactMoney .MomoBalance}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Year Total Income</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YearIncome}}">{{formatCompactMoney .YearIncome}}</div>
+        </div>
+    </section>
+
+    <section class="card chart-card reveal">
+        <div class="card-header">
+            <div>
+                <h3>Financial Metrics</h3>
+                <p>Canvas-based monthly income, expenditure, and surplus for {{.CurrentYear}}.</p>
+            </div>
+        </div>
+        <div class="chart-shell">
+            <canvas id="dashboard-finance-chart" class="finance-chart" width="1080" height="420" data-canvas-chart data-chart-source="dashboard-chart-data"></canvas>
+        </div>
+        <div class="chart-legend">
+            <span class="legend-item"><i class="legend-swatch legend-swatch-income"></i>Income</span>
+            <span class="legend-item"><i class="legend-swatch legend-swatch-expense"></i>Expense</span>
+            <span class="legend-item"><i class="legend-swatch legend-swatch-surplus"></i>Surplus</span>
+        </div>
+        <script type="application/json" id="dashboard-chart-data">{{toJSON .Chart}}</script>
+    </section>
+
+    <section class="report-split reveal">
+        <div class="card table-card" data-table-stage>
+            <div class="card-header">
+                <div>
+                    <h3>Recent Transactions</h3>
+                    <p>Latest postings captured in the ledger.</p>
+                </div>
+                <a href="/annual" data-nav-loading class="btn btn-sm btn-secondary">Open Statements</a>
+            </div>
+            <table class="data-table ledger-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Category</th>
+                        <th>Description</th>
+                        <th class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .RecentTransactions}}
+                    <tr>
+                        <td>{{.Date}}</td>
+                        <td><span class="type-pill type-pill-{{.Type}}">{{.Type}}</span></td>
+                        <td>{{.Category}}</td>
+                        <td>{{.Description}}</td>
+                        <td class="text-right">{{formatMoney .Amount}}</td>
+                    </tr>
+                    {{end}}
+                    {{if not .RecentTransactions}}
+                    <tr>
+                        <td colspan="5" class="text-center">No transactions yet</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card status-card">
+            <h3>At a Glance</h3>
+            <div class="mini-metric">
+                <span>Current Month</span>
+                <strong>{{.CurrentMonth}}</strong>
+            </div>
+            <div class="mini-metric">
+                <span>Monthly Surplus</span>
+                <strong class="compact-money {{if lt .MonthSurplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .MonthSurplus}}">{{formatCompactMoney .MonthSurplus}}</strong>
+            </div>
+            <div class="mini-metric">
+                <span>Total Year Expense</span>
+                <strong class="compact-money" data-money-value="{{formatMoneyRaw .YearExpense}}">{{formatCompactMoney .YearExpense}}</strong>
+            </div>
+            <div class="mini-metric">
+                <span>Entry Console</span>
+                <strong>Animated modal workflow</strong>
+            </div>
+        </div>
+    </section>
+</div>
+
+{{template "entry-modals" .}}
+{{if .OpenModal}}
+<div class="auto-open-flag" data-auto-open-modal="{{.OpenModal}}"></div>
+{{end}}
+{{end}}

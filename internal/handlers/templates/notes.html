@@ -1,0 +1,52 @@
+{{template "layout" .}} {{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Notes to the Financial Statements</h2>
+    <p class="period">As at 31 December {{.Year}}</p>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+</div>
+
+{{if .Warnings}}
+<div class="alert alert-warning" data-auto-dismiss-alert>
+    {{range .Warnings}}
+    <div>{{.}}</div>
+    {{end}}
+</div>
+{{end}}
+
+{{range .Notes}}
+<div class="card table-card reveal" data-table-stage>
+    <h3>Note {{.Number}}: {{.Title}}</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{$.PriorYear}} (GHC)</th>
+                <th class="text-right">{{$.Year}} (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Lines}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td class="text-right">{{formatMoney .PriorAmount}}</td>
+                <td class="text-right">{{formatMoney .Amount}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+        {{if or .Total .PriorTotal}}
+        <tfoot>
+            <tr class="total-row">
+                <td>Total</td>
+                <td class="text-right">{{formatMoney .PriorTotal}}</td>
+                <td class="text-right">{{formatMoney .Total}}</td>
+            </tr>
+        </tfoot>
+        {{end}}
+    </table>
+</div>
+{{end}} {{end}}

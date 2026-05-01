@@ -1,0 +1,131 @@
+{{template "layout" .}}
+{{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Annual Income & Expenditure Account</h2>
+    <p class="period">Presbyterian Church of Ghana — Ramseyer Congregation, Afiaman</p>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+</div>
+
+{{if .Warnings}}
+<div class="alert alert-warning" data-auto-dismiss-alert>
+    {{range .Warnings}}
+    <div>{{.}}</div>
+    {{end}}
+</div>
+{{end}}
+
+<section class="stats-grid reveal">
+    <div class="stat-card">
+        <div class="stat-label">{{.PriorYear}} Income</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalPriorIncome}}">{{formatCompactMoney .TotalPriorIncome}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">{{.Year}} Income</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalIncome}}">{{formatCompactMoney .TotalIncome}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">{{.Year}} Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalExpense}}">{{formatCompactMoney .TotalExpense}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">{{.Year}} Surplus</div>
+        <div class="stat-value compact-money {{if lt .Surplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .Surplus}}">{{formatCompactMoney .Surplus}}</div>
+    </div>
+</section>
+
+<div class="card chart-card reveal">
+    <div class="card-header">
+        <div>
+            <h3>Annual Comparison</h3>
+            <p>Current year against prior year across income, expenditure, and surplus.</p>
+        </div>
+    </div>
+    <div class="chart-shell">
+        <canvas class="finance-chart" width="1080" height="420" data-canvas-chart data-chart-source="annual-chart-data"></canvas>
+    </div>
+    <div class="chart-legend">
+        <span class="legend-item"><i class="legend-swatch legend-swatch-neutral"></i>{{.PriorYear}}</span>
+        <span class="legend-item"><i class="legend-swatch legend-swatch-income"></i>{{.Year}}</span>
+    </div>
+    <script type="application/json" id="annual-chart-data">{{toJSON .Chart}}</script>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Income</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Notes</th>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+                <th class="text-right">Budget (GHC)</th>
+                <th class="text-right">Variance (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .IncomeLines}}
+            <tr {{if .IsBold}}class="total-row"{{end}}>
+                <td>{{.Note}}</td>
+                <td>{{.Name}}</td>
+                <td class="text-right">{{formatMoney .PriorAmount}}</td>
+                <td class="text-right">{{formatMoney .Amount}}</td>
+                <td class="text-right">{{formatMoney .Budget}}</td>
+                <td class="text-right {{if lt .Variance 0.0}}negative{{end}}">{{formatMoney .Variance}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Expenditure</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Notes</th>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+                <th class="text-right">Budget (GHC)</th>
+                <th class="text-right">Variance (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .ExpenseLines}}
+            <tr {{if .IsBold}}class="total-row"{{end}}>
+                <td>{{.Note}}</td>
+                <td>{{.Name}}</td>
+                <td class="text-right">{{formatMoney .PriorAmount}}</td>
+                <td class="text-right">{{formatMoney .Amount}}</td>
+                <td class="text-right">{{formatMoney .Budget}}</td>
+                <td class="text-right {{if lt .Variance 0.0}}negative{{end}}">{{formatMoney .Variance}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card reveal">
+    <h3>Summary</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GHC)</th>
+                <th class="text-right">{{.Year}} (GHC)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>Total Income</td><td class="text-right">{{formatMoney .TotalPriorIncome}}</td><td class="text-right">{{formatMoney .TotalIncome}}</td></tr>
+            <tr><td>Total Expenditure</td><td class="text-right">{{formatMoney .TotalPriorExpense}}</td><td class="text-right">{{formatMoney .TotalExpense}}</td></tr>
+            <tr class="total-row"><td>Surplus / (Deficit)</td><td class="text-right {{if lt .PriorSurplus 0.0}}negative{{end}}">{{formatMoney .PriorSurplus}}</td><td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td></tr>
+        </tbody>
+    </table>
+</div>
+{{end}}
