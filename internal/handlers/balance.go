@@ -61,6 +61,10 @@ type balanceSnapshot struct {
 	TotalEquity      float64
 }
 
+type balanceCategoryDef struct {
+	Name string
+}
+
 // BalanceSheet serves the balance sheet report page for a given year. It parses the "year"
 // query parameter, builds the full comparative dataset (current year vs. prior year), and
 // renders the template. If no year is specified, the current calendar year is used as the
@@ -113,48 +117,42 @@ func buildBalanceData(year int) (BalanceData, error) {
 		return BalanceData{}, err
 	}
 
-	// The display order of line items is fixed here rather than being driven by the
-	// database. This ensures a consistent presentation regardless of category insertion
-	// order and allows the statement to follow a conventional accounting layout.
-	nonCurrentNames := []string{
-		"Property, Plant & Equipment",
-		"GAP Presbytery",
-		"Investment (Credit Union)",
+	nonCurrentDefs, err := loadTopLevelCategoryDefs("asset", "non_current_asset")
+	if err != nil {
+		return BalanceData{}, fmt.Errorf("load non-current asset definitions: %w", err)
 	}
-	for _, name := range nonCurrentNames {
+	currentDefs, err := loadTopLevelCategoryDefs("asset", "current_asset")
+	if err != nil {
+		return BalanceData{}, fmt.Errorf("load current asset definitions: %w", err)
+	}
+	liabilityDefs, err := loadTopLevelCategoryDefs("liability", "")
+	if err != nil {
+		return BalanceData{}, fmt.Errorf("load liability definitions: %w", err)
+	}
+
+	// I now use the stored top-level category metadata as the line definition source so any
+	// user-created asset or liability category can appear in the statement without code changes.
+	for _, item := range nonCurrentDefs {
 		data.NonCurrentAssets = append(data.NonCurrentAssets, BalanceLine{
-			Name:        name,
-			Amount:      currentSnapshot.NonCurrentAssets[name],
-			PriorAmount: priorSnapshot.NonCurrentAssets[name],
+			Name:        item.Name,
+			Amount:      currentSnapshot.NonCurrentAssets[item.Name],
+			PriorAmount: priorSnapshot.NonCurrentAssets[item.Name],
 		})
 	}
 
-	// Current assets are listed in a specific order that separates trade receivables from
-	// liquid accounts. Each line is sourced from the current asset map in the snapshot,
-	// defaulting to zero for categories that have no transactions in the period.
-	currentAssetLines := []struct {
-		Name        string
-		AccountType string
-	}{
-		{Name: "Receivables (Debtors)"},
-		{Name: "Bank", AccountType: "bank"},
-		{Name: "Cash", AccountType: "cash"},
-		{Name: "Momo", AccountType: "momo"},
-	}
-	for _, line := range currentAssetLines {
+	for _, item := range currentDefs {
 		data.CurrentAssets = append(data.CurrentAssets, BalanceLine{
-			Name:        line.Name,
-			Amount:      currentSnapshot.CurrentAssets[line.Name],
-			PriorAmount: priorSnapshot.CurrentAssets[line.Name],
+			Name:        item.Name,
+			Amount:      currentSnapshot.CurrentAssets[item.Name],
+			PriorAmount: priorSnapshot.CurrentAssets[item.Name],
 		})
 	}
 
-	liabilityNames := []string{"Payables (Creditors)", "District Assessment Owing"}
-	for _, name := range liabilityNames {
+	for _, item := range liabilityDefs {
 		data.Liabilities = append(data.Liabilities, BalanceLine{
-			Name:        name,
-			Amount:      currentSnapshot.Liabilities[name],
-			PriorAmount: priorSnapshot.Liabilities[name],
+			Name:        item.Name,
+			Amount:      currentSnapshot.Liabilities[item.Name],
+			PriorAmount: priorSnapshot.Liabilities[item.Name],
 		})
 	}
 
@@ -222,15 +220,23 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 	// opening cash positions. It is a different cut of the same data, not a separate ledger.
 	yearStart, yearEnd := yearBounds(year)
 
+	nonCurrentDefs, err := loadTopLevelCategoryDefs("asset", "non_current_asset")
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load non-current asset definitions for %d: %w", year, err)
+	}
+	currentDefs, err := loadTopLevelCategoryDefs("asset", "current_asset")
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load current asset definitions for %d: %w", year, err)
+	}
+	liabilityDefs, err := loadTopLevelCategoryDefs("liability", "")
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load liability definitions for %d: %w", year, err)
+	}
+
 	// Non-current assets are cumulative: all transactions from the beginning of time up to
 	// the end of the reporting year. There is no opening balance to add because these
 	// categories represent long-term holdings, not flow accounts.
-	nonCurrentNames := []string{
-		"Property, Plant & Equipment",
-		"GAP Presbytery",
-		"Investment (Credit Union)",
-	}
-	nonCurrentTotals, err := loadTopLevelSums("asset", nonCurrentNames, yearEnd)
+	nonCurrentTotals, err := loadTopLevelSums("asset", categoryDefNames(nonCurrentDefs), yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load non-current asset totals for %d: %w", year, err)
 	}
@@ -245,9 +251,7 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 
 	// I split liquid assets from the other current assets because bank, cash, and momo are the
 	// only accounts that combine opening balances with in-year movement.
-	// Receivables are treated as a pure cumulative balance (like non-current assets) because
-	// they represent amounts owed regardless of when the underlying transaction occurred.
-	currentAssetTotals, err := loadDirectCategorySums("asset", []string{"Receivables (Debtors)"}, "", yearEnd)
+	currentAssetTotals, err := loadTopLevelSums("asset", categoryDefNames(currentDefs), yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load current asset totals for %d: %w", year, err)
 	}
@@ -258,17 +262,23 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 		return balanceSnapshot{}, fmt.Errorf("load liquid asset totals for %d: %w", year, err)
 	}
 
-	currentAssets := map[string]float64{
-		"Receivables (Debtors)": currentAssetTotals["Receivables (Debtors)"],
-		"Bank":                  cashAssetTotals["Bank"] + openingBalances["bank"],
-		"Cash":                  cashAssetTotals["Cash"] + openingBalances["cash"],
-		"Momo":                  cashAssetTotals["Momo"] + openingBalances["momo"],
+	currentAssets := map[string]float64{}
+	for _, item := range currentDefs {
+		switch item.Name {
+		case "Bank":
+			currentAssets[item.Name] = cashAssetTotals["Bank"] + openingBalances["bank"]
+		case "Cash":
+			currentAssets[item.Name] = cashAssetTotals["Cash"] + openingBalances["cash"]
+		case "Momo":
+			currentAssets[item.Name] = cashAssetTotals["Momo"] + openingBalances["momo"]
+		default:
+			currentAssets[item.Name] = currentAssetTotals[item.Name]
+		}
 	}
 
 	// Liabilities are cumulative up to year-end, following the same pattern as non-current
 	// assets. They represent obligations that persist across periods.
-	liabilityNames := []string{"Payables (Creditors)", "District Assessment Owing"}
-	liabilityTotals, err := loadDirectCategorySums("liability", liabilityNames, "", yearEnd)
+	liabilityTotals, err := loadTopLevelSums("liability", categoryDefNames(liabilityDefs), yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load liabilities for %d: %w", year, err)
 	}
@@ -326,7 +336,7 @@ func loadTopLevelSums(categoryType string, names []string, endDate string) (map[
 	// Build a parameterised IN clause with one placeholder per category name. We also
 	// include the endDate and categoryType as the first two parameters.
 	placeholders := make([]string, len(names))
-	args := make([]interface{}, 0, len(names)+2)
+	args := make([]any, 0, len(names)+2)
 	args = append(args, endDate, categoryType)
 	for index, name := range names {
 		placeholders[index] = "?"
@@ -393,7 +403,7 @@ func loadDirectCategorySums(categoryType string, names []string, startDate, endD
 	// Build the query dynamically because the date constraints are optional. We append
 	// conditions and their corresponding parameter values only when the date strings are
 	// non-empty, keeping the query as simple as possible for each call site.
-	args := make([]interface{}, 0, len(names)+3)
+	args := make([]any, 0, len(names)+3)
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(`
 		SELECT c.name, COALESCE(SUM(t.amount), 0)
@@ -447,4 +457,45 @@ func loadDirectCategorySums(categoryType string, names []string, startDate, endD
 	}
 
 	return totals, nil
+}
+
+func loadTopLevelCategoryDefs(categoryType, reportSection string) ([]balanceCategoryDef, error) {
+	query := `
+		SELECT name
+		FROM categories
+		WHERE type = ? AND parent_id = 0
+	`
+	args := []any{categoryType}
+	if reportSection != "" {
+		query += ` AND COALESCE(report_section, '') = ?`
+		args = append(args, reportSection)
+	}
+	query += ` ORDER BY id`
+
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var defs []balanceCategoryDef
+	for rows.Next() {
+		var item balanceCategoryDef
+		if err := rows.Scan(&item.Name); err != nil {
+			return nil, err
+		}
+		defs = append(defs, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return defs, nil
+}
+
+func categoryDefNames(defs []balanceCategoryDef) []string {
+	names := make([]string, 0, len(defs))
+	for _, item := range defs {
+		names = append(names, item.Name)
+	}
+	return names
 }

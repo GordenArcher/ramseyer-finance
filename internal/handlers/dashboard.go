@@ -18,6 +18,11 @@ type DashboardData struct {
 	Active             string
 	Message            string
 	OpenModal          string
+	GreetingIntro      string
+	GreetingMessage    string
+	GreetingCount      int
+	GreetingTimeLabel  string
+	ShowSetupHint      bool
 	CurrentMonth       string
 	CurrentYear        int
 	CurrentDate        string
@@ -109,6 +114,16 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 		AssetCats:     assetCats,
 		LiabilityCats: liabilityCats,
 	}
+
+	greetingConfig, err := loadDashboardGreetingState(now)
+	if err != nil {
+		return DashboardData{}, fmt.Errorf("load dashboard greeting state: %w", err)
+	}
+	data.GreetingIntro = greetingConfig.CurrentGreetingIntro
+	data.GreetingMessage = greetingConfig.CurrentGreeting
+	data.GreetingCount = greetingConfig.GreetingCount
+	data.GreetingTimeLabel = greetingConfig.RotationTimeLabel
+	data.ShowSetupHint = greetingConfig.ShowSetupHint
 
 	// Compute the date boundaries for the current month and year. These are passed to the
 	// shared loadIncomeExpenseTotals function, which is the same function used by the

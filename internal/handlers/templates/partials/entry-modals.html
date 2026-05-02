@@ -1,4 +1,40 @@
 {{define "entry-modals"}}
+<div class="modal-shell" id="entry-selector" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-entry-selector">
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Data Entry</p>
+                <h3>Select an entry console</h3>
+            </div>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+        </div>
+        <p class="section-copy">
+            Choose the posting area you want to open before entering any transaction.
+        </p>
+        <div class="entry-selector-grid">
+            <button
+                type="button"
+                class="launcher-card launcher-card-income entry-selector-card"
+                data-switch-modal="finance-entry"
+            >
+                <span class="launcher-badge">Quick Entry</span>
+                <strong>Income &amp; Expenditure</strong>
+                <span>Open the income and expenditure posting console.</span>
+            </button>
+            <button
+                type="button"
+                class="launcher-card launcher-card-assets entry-selector-card"
+                data-switch-modal="asset-entry"
+            >
+                <span class="launcher-badge">Quick Entry</span>
+                <strong>Assets &amp; Liabilities</strong>
+                <span>Open the balance sheet posting console.</span>
+            </button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-shell" id="finance-entry" aria-hidden="true">
     <div class="modal-backdrop" data-close-modal></div>
     <div class="modal-panel modal-panel-income">

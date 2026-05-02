@@ -254,11 +254,16 @@ func sortYears(yearSet map[int]struct{}) []int {
 func loadCategories(categoryType string, topLevelOnly bool) ([]CatOption, error) {
 	// I keep category loading generic because the same hierarchy powers data entry, setup, and
 	// statements. The template only needs the display indent, not a richer tree object.
-	query := `SELECT id, name, parent_id FROM categories WHERE type=?`
+	query := `SELECT id, name, parent_id FROM categories WHERE type=? AND COALESCE(is_active, 1) = 1`
 	if topLevelOnly {
 		query += ` AND parent_id=0`
 	}
-	query += ` ORDER BY id`
+	query += `
+		ORDER BY
+			CASE WHEN parent_id = 0 THEN id ELSE parent_id END,
+			parent_id,
+			id
+	`
 
 	rows, err := db.DB.Query(query, categoryType)
 	if err != nil {
@@ -386,7 +391,7 @@ func loadBudgetCategories() ([]BudgetOption, error) {
 	rows, err := db.DB.Query(`
 		SELECT id, type, name
 		FROM categories
-		WHERE parent_id=0 AND type IN ('income', 'expenditure')
+		WHERE parent_id=0 AND type IN ('income', 'expenditure') AND COALESCE(is_active, 1) = 1
 		ORDER BY CASE type WHEN 'income' THEN 0 ELSE 1 END, id
 	`)
 	if err != nil {

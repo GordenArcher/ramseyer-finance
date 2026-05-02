@@ -1,0 +1,151 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="page-header reveal">
+    <h2>Categories</h2>
+    <p class="period">Manage income, expenditure, asset, and liability categories from the database</p>
+    <div class="form-actions">
+        <button type="button" class="btn btn-primary" data-open-modal="category-editor" data-category-create-trigger data-category-return-to="{{.ReturnTo}}">Add Category</button>
+    </div>
+</div>
+
+{{if .Message}}
+<div class="alert alert-{{.MessageTone}} alert-float" data-auto-dismiss-alert>{{.Message}}</div>
+{{end}}
+
+<div class="card reveal">
+    <h3>Chart of Accounts</h3>
+    <p class="section-copy">
+        The workbook categories are only starter data now. Any new income, expenditure, asset, or liability should be added here so it becomes available in entry screens and reports.
+    </p>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <div class="card-header">
+        <div>
+            <h3>Category Register</h3>
+            <p>{{.TotalCount}} categor{{if eq .TotalCount 1}}y{{else}}ies{{end}} available in the live chart of accounts.</p>
+        </div>
+    </div>
+    <div class="table-scroll">
+        <table class="data-table category-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Parent</th>
+                    <th>Note</th>
+                    <th>Section</th>
+                    <th>Status</th>
+                    <th class="text-right">Usage</th>
+                    <th class="text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .ManagedCategories}}
+                <tr>
+                    <td>{{.Type}}</td>
+                    <td>{{.Name}}</td>
+                    <td>{{if .ParentName}}{{.ParentName}}{{else}}Top-level{{end}}</td>
+                    <td>{{if .NoteRef}}{{.NoteRef}}{{else}}—{{end}}</td>
+                    <td>
+                        {{if eq .ReportSection "current_asset"}}Current Asset{{else if eq .ReportSection "non_current_asset"}}Non-Current Asset{{else if eq .ReportSection "current_liability"}}Current Liability{{else}}—{{end}}
+                    </td>
+                    <td>{{if .IsActive}}Active{{else}}Archived{{end}}</td>
+                    <td class="text-right">{{.TransactionCount}} tx{{if gt .BudgetCount 0}}, {{.BudgetCount}} budgets{{end}}</td>
+                    <td class="text-right">
+                        <div class="row-actions">
+                            <a href="{{$.ReturnTo}}&edit={{.ID}}" class="btn btn-sm btn-secondary" data-nav-loading>Edit</a>
+                            <form method="POST" action="/api/category/toggle" data-loading-form data-confirm-submit data-confirm-title="Confirm Category Status Change" data-confirm-action-label="{{if .IsActive}}Archive{{else}}Restore{{end}}" data-confirm-message="{{if .IsActive}}Archive this category? It will disappear from new entry forms but historical transactions will remain.{{else}}Restore this category so it appears again in entry forms?{{end}}">
+                                <input type="hidden" name="id" value="{{.ID}}" />
+                                <input type="hidden" name="return_to" value="{{$.ReturnTo}}" />
+                                <button type="submit" class="btn btn-sm {{if .IsActive}}btn-danger{{else}}btn-primary{{end}}">{{if .IsActive}}Archive{{else}}Restore{{end}}</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {{end}}
+                {{if not .ManagedCategories}}
+                <tr>
+                    <td colspan="8" class="text-center">No categories available yet</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{if gt .TotalPages 1}}
+    <div class="form-actions pagination-row">
+        {{if .HasPrev}}
+        <a href="{{.PrevPageURL}}" data-nav-loading class="btn btn-sm btn-secondary">Previous</a>
+        {{end}}
+        {{range .PageLinks}}
+        <a href="{{.URL}}" data-nav-loading class="btn btn-sm {{if .Active}}btn-primary{{else}}btn-secondary{{end}}">{{.Number}}</a>
+        {{end}}
+        {{if .HasNext}}
+        <a href="{{.NextPageURL}}" data-nav-loading class="btn btn-sm btn-secondary">Next</a>
+        {{end}}
+    </div>
+    {{end}}
+</div>
+
+<div class="modal-shell {{if .CategoryForm.Loaded}}is-visible{{end}}" id="category-editor" aria-hidden="{{if .CategoryForm.Loaded}}false{{else}}true{{end}}" {{if .CategoryForm.Loaded}}data-auto-open-modal="category-editor"{{end}} data-clear-edit-query="true" data-modal-return-to="{{.ReturnTo}}">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-income">
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Category Management</p>
+                <h3 data-category-modal-title>{{if .CategoryForm.Loaded}}Edit Category{{else}}Add Category{{end}}</h3>
+            </div>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+        </div>
+        <form method="POST" action="/api/category/save" data-loading-form data-category-form>
+            <input type="hidden" name="id" value="{{.CategoryForm.ID}}" />
+            <input type="hidden" name="return_to" value="{{.ReturnTo}}" />
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Category Type</label>
+                    <select name="type" required>
+                        <option value="">Select type</option>
+                        <option value="income" {{if eq .CategoryForm.Type "income"}}selected{{end}}>Income</option>
+                        <option value="expenditure" {{if eq .CategoryForm.Type "expenditure"}}selected{{end}}>Expenditure</option>
+                        <option value="asset" {{if eq .CategoryForm.Type "asset"}}selected{{end}}>Asset</option>
+                        <option value="liability" {{if eq .CategoryForm.Type "liability"}}selected{{end}}>Liability</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" value="{{.CategoryForm.Name}}" required />
+                </div>
+                <div class="form-group form-group-span">
+                    <label>Parent Category</label>
+                    <select name="parent_id">
+                        <option value="">Top-level category</option>
+                        {{range .CategoryParents}}
+                        <option value="{{.ID}}" {{if eq $.CategoryForm.ParentID .ID}}selected{{end}}>{{.Label}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Note Reference</label>
+                    <input type="text" name="note_ref" value="{{.CategoryForm.NoteRef}}" placeholder="Used mainly for top-level income and expenditure categories" />
+                </div>
+                <div class="form-group">
+                    <label>Balance Section</label>
+                    <select name="report_section">
+                        <option value="">Not applicable</option>
+                        <option value="current_asset" {{if eq .CategoryForm.ReportSection "current_asset"}}selected{{end}}>Current Asset</option>
+                        <option value="non_current_asset" {{if eq .CategoryForm.ReportSection "non_current_asset"}}selected{{end}}>Non-Current Asset</option>
+                        <option value="current_liability" {{if eq .CategoryForm.ReportSection "current_liability"}}selected{{end}}>Current Liability</option>
+                    </select>
+                </div>
+            </div>
+            <p class="section-copy">
+                Child income and expenditure categories inherit the parent note reference automatically. Top-level asset categories should choose whether they belong under Current Assets or Non-Current Assets.
+            </p>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" data-category-submit-label>{{if .CategoryForm.Loaded}}Update Category{{else}}Save Category{{end}}</button>
+                <a href="{{.ReturnTo}}" class="btn btn-secondary" data-nav-loading>Close</a>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

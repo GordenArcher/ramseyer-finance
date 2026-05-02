@@ -218,6 +218,254 @@ func TestBuildAnnualDataIncludesPriorYearComparatives(t *testing.T) {
 	}
 }
 
+func TestSaveCategoryAndArchiveFlow(t *testing.T) {
+	setupTestDB(t)
+
+	parentID := categoryID(t, "income", "Offering")
+
+	form := url.Values{
+		"type":      {"income"},
+		"name":      {"Special Sunday"},
+		"parent_id": {strconv.FormatInt(parentID, 10)},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/category/save", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+
+	SaveCategory(recorder, request)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("save category status = %d, want %d", recorder.Code, http.StatusSeeOther)
+	}
+
+	var (
+		newCategoryID int64
+		noteRef       string
+		isActive      int
+	)
+	if err := db.DB.QueryRow(
+		`SELECT id, note_ref, is_active FROM categories WHERE type = 'income' AND name = 'Special Sunday'`,
+	).Scan(&newCategoryID, &noteRef, &isActive); err != nil {
+		t.Fatalf("lookup saved category: %v", err)
+	}
+	if noteRef != "1" {
+		t.Fatalf("child note ref = %q, want 1", noteRef)
+	}
+	if isActive != 1 {
+		t.Fatalf("new category active flag = %d, want 1", isActive)
+	}
+
+	dashboardData, err := buildDashboardData(time.Date(2026, time.January, 3, 0, 0, 0, 0, time.UTC), "dashboard", "", "")
+	if err != nil {
+		t.Fatalf("build dashboard data after category create: %v", err)
+	}
+	if !containsCategoryOption(dashboardData.IncomeCats, "Special Sunday") {
+		t.Fatalf("new category was not available in active income choices")
+	}
+
+	archiveForm := url.Values{"id": {strconv.FormatInt(newCategoryID, 10)}}
+	archiveRequest := httptest.NewRequest(http.MethodPost, "/api/category/toggle", strings.NewReader(archiveForm.Encode()))
+	archiveRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	archiveRecorder := httptest.NewRecorder()
+
+	ToggleCategoryStatus(archiveRecorder, archiveRequest)
+	if archiveRecorder.Code != http.StatusSeeOther {
+		t.Fatalf("archive category status = %d, want %d", archiveRecorder.Code, http.StatusSeeOther)
+	}
+
+	dashboardData, err = buildDashboardData(time.Date(2026, time.January, 3, 0, 0, 0, 0, time.UTC), "dashboard", "", "")
+	if err != nil {
+		t.Fatalf("build dashboard data after archive: %v", err)
+	}
+	if containsCategoryOption(dashboardData.IncomeCats, "Special Sunday") {
+		t.Fatalf("archived category still appeared in active income choices")
+	}
+}
+
+func TestBuildBalanceDataIncludesDynamicTopLevelAsset(t *testing.T) {
+	setupTestDB(t)
+
+	result, err := db.DB.Exec(`
+		INSERT INTO categories (type, name, parent_id, note_ref, report_section, is_active)
+		VALUES ('asset', 'Inventory', 0, '', 'current_asset', 1)
+	`)
+	if err != nil {
+		t.Fatalf("insert dynamic asset category: %v", err)
+	}
+	inventoryID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("inventory category id: %v", err)
+	}
+
+	insertTransaction(t, "2026-06-10", "asset", "Inventory", inventoryID, 55)
+
+	data, err := buildBalanceData(2026)
+	if err != nil {
+		t.Fatalf("build balance data with dynamic asset: %v", err)
+	}
+
+	if amountForBalanceLine(data.CurrentAssets, "Inventory") != 55 {
+		t.Fatalf("inventory balance = %v, want 55", amountForBalanceLine(data.CurrentAssets, "Inventory"))
+	}
+	if data.TotalAssets != 55 {
+		t.Fatalf("total assets = %v, want 55", data.TotalAssets)
+	}
+}
+
+func TestArchiveUsedCategoryShowsSpecificMessage(t *testing.T) {
+	setupTestDB(t)
+
+	categoryID := categoryID(t, "income", "Offering")
+	insertTransaction(t, "2026-02-10", "income", "Offering", categoryID, 125)
+
+	form := url.Values{
+		"id":        {strconv.FormatInt(categoryID, 10)},
+		"return_to": {"/categories?page=1"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/category/toggle", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+
+	ToggleCategoryStatus(recorder, request)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("archive used category status = %d, want %d", recorder.Code, http.StatusSeeOther)
+	}
+
+	location := recorder.Header().Get("Location")
+	if !strings.Contains(location, "already+in+use+by+1+transaction") {
+		t.Fatalf("archive used category redirect = %q, want specific usage message", location)
+	}
+
+	var isActive int
+	if err := db.DB.QueryRow(`SELECT is_active FROM categories WHERE id = ?`, categoryID).Scan(&isActive); err != nil {
+		t.Fatalf("load archived flag after blocked archive: %v", err)
+	}
+	if isActive != 1 {
+		t.Fatalf("used category active flag = %d, want 1", isActive)
+	}
+}
+
+func TestDashboardGreetingRotationUsesConfiguredNameAndNonRepeatingCycle(t *testing.T) {
+	setupTestDB(t)
+
+	if err := db.SetSetting(dashboardDisplayNameSettingKey, "Basaa"); err != nil {
+		t.Fatalf("set display name: %v", err)
+	}
+	if err := db.SetSetting(dashboardGreetingTimeSettingKey, "10:00"); err != nil {
+		t.Fatalf("set greeting rotation time: %v", err)
+	}
+
+	beforeCutoff, err := buildDashboardData(
+		time.Date(2026, time.January, 10, 9, 0, 0, 0, time.UTC),
+		"dashboard",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("build dashboard data before cutoff: %v", err)
+	}
+	if beforeCutoff.GreetingIntro != "Good morning, Basaa." {
+		t.Fatalf("greeting intro = %q, want %q", beforeCutoff.GreetingIntro, "Good morning, Basaa.")
+	}
+	if beforeCutoff.GreetingTimeLabel != "10:00 AM" {
+		t.Fatalf("greeting time label = %q, want 10:00 AM", beforeCutoff.GreetingTimeLabel)
+	}
+
+	sameSlot, err := buildDashboardData(
+		time.Date(2026, time.January, 10, 9, 45, 0, 0, time.UTC),
+		"dashboard",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("build dashboard data in same slot: %v", err)
+	}
+	if sameSlot.GreetingMessage != beforeCutoff.GreetingMessage {
+		t.Fatalf("same-slot greeting changed from %q to %q", beforeCutoff.GreetingMessage, sameSlot.GreetingMessage)
+	}
+
+	afterCutoff, err := buildDashboardData(
+		time.Date(2026, time.January, 10, 10, 5, 0, 0, time.UTC),
+		"dashboard",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("build dashboard data after cutoff: %v", err)
+	}
+	if afterCutoff.GreetingMessage == beforeCutoff.GreetingMessage {
+		t.Fatalf("greeting did not advance after cutoff")
+	}
+
+	if err := db.SetSetting(dashboardGreetingStateSettingKey, ""); err != nil {
+		t.Fatalf("reset dashboard greeting state: %v", err)
+	}
+
+	seen := map[string]struct{}{}
+	for day := 0; day < 200; day++ {
+		data, err := buildDashboardData(
+			time.Date(2026, time.January, 1+day, 11, 0, 0, 0, time.UTC),
+			"dashboard",
+			"",
+			"",
+		)
+		if err != nil {
+			t.Fatalf("build dashboard data for cycle day %d: %v", day, err)
+		}
+		seen[data.GreetingMessage] = struct{}{}
+	}
+
+	if len(seen) != 200 {
+		t.Fatalf("unique greetings seen = %d, want 200", len(seen))
+	}
+}
+
+func TestDashboardGreetingCanBeDisabledAndHidesSetupHintWhenNamed(t *testing.T) {
+	setupTestDB(t)
+
+	if err := db.SetSetting(dashboardDisplayNameSettingKey, "Basaa"); err != nil {
+		t.Fatalf("set display name: %v", err)
+	}
+
+	enabledData, err := buildDashboardData(
+		time.Date(2026, time.January, 10, 18, 0, 0, 0, time.UTC),
+		"dashboard",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("build dashboard data with greeting enabled: %v", err)
+	}
+	if enabledData.ShowSetupHint {
+		t.Fatalf("setup hint should be hidden when a name is configured")
+	}
+	if enabledData.GreetingIntro != "Good evening, Basaa." {
+		t.Fatalf("greeting intro = %q, want %q", enabledData.GreetingIntro, "Good evening, Basaa.")
+	}
+
+	if err := db.SetSetting(dashboardGreetingEnabledSettingKey, "0"); err != nil {
+		t.Fatalf("disable dashboard greeting: %v", err)
+	}
+
+	disabledData, err := buildDashboardData(
+		time.Date(2026, time.January, 10, 18, 0, 0, 0, time.UTC),
+		"dashboard",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("build dashboard data with greeting disabled: %v", err)
+	}
+	if disabledData.GreetingMessage != "" {
+		t.Fatalf("disabled greeting message = %q, want empty", disabledData.GreetingMessage)
+	}
+	if disabledData.GreetingIntro != "" {
+		t.Fatalf("disabled greeting intro = %q, want empty", disabledData.GreetingIntro)
+	}
+	if disabledData.ShowSetupHint {
+		t.Fatalf("setup hint should be hidden when the greeting is disabled")
+	}
+}
+
 func TestBuildNotesDataGroupsComparativeExpenditureNotes(t *testing.T) {
 	setupTestDB(t)
 
@@ -464,6 +712,15 @@ func amountForBalanceLine(lines []BalanceLine, name string) float64 {
 		}
 	}
 	return 0
+}
+
+func containsCategoryOption(options []CatOption, name string) bool {
+	for _, option := range options {
+		if option.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func noteSectionByNumber(t *testing.T, sections []NoteSection, number string) NoteSection {

@@ -1,7 +1,7 @@
 {{template "layout" .}} {{define "content"}}
 <div class="page-header reveal">
     <h2>Setup</h2>
-    <p class="period">Budget configuration, opening balances, and access control</p>
+    <p class="period">Budget configuration, dashboard settings, opening balances, and access control</p>
 </div>
 
 {{if .Message}}
@@ -9,6 +9,7 @@
 {{end}}
 
 <div class="setup-grid">
+
 <div class="card reveal">
     <h3>Set Annual Budget</h3>
     <form method="POST" action="/api/budget/save" data-loading-form>
@@ -58,6 +59,33 @@
             <input type="password" inputmode="numeric" pattern="[0-9]*" name="confirm_pin" maxlength="8" required />
         </div>
         <button type="submit" class="btn btn-secondary">Update PIN</button>
+    </form>
+</div>
+
+<div class="card reveal">
+    <h3>Dashboard Greeting</h3>
+    <p class="section-copy">
+        Set the name shown on the dashboard and choose when the daily greeting changes. The greeting rotates from a seeded pool of {{.DashboardConfig.GreetingCount}} messages and will not repeat until the full cycle is completed.
+    </p>
+    <form method="POST" action="/api/settings/dashboard-greeting/save" data-loading-form>
+        <div class="form-group">
+            <label class="checkbox-row">
+                <input type="checkbox" name="enabled" value="1" {{if .DashboardConfig.Enabled}}checked{{end}} />
+                <span>Enable dashboard greeting</span>
+            </label>
+        </div>
+        <div class="form-group">
+            <label>Display Name</label>
+            <input type="text" name="display_name" value="{{.DashboardConfig.DisplayName}}" placeholder="Name shown in the dashboard greeting" />
+        </div>
+        <div class="form-group">
+            <label>Daily Rotation Time</label>
+            <input type="time" name="rotation_time" value="{{.DashboardConfig.RotationTime}}" required />
+        </div>
+        {{if .DashboardConfig.CurrentGreeting}}
+        <p class="section-copy"><strong>Current greeting:</strong> {{.DashboardConfig.CurrentGreetingIntro}} {{.DashboardConfig.CurrentGreeting}}</p>
+        {{end}}
+        <button type="submit" class="btn btn-primary">Save Dashboard Greeting</button>
     </form>
 </div>
 

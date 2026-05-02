@@ -558,6 +558,34 @@ button {
     position: relative;
 }
 
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll .data-table {
+    min-width: 100%;
+}
+
+.category-table {
+    min-width: 940px;
+}
+
+.row-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
+
+.row-actions form {
+    display: inline-flex;
+}
+
 .table-card.is-table-loading {
     min-height: 280px;
 }
@@ -595,11 +623,44 @@ button {
 }
 
 .alert {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 14px;
     margin-bottom: 18px;
     padding: 14px 16px;
     border-radius: 18px;
     border: 1px solid transparent;
     font-weight: 600;
+}
+
+.alert-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.alert-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin: -4px -4px 0 0;
+    border-radius: 999px;
+    color: currentColor;
+    opacity: 0.72;
+    transition:
+        transform 180ms ease,
+        background-color 180ms ease,
+        opacity 180ms ease;
+    cursor: pointer;
+}
+
+.alert-close:hover,
+.alert-close:focus-visible {
+    opacity: 1;
+    transform: scale(1.04);
+    background: rgba(255, 255, 255, 0.42);
 }
 
 .alert-success {
@@ -822,6 +883,32 @@ button {
 
 .hero-copy {
     max-width: 740px;
+}
+
+.hero-greeting {
+    margin-bottom: 12px;
+    color: var(--accent);
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+}
+
+.hero-helper {
+    margin-top: 12px;
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+}
+
+.dotted-link {
+    text-decoration: underline dotted rgba(24, 78, 72, 0.6);
+    text-underline-offset: 0.22em;
+    transition: color 180ms ease, text-decoration-color 180ms ease;
+}
+
+.dotted-link:hover,
+.dotted-link:focus-visible {
+    color: var(--accent);
+    text-decoration-color: rgba(24, 78, 72, 0.92);
 }
 
 .hero-copy h2 {
@@ -1095,6 +1182,22 @@ button {
 
 .modal-panel-income {
     border: 1px solid rgba(186, 122, 17, 0.18);
+}
+
+.modal-panel-entry-selector {
+    width: min(720px, 100%);
+    border: 1px solid rgba(29, 36, 51, 0.1);
+}
+
+.entry-selector-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 22px;
+}
+
+.entry-selector-card {
+    min-height: 184px;
 }
 
 .modal-panel-assets {
@@ -1475,6 +1578,7 @@ button {
 
     .hero-panel,
     .launcher-grid,
+    .entry-selector-grid,
     .stats-grid,
     .form-grid {
         grid-template-columns: 1fr;

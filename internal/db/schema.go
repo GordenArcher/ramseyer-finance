@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS categories (
     name TEXT NOT NULL,
     parent_id INTEGER DEFAULT 0,
     note_ref TEXT DEFAULT '',
+    report_section TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 1,
     UNIQUE(type, name, parent_id)
 );
 
@@ -45,6 +47,13 @@ CREATE TABLE IF NOT EXISTS opening_balances (
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_greetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL UNIQUE,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS transaction_audit_log (
@@ -71,6 +80,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
 CREATE INDEX IF NOT EXISTS idx_transactions_type_date ON transactions(type, date);
 CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(category_id, date);
+CREATE INDEX IF NOT EXISTS idx_dashboard_greetings_active_sort ON dashboard_greetings(is_active, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_transaction_audit_log_transaction_id ON transaction_audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_backup_events_created_at ON backup_events(created_at);
 `

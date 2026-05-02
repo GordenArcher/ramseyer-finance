@@ -3,11 +3,20 @@
     <section class="hero-panel reveal">
         <div class="hero-copy">
             <p class="eyebrow">Ramseyer Presby Financial Management Software</p>
-            <h2>Financial statement control center for {{.CurrentMonth}}</h2>
+            {{if and .GreetingMessage .GreetingIntro}}
+            <p class="hero-greeting">{{.GreetingIntro}}</p>
+            {{end}}
+            <h2>{{if .GreetingMessage}}{{.GreetingMessage}}{{else}}Financial statement control center for {{.CurrentMonth}}{{end}}</h2>
             <p class="hero-text">
                 Record entries, review reports, and move across the same workflow
-                as the original workbook without leaving the application shell.
+                as the original workbook without leaving the application shell. {{if .GreetingMessage}}The dashboard greeting rotates daily at {{.GreetingTimeLabel}}.{{end}}
             </p>
+            {{if .ShowSetupHint}}
+            <p class="hero-helper">
+                You can configure your name and use custom greetings from
+                <a href="/setup" data-nav-loading class="dotted-link">Setup</a>.
+            </p>
+            {{end}}
         </div>
         <div class="hero-actions">
             <div class="hero-balance">

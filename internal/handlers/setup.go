@@ -7,16 +7,17 @@ import (
 	"ramseyer-finance/internal/db"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // SetupData carries all the template variables for the application setup page. This page
 // consolidates several administrative concerns into one view: annual budget configuration
-// (per top-level income/expenditure category), opening balance configuration for the three
-// liquid accounts (bank, cash, momo), and the automatic backup policy (enabled/disabled,
-// frequency). By grouping these together, the setup page serves as the single destination
-// for year-start configuration and ongoing operational settings. The Message and
-// MessageTone fields provide feedback after form submissions (e.g., "Budget saved" or
-// "Opening balance saved").
+// (per top-level income/expenditure category), dashboard identity/greeting preferences,
+// opening balance configuration for the three liquid accounts (bank, cash, momo), and the
+// automatic backup policy (enabled/disabled, frequency). By grouping these together, the
+// setup page serves as the single destination for year-start configuration and ongoing
+// operational settings. The Message and MessageTone fields provide feedback after form
+// submissions (e.g., "Budget saved" or "Opening balance saved").
 type SetupData struct {
 	Active          string
 	Years           []int
@@ -24,6 +25,7 @@ type SetupData struct {
 	Budgets         []SavedBudget
 	OpeningBalances []SavedOpeningBalance
 	AutoBackup      AutoBackupConfig
+	DashboardConfig DashboardGreetingConfig
 	Message         string
 	MessageTone     string
 }
@@ -31,13 +33,14 @@ type SetupData struct {
 // SetupPage serves the application setup and configuration page. It loads the list of
 // available years (centred on the current year with a forward-looking window), the
 // top-level income and expenditure categories for budget configuration, any previously
-// saved budgets and opening balances for display in their respective tables, and the
-// current auto-backup configuration. All data is loaded in parallel before rendering—
-// if any load fails, the page returns a 500 error rather than rendering a partially
-// populated setup screen.
+// saved budgets and opening balances for display in their respective tables, the current
+// dashboard greeting configuration, and the current auto-backup configuration. Category
+// management now lives on its own page so this screen stays focused on finance setup and
+// operational controls instead of becoming one oversized administration dashboard.
 func SetupPage(w http.ResponseWriter, r *http.Request) {
-	// I load the setup screen as one operational view because budgets, opening balances, PIN
-	// changes, and backup policy are all part of the same admin workflow for this app.
+	// I keep setup intentionally narrower now that categories have their own page. This
+	// screen is for budgets, dashboard greeting preferences, opening balances, PIN changes,
+	// and backup policy only.
 	years, err := setupYears()
 	if err != nil {
 		serverError(w, err)
@@ -63,6 +66,11 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	dashboardConfig, err := loadDashboardGreetingState(time.Now())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 
 	data := SetupData{
 		Active:          "setup",
@@ -71,6 +79,7 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 		Budgets:         budgets,
 		OpeningBalances: openingBalances,
 		AutoBackup:      autoBackupConfig,
+		DashboardConfig: dashboardConfig,
 		Message:         r.URL.Query().Get("msg"),
 		MessageTone:     alertTone(r.URL.Query().Get("msg")),
 	}
@@ -240,4 +249,52 @@ func SaveOpeningBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/setup?msg=Opening+balance+saved", http.StatusSeeOther)
+}
+
+// SaveDashboardGreetingSettings persists the dashboard-facing greeting configuration. I keep
+// this separate from the rest of Setup writes because it owns both operator identity
+// presentation (display name) and greeting rotation behavior, which are unrelated to budgets
+// or opening balances even though they share the same settings page.
+func SaveDashboardGreetingSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		badRequest(w, "Invalid form submission")
+		return
+	}
+
+	displayName := strings.TrimSpace(r.FormValue("display_name"))
+	rotationTime := strings.TrimSpace(r.FormValue("rotation_time"))
+	enabled := strings.TrimSpace(r.FormValue("enabled")) != ""
+	if rotationTime == "" {
+		rotationTime = defaultGreetingRotationTime
+	}
+	if !isValidGreetingRotationTime(rotationTime) {
+		badRequest(w, "Greeting rotation time must use the 24-hour HH:MM format")
+		return
+	}
+
+	if err := db.SetSetting(dashboardDisplayNameSettingKey, displayName); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := db.SetSetting(dashboardGreetingEnabledSettingKey, boolSetting(enabled)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := db.SetSetting(dashboardGreetingTimeSettingKey, rotationTime); err != nil {
+		serverError(w, err)
+		return
+	}
+
+	http.Redirect(w, r, "/setup?msg=Dashboard+greeting+settings+saved", http.StatusSeeOther)
+}
+
+func boolSetting(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
 }

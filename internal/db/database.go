@@ -91,10 +91,18 @@ func openLocked() error {
 		Close()
 		return fmt.Errorf("failed to migrate transactions: %w", err)
 	}
+	if err := migrateCategories(); err != nil {
+		Close()
+		return fmt.Errorf("failed to migrate categories: %w", err)
+	}
 
 	if err := seedCategories(); err != nil {
 		Close()
 		return fmt.Errorf("failed to seed categories: %w", err)
+	}
+	if err := seedDashboardGreetings(); err != nil {
+		Close()
+		return fmt.Errorf("failed to seed dashboard greetings: %w", err)
 	}
 
 	if err := backfillTransactionCategoryIDs(); err != nil {
@@ -179,6 +187,55 @@ func migrateTransactions() error {
 		if _, err := DB.Exec(stmt); err != nil {
 			return fmt.Errorf("create transaction index: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// migrateCategories applies incremental schema changes to the categories table. The app now
+// treats the categories table as the long-term source of truth, not just a fixed seeded list,
+// so these metadata columns are what allow users to manage categories without losing reporting
+// structure or archive state.
+func migrateCategories() error {
+	isActiveExists, err := columnExists("categories", "is_active")
+	if err != nil {
+		return err
+	}
+	if !isActiveExists {
+		if _, err := DB.Exec("ALTER TABLE categories ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"); err != nil {
+			return fmt.Errorf("add categories.is_active column: %w", err)
+		}
+	}
+
+	reportSectionExists, err := columnExists("categories", "report_section")
+	if err != nil {
+		return err
+	}
+	if !reportSectionExists {
+		if _, err := DB.Exec("ALTER TABLE categories ADD COLUMN report_section TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("add categories.report_section column: %w", err)
+		}
+	}
+
+	if _, err := DB.Exec(`
+		UPDATE categories
+		SET is_active = 1
+		WHERE is_active IS NULL OR is_active NOT IN (0, 1)
+	`); err != nil {
+		return fmt.Errorf("normalize categories.is_active values: %w", err)
+	}
+
+	if _, err := DB.Exec(`
+		UPDATE categories
+		SET report_section = CASE
+			WHEN type = 'asset' AND parent_id = 0 AND name IN ('Property, Plant & Equipment', 'GAP Presbytery', 'Investment (Credit Union)') THEN 'non_current_asset'
+			WHEN type = 'asset' AND parent_id = 0 AND name IN ('Receivables (Debtors)', 'Bank', 'Cash', 'Momo') THEN 'current_asset'
+			WHEN type = 'liability' AND parent_id = 0 THEN 'current_liability'
+			ELSE COALESCE(report_section, '')
+		END
+		WHERE COALESCE(report_section, '') = ''
+	`); err != nil {
+		return fmt.Errorf("backfill categories.report_section values: %w", err)
 	}
 
 	return nil
@@ -283,6 +340,16 @@ func syncTransactionCategoryMetadata() error {
 // parent's INSERT was skipped due to a conflict) are silently skipped. Each category also
 // carries a note_ref code that maps to an external accounting reference system.
 func seedCategories() error {
+	// I only seed the default chart on a truly empty categories table. After first launch,
+	// the database becomes the authority and user changes should not be reintroduced from code.
+	var categoryCount int
+	if err := DB.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&categoryCount); err != nil {
+		return fmt.Errorf("count existing categories: %w", err)
+	}
+	if categoryCount > 0 {
+		return nil
+	}
+
 	// The categories slice defines the complete chart of accounts in memory. Each entry
 	// describes a category type (income, expenditure, asset, or liability), its display
 	// name, an optional parent category name for hierarchical grouping, and a note_ref
@@ -401,12 +468,33 @@ func seedCategories() error {
 		// not produce duplicate rows or errors when categories already exist from a
 		// previous run.
 		_, err := DB.Exec(
-			"INSERT OR IGNORE INTO categories (type, name, parent_id, note_ref) VALUES (?, ?, ?, ?)",
-			c.catType, c.name, parentID, c.noteRef,
+			"INSERT OR IGNORE INTO categories (type, name, parent_id, note_ref, report_section, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+			c.catType, c.name, parentID, c.noteRef, defaultCategoryReportSection(c.catType, c.name, c.parent),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert category %s: %w", c.name, err)
 		}
 	}
 	return nil
+}
+
+func defaultCategoryReportSection(categoryType, name, parent string) string {
+	if parent != "" {
+		return ""
+	}
+	if categoryType == "liability" {
+		return "current_liability"
+	}
+	if categoryType != "asset" {
+		return ""
+	}
+
+	switch name {
+	case "Property, Plant & Equipment", "GAP Presbytery", "Investment (Credit Union)":
+		return "non_current_asset"
+	case "Receivables (Debtors)", "Bank", "Cash", "Momo":
+		return "current_asset"
+	default:
+		return ""
+	}
 }

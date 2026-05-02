@@ -31,19 +31,54 @@ function setPageReady() {
   });
 }
 
+// dismissAlert centralises alert removal so both the auto-dismiss timer and the manual close
+// button use the same animated exit path. I guard against repeated calls because an alert can
+// be auto-dismissing at the same time the user clicks the close button, and I do not want two
+// overlapping timers racing to remove the same node.
+function dismissAlert(alert) {
+  if (!alert || alert.dataset.dismissing === "true") {
+    return;
+  }
+
+  if (alert.dataset.dismissTimer) {
+    window.clearTimeout(Number(alert.dataset.dismissTimer));
+    delete alert.dataset.dismissTimer;
+  }
+
+  alert.dataset.dismissing = "true";
+  alert.classList.add("is-dismissing");
+  window.setTimeout(() => {
+    alert.remove();
+  }, 220);
+}
+
 // initAutoDismissAlerts finds all alert elements marked with the data-auto-dismiss-alert
-// attribute and schedules them to fade out and be removed from the DOM after 3 seconds.
-// The removal uses a two-stage animation: first the "is-dismissing" class triggers a CSS
-// fade-out transition (220ms), and then the element is removed via remove() after the
-// transition completes. This avoids a jarring instant disappearance.
+// attribute, adds a visible close button, and schedules them to dismiss after a longer
+// read-friendly delay. I keep this in shared JS so every server-rendered success/error
+// banner behaves like the same toast component without repeating button markup across
+// every template.
 function initAutoDismissAlerts() {
   qsa("[data-auto-dismiss-alert]").forEach((alert) => {
-    window.setTimeout(() => {
-      alert.classList.add("is-dismissing");
-      window.setTimeout(() => {
-        alert.remove();
-      }, 220);
-    }, 3000);
+    const existingText = alert.textContent.trim();
+    alert.textContent = "";
+
+    const body = document.createElement("span");
+    body.className = "alert-body";
+    body.textContent = existingText;
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "alert-close";
+    closeButton.setAttribute("aria-label", "Dismiss message");
+    closeButton.innerHTML = "&times;";
+    closeButton.addEventListener("click", () => dismissAlert(alert));
+
+    alert.append(body, closeButton);
+
+    const timer = window.setTimeout(() => {
+      dismissAlert(alert);
+    }, 5200);
+    alert.dataset.dismissTimer = String(timer);
   });
 }
 
@@ -700,6 +735,95 @@ function initTableStages() {
   });
 }
 
+// switchModal moves the user directly from one modal workflow into another without leaving
+// both shells visible at the same time. I use it for the entry chooser so the dedicated
+// data-entry route can ask "which console?" first, then hand off straight into the selected
+// finance or asset modal with one smooth interaction.
+function switchModal(trigger) {
+  const targetId = trigger.dataset.switchModal;
+  if (!targetId) {
+    return;
+  }
+
+  const currentModal = trigger.closest(".modal-shell");
+  if (currentModal) {
+    closeModal(currentModal);
+    window.setTimeout(() => openModal(targetId), 170);
+    return;
+  }
+
+  openModal(targetId);
+}
+
+// initCategoryEditor keeps the shared category modal honest when it is reused for both
+// "edit existing category" and "add new category". The server-rendered edit flow deliberately
+// hydrates the modal with the selected row's values, but that means a plain client-side
+// reopen would otherwise keep showing the last edited category. I reset the mutable fields
+// explicitly on "Add Category" so create mode always starts from a blank chart-of-accounts
+// form, and I also restore the base paginated URL so the edit query does not linger.
+function initCategoryEditor() {
+  const modal = document.getElementById("category-editor");
+  if (!modal) {
+    return;
+  }
+
+  const form = modal.querySelector("form[data-category-form]");
+  const title = modal.querySelector("[data-category-modal-title]");
+  const submitButton = modal.querySelector("[data-category-submit-label]");
+  const returnTo = modal.dataset.modalReturnTo || "/categories?page=1";
+  if (!form || !title || !submitButton) {
+    return;
+  }
+
+  function resetCategoryFormForCreate() {
+    // I reset field-by-field instead of calling form.reset() because reset would restore the
+    // server-rendered edit values when the page was opened with ?edit=..., which is exactly
+    // the stale-state bug this handler is meant to prevent.
+    const idField = form.querySelector('input[name="id"]');
+    const typeField = form.querySelector('select[name="type"]');
+    const nameField = form.querySelector('input[name="name"]');
+    const parentField = form.querySelector('select[name="parent_id"]');
+    const noteRefField = form.querySelector('input[name="note_ref"]');
+    const reportSectionField = form.querySelector('select[name="report_section"]');
+    const returnField = form.querySelector('input[name="return_to"]');
+
+    if (idField) {
+      idField.value = "";
+    }
+    if (typeField) {
+      typeField.value = "";
+    }
+    if (nameField) {
+      nameField.value = "";
+    }
+    if (parentField) {
+      parentField.value = "";
+    }
+    if (noteRefField) {
+      noteRefField.value = "";
+    }
+    if (reportSectionField) {
+      reportSectionField.value = "";
+    }
+    if (returnField) {
+      returnField.value = returnTo;
+    }
+
+    title.textContent = "Add Category";
+    submitButton.textContent = "Save Category";
+
+    // I clear the stale edit query as soon as the user chooses "Add Category" so refreshes,
+    // closes, and later modal opens all stay aligned with the create-mode intent.
+    window.history.replaceState({}, "", returnTo);
+  }
+
+  qsa("[data-category-create-trigger]").forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      resetCategoryFormForCreate();
+    });
+  });
+}
+
 // openModal shows a modal dialog by its element ID. It cancels any pending close timer
 // on the modal (in case it was in the process of closing), adds the visibility and
 // open classes to trigger CSS transitions, sets aria-hidden to false for accessibility,
@@ -745,6 +869,12 @@ function openModal(id) {
 function closeModal(modal) {
   if (!modal || modal.getAttribute("aria-hidden") === "true") {
     return;
+  }
+
+  if (modal.dataset.clearEditQuery === "true" && modal.dataset.modalReturnTo) {
+    // I replace the current URL on close for edit-backed modals so closing the popup actually
+    // returns the page to its non-edit state instead of leaving a stale ?edit=... bookmark behind.
+    window.history.replaceState({}, "", modal.dataset.modalReturnTo);
   }
 
   modal.dispatchEvent(new CustomEvent("modal:close"));
@@ -798,6 +928,12 @@ function initModals() {
   qsa("[data-open-modal]").forEach((trigger) => {
     trigger.addEventListener("click", () => {
       openModal(trigger.dataset.openModal);
+    });
+  });
+
+  qsa("[data-switch-modal]").forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      switchModal(trigger);
     });
   });
 
@@ -1035,5 +1171,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initConfirmSubmits();
   initLoadingForms();
   initTableStages();
+  initCategoryEditor();
   initModals();
 });

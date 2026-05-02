@@ -33,7 +33,10 @@ func DataEntryPage(w http.ResponseWriter, r *http.Request) {
 	// and category lists already live there, and keeping one shared shell avoids duplicate UI logic.
 	openModal := r.URL.Query().Get("open")
 	if strings.TrimSpace(openModal) == "" {
-		openModal = "finance-entry"
+		// I open a small chooser first on the dedicated data-entry route because the route's whole
+		// purpose is to decide which entry console the operator wants next, not to assume finance
+		// entry every time and force an extra close/reopen when the user really wanted assets.
+		openModal = "entry-selector"
 	}
 
 	data, err := buildDashboardData(time.Now(), "data-entry", r.URL.Query().Get("msg"), openModal)
