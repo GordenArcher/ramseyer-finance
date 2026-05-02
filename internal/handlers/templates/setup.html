@@ -90,6 +90,17 @@
 </div>
 
 <div class="card reveal">
+    <h3>Application Updates</h3>
+    <p class="section-copy">
+        Current version: <strong>{{.AppVersion}}</strong>. Check GitHub Releases for the next packaged Windows build and apply it from inside the app when available.
+    </p>
+    <div class="form-actions">
+        <button type="button" class="btn btn-primary" data-check-updates>Check for Updates</button>
+    </div>
+    <p class="form-status" data-update-status></p>
+</div>
+
+<div class="card reveal">
     <h3>Automatic Backups</h3>
     <p class="section-copy">
         Save backups automatically on a schedule. If the app was closed when a backup was due, it will catch up on the next launch.
@@ -208,5 +219,42 @@
         </tbody>
     </table>
 </div>
+</div>
+
+<div class="modal-shell" id="update-modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-income">
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Application Update</p>
+                <h3 data-update-modal-title>Update available</h3>
+            </div>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+        </div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Current Version</label>
+                <input type="text" value="{{.AppVersion}}" readonly data-update-current-version />
+            </div>
+            <div class="form-group">
+                <label>Latest Version</label>
+                <input type="text" value="" readonly data-update-latest-version />
+            </div>
+            <div class="form-group form-group-span">
+                <label>Published</label>
+                <input type="text" value="" readonly data-update-published-at />
+            </div>
+            <div class="form-group form-group-span">
+                <label>Release Notes</label>
+                <textarea rows="8" readonly data-update-notes></textarea>
+            </div>
+        </div>
+        <p class="form-status" data-update-modal-status></p>
+        <div class="form-actions">
+            <button type="button" class="btn btn-primary" data-apply-update>Download and Apply Update</button>
+            <a href="#" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" data-update-release-link>Open Release Page</a>
+            <button type="button" class="btn btn-secondary" data-close-modal>Close</button>
+        </div>
+    </div>
 </div>
 {{end}}

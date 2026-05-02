@@ -14,13 +14,16 @@ Ramseyer Finance is a local desktop finance manager for church operations. It ru
 - Shows dashboard summaries plus monthly, quarterly, annual, balance-sheet, and notes views
 - Supports transaction editing, deletion, pagination, and audit history
 - Supports manual backup, restore, scheduled auto-backup, and export
+- Supports GitHub Release update checks and packaged Windows in-app updates
 - Uses a local PIN screen for first-run setup and later unlock
 
 ## Project Layout
 
 - `main.go`: application bootstrap, embedded assets, local server, desktop webview
 - `internal/db/`: SQLite schema, migrations, and backup/restore helpers
+- `internal/appmeta/`: embedded version and release-channel metadata
 - `internal/handlers/`: HTTP handlers, reporting logic, auth, exports, backup flows
+- `cmd/updater/`: packaged Windows updater helper used for in-app updates
 - `internal/nativepicker/`: desktop restore file picker bridge
 - `scripts/`: Windows and macOS build/packaging scripts
 - `static/`: JavaScript and CSS used by the embedded UI
@@ -100,6 +103,18 @@ This creates:
 - `dist\Ramseyer Finance-windows.zip`
 
 The Windows packager script lives in `scripts/build_windows_bundle.ps1`.
+
+### Version bump for the next release
+
+Before tagging a new release, update:
+
+- `internal/appmeta/meta.go` → `CurrentVersion`
+
+Or use:
+
+```bash
+./scripts/bump_version.sh v1.2.1
+```
 
 ### GitHub Release handoff
 

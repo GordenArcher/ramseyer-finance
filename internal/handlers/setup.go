@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"ramseyer-finance/internal/appmeta"
 	"ramseyer-finance/internal/db"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 // submissions (e.g., "Budget saved" or "Opening balance saved").
 type SetupData struct {
 	Active          string
+	AppVersion      string
 	Years           []int
 	Categories      []BudgetOption
 	Budgets         []SavedBudget
@@ -74,6 +76,7 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 
 	data := SetupData{
 		Active:          "setup",
+		AppVersion:      appmeta.CurrentVersion,
 		Years:           years,
 		Categories:      categories,
 		Budgets:         budgets,

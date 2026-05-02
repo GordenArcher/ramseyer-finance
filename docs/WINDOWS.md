@@ -25,6 +25,7 @@ The Windows release package (`Ramseyer Finance-windows.zip`) contains:
 Ramseyer Finance-windows/
 ├── app/
 │   └── ramseyer-finance.exe      (main application)
+│   └── updater.exe               (in-app updater helper)
 ├── docs/
 │   ├── INSTALLATION.md
 │   ├── OPERATIONS.md
@@ -146,3 +147,15 @@ The app always uses the same database path. Restarting the application, rebootin
 ### Keeping the application folder stable
 
 The client should keep the extracted folder in a consistent location. If the folder is moved after the first run, the app continues to work—only the executable location changes, not the data.
+
+### In-app updates
+
+Starting from the first updater-enabled release after `v1.1.0`, the packaged Windows app can:
+
+- check GitHub Releases from the Setup screen
+- download the latest packaged ZIP
+- close the app
+- apply the update with `updater.exe`
+- relaunch automatically
+
+The `v1.1.0` release itself is still the manual transition build. Any machine already running an older package must install the next updater-enabled package once before future updates can happen inside the app.

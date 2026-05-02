@@ -735,6 +735,155 @@ function initTableStages() {
   });
 }
 
+// initUpdateCenter drives the in-app updater from the Setup page. The check button queries the
+// backend for the latest GitHub Release, shows a status message when the current build is already
+// current, and opens a modal with release notes when a newer version is available. Applying the
+// update stages the Windows ZIP plus updater helper on the backend, then asks the native shell to
+// terminate so the helper can replace the install directory and relaunch the app cleanly.
+function initUpdateCenter() {
+  const checkButton = document.querySelector("[data-check-updates]");
+  const inlineStatus = document.querySelector("[data-update-status]");
+  const updateModal = document.getElementById("update-modal");
+  if (!checkButton || !inlineStatus || !updateModal) {
+    return;
+  }
+
+  const titleNode = updateModal.querySelector("[data-update-modal-title]");
+  const latestVersionNode = updateModal.querySelector(
+    "[data-update-latest-version]",
+  );
+  const publishedAtNode = updateModal.querySelector("[data-update-published-at]");
+  const notesNode = updateModal.querySelector("[data-update-notes]");
+  const releaseLink = updateModal.querySelector("[data-update-release-link]");
+  const applyButton = updateModal.querySelector("[data-apply-update]");
+  const modalStatus = updateModal.querySelector("[data-update-modal-status]");
+
+  function setText(node, value) {
+    if (node) {
+      node.value = value;
+    }
+  }
+
+  function setStatus(node, message, tone = "") {
+    if (!node) {
+      return;
+    }
+    node.textContent = message;
+    node.dataset.tone = tone;
+  }
+
+  function setButtonLoading(button, loading, loadingLabel) {
+    if (!button) {
+      return;
+    }
+    if (!button.dataset.originalLabel) {
+      button.dataset.originalLabel = button.textContent.trim();
+    }
+
+    button.disabled = loading;
+    button.classList.toggle("is-loading", loading);
+    button.textContent = loading
+      ? loadingLabel
+      : button.dataset.originalLabel || button.textContent;
+  }
+
+  async function fetchUpdateStatus() {
+    const response = await fetch("/api/update/check", {
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      const message = (await response.text()).trim() || "Update check failed.";
+      throw new Error(message);
+    }
+    return response.json();
+  }
+
+  checkButton.addEventListener("click", async () => {
+    setStatus(inlineStatus, "");
+    setButtonLoading(checkButton, true, "Checking...");
+    startPageLoading();
+
+    try {
+      const payload = await fetchUpdateStatus();
+      if (!payload.update_available) {
+        setStatus(inlineStatus, payload.message, "success");
+        return;
+      }
+
+      titleNode.textContent = `Update ${payload.latest_version} available`;
+      setText(latestVersionNode, payload.latest_version || "");
+      setText(publishedAtNode, payload.published_at || "");
+      setText(notesNode, payload.notes || "No release notes were published.");
+
+      if (releaseLink) {
+        releaseLink.href = payload.release_url || "#";
+      }
+
+      if (applyButton) {
+        applyButton.disabled = !payload.can_apply;
+      }
+      setStatus(
+        modalStatus,
+        payload.can_apply
+          ? "The packaged Windows update can be downloaded and installed from here."
+          : "This build can check releases, but in-app apply is only available inside the packaged Windows desktop app.",
+        payload.can_apply ? "success" : "error",
+      );
+      openModal("update-modal");
+    } catch (error) {
+      setStatus(
+        inlineStatus,
+        error instanceof Error ? error.message : "Update check failed.",
+        "error",
+      );
+    } finally {
+      setButtonLoading(checkButton, false, "Checking...");
+      stopPageLoading();
+    }
+  });
+
+  if (!applyButton) {
+    return;
+  }
+
+  applyButton.addEventListener("click", async () => {
+    setStatus(modalStatus, "");
+    setButtonLoading(applyButton, true, "Preparing...");
+    startPageLoading();
+
+    try {
+      const response = await fetch("/api/update/apply", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        const message = (await response.text()).trim() || "Update apply failed.";
+        throw new Error(message);
+      }
+
+      const payload = await response.json();
+      setStatus(modalStatus, payload.message || "Update prepared.", "success");
+
+      if (payload.quit_required && typeof window.quitApp === "function") {
+        // I leave a short readable pause here so the operator sees that the update was staged
+        // successfully before the desktop shell closes and the updater takes over.
+        window.setTimeout(() => {
+          window.quitApp();
+        }, 1100);
+      }
+    } catch (error) {
+      setStatus(
+        modalStatus,
+        error instanceof Error ? error.message : "Update apply failed.",
+        "error",
+      );
+    } finally {
+      setButtonLoading(applyButton, false, "Preparing...");
+      stopPageLoading();
+    }
+  });
+}
+
 // switchModal moves the user directly from one modal workflow into another without leaving
 // both shells visible at the same time. I use it for the entry chooser so the dedicated
 // data-entry route can ask "which console?" first, then hand off straight into the selected
@@ -1171,6 +1320,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initConfirmSubmits();
   initLoadingForms();
   initTableStages();
+  initUpdateCenter();
   initCategoryEditor();
   initModals();
 });

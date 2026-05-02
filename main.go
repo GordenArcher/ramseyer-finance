@@ -103,6 +103,8 @@ func main() {
 	mux.HandleFunc("/api/opening-balance/save", handlers.WithAuth(handlers.SaveOpeningBalance))
 	mux.HandleFunc("/api/settings/dashboard-greeting/save", handlers.WithAuth(handlers.SaveDashboardGreetingSettings))
 	mux.HandleFunc("/api/settings/auto-backup/save", handlers.WithAuth(handlers.SaveAutoBackupSettings))
+	mux.HandleFunc("/api/update/check", handlers.WithAuth(handlers.CheckForUpdates))
+	mux.HandleFunc("/api/update/apply", handlers.WithAuth(handlers.ApplyUpdate))
 	mux.HandleFunc("/api/auth/change-pin", handlers.WithAuth(handlers.ChangePIN))
 	mux.HandleFunc("/backup", handlers.WithAuth(handlers.BackupPage))
 	mux.HandleFunc("/api/backup/download", handlers.WithAuth(handlers.DownloadBackup))
@@ -150,6 +152,11 @@ func main() {
 	defer w.Destroy()
 	if err := w.Bind("pickBackupFile", nativepicker.PickBackupFile); err != nil {
 		log.Fatalf("Failed to bind native backup picker: %v", err)
+	}
+	if err := w.Bind("quitApp", func() {
+		w.Terminate()
+	}); err != nil {
+		log.Fatalf("Failed to bind app quit helper: %v", err)
 	}
 	w.SetTitle("Ramseyer Presbyterian Church — Financial Manager")
 	w.SetSize(1280, 800, webview.HintNone)

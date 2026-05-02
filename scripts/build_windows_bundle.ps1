@@ -20,6 +20,7 @@ if (Test-Path $ZipPath) {
 New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
 
 go build -o (Join-Path $AppDir $BinaryName) (Join-Path $RootDir "main.go")
+go build -o (Join-Path $AppDir "updater.exe") (Join-Path $RootDir "cmd\updater")
 
 Copy-Item (Join-Path $RootDir "README.md") $BundleDir
 Copy-Item (Join-Path $RootDir "docs") (Join-Path $BundleDir "docs") -Recurse

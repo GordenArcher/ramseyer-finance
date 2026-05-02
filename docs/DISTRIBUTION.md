@@ -36,12 +36,13 @@ make macos-app
 The `build_windows_bundle.ps1` script performs these steps in order:
 
 1. Builds `ramseyer-finance.exe` from source
-2. Creates `dist\Ramseyer Finance-windows\app\`
-3. Copies the executable into the package folder
-4. Copies the `docs/` folder into the package
-5. Writes a `START-Ramseyer-Finance.bat` launcher for easy double-click startup
-6. Writes a short `README-Windows.txt` handoff note with first-run instructions
-7. Zips the entire package folder for delivery
+2. Builds `updater.exe` from `cmd/updater`
+3. Creates `dist\Ramseyer Finance-windows\app\`
+4. Copies both executables into the package folder
+5. Copies the `docs/` folder into the package
+6. Writes a `START-Ramseyer-Finance.bat` launcher for easy double-click startup
+7. Writes a short `README-Windows.txt` handoff note with first-run instructions
+8. Zips the entire package folder for delivery
 
 ## Windows Runtime Requirement
 
@@ -92,9 +93,11 @@ Before publishing a GitHub Release, verify the following on a Windows machine us
 9. [ ] Confirm manual backup download saves a file
 10. [ ] Confirm the native restore file picker opens and selects a file
 11. [ ] Confirm auto-backup settings save and the scheduler logs activity
-12. [ ] Create the GitHub Release
-13. [ ] Upload `dist\Ramseyer Finance-windows.zip` as the release asset
-14. [ ] Send the client the release download link and installation notes
+12. [ ] Confirm `Check for Updates` reaches the latest GitHub Release
+13. [ ] Update `internal/appmeta/meta.go` to the new version before tagging
+14. [ ] Create the GitHub Release
+15. [ ] Upload `dist\Ramseyer Finance-windows.zip` as the release asset
+16. [ ] Send the client the release download link and installation notes
 
 ## Handoff Contents
 
