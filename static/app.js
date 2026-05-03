@@ -757,6 +757,9 @@ function initUpdateCenter() {
   const releaseLink = updateModal.querySelector("[data-update-release-link]");
   const applyButton = updateModal.querySelector("[data-apply-update]");
   const modalStatus = updateModal.querySelector("[data-update-modal-status]");
+  const applyButtonDefaultLabel = applyButton
+    ? applyButton.textContent.trim()
+    : "Download and Apply Update";
 
   function setText(node, value) {
     if (node) {
@@ -770,6 +773,18 @@ function initUpdateCenter() {
     }
     node.textContent = message;
     node.dataset.tone = tone;
+  }
+
+  // resetUpdateModalState gives the update modal a clean baseline every time it is reopened. I do
+  // this explicitly because the apply button can end a previous attempt in a disabled or loading
+  // state, and I do not want that stale state to make the next release check look broken.
+  function resetUpdateModalState() {
+    setStatus(modalStatus, "");
+    if (applyButton) {
+      setButtonLoading(applyButton, false, "Preparing...");
+      applyButton.disabled = false;
+      applyButton.textContent = applyButtonDefaultLabel;
+    }
   }
 
   function setButtonLoading(button, loading, loadingLabel) {
@@ -814,13 +829,20 @@ function initUpdateCenter() {
       setText(latestVersionNode, payload.latest_version || "");
       setText(publishedAtNode, payload.published_at || "");
       setText(notesNode, payload.notes || "No release notes were published.");
+      resetUpdateModalState();
 
       if (releaseLink) {
         releaseLink.href = payload.release_url || "#";
       }
 
       if (applyButton) {
-        applyButton.disabled = !payload.can_apply;
+        if (payload.can_apply) {
+          applyButton.disabled = false;
+          applyButton.textContent = applyButtonDefaultLabel;
+        } else {
+          applyButton.disabled = true;
+          applyButton.textContent = "Available in Windows Package";
+        }
       }
       setStatus(
         modalStatus,
@@ -845,6 +867,8 @@ function initUpdateCenter() {
   if (!applyButton) {
     return;
   }
+
+  updateModal.addEventListener("modal:close", resetUpdateModalState);
 
   applyButton.addEventListener("click", async () => {
     setStatus(modalStatus, "");

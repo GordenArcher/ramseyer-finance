@@ -78,7 +78,7 @@ func CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 		UpdateAvailable: updateAvailable,
 		CanApply:        updateAvailable && asset.BrowserDownloadURL != "" && runtimeCanApplyInPlaceUpdate() && hasBundledUpdaterHelper(),
 		ReleaseURL:      release.HTMLURL,
-		PublishedAt:     release.PublishedAt,
+		PublishedAt:     formatReleasePublishedAt(release.PublishedAt),
 		Notes:           strings.TrimSpace(release.Body),
 		AssetName:       asset.Name,
 		Message:         message,
@@ -359,6 +359,49 @@ func parseVersionParts(version string) []int {
 		parts = append(parts, number)
 	}
 	return parts
+}
+
+// formatReleasePublishedAt converts the GitHub API release timestamp into the human-facing label
+// shown in the update modal. I do this server-side so the app keeps one consistent production
+// format everywhere instead of leaving date wording to whichever frontend happens to consume it.
+func formatReleasePublishedAt(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+
+	publishedAt, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+
+	day := publishedAt.Day()
+	return fmt.Sprintf(
+		"%d%s %s, %d at %s",
+		day,
+		ordinalSuffix(day),
+		publishedAt.Format("January"),
+		publishedAt.Year(),
+		publishedAt.Format("3:04 PM MST"),
+	)
+}
+
+// ordinalSuffix keeps ordinal-day copy readable for release labels. I special-case 11th, 12th,
+// and 13th first because English ordinal rules break the simple last-digit pattern there.
+func ordinalSuffix(day int) string {
+	if day%100 >= 11 && day%100 <= 13 {
+		return "th"
+	}
+
+	switch day % 10 {
+	case 1:
+		return "st"
+	case 2:
+		return "nd"
+	case 3:
+		return "rd"
+	default:
+		return "th"
+	}
 }
 
 func updateError(w http.ResponseWriter, err error, userMessage string) {

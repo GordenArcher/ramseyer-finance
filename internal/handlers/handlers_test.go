@@ -598,6 +598,13 @@ func TestRunAutoBackupIfDueCreatesBackupAndUpdatesLastRun(t *testing.T) {
 	}
 }
 
+func TestFormatReleasePublishedAtUsesHumanReadableLabel(t *testing.T) {
+	formatted := formatReleasePublishedAt("2026-05-03T10:15:00Z")
+	if formatted != "3rd May, 2026 at 10:15 AM UTC" {
+		t.Fatalf("formatted release label = %q, want %q", formatted, "3rd May, 2026 at 10:15 AM UTC")
+	}
+}
+
 func TestTransactionsPageRendersEditForm(t *testing.T) {
 	setupTestDB(t)
 
