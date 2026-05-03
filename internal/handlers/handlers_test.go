@@ -94,6 +94,57 @@ func TestBuildDashboardDataUsesOpeningBalances(t *testing.T) {
 	}
 }
 
+func TestBuildDashboardDataIncludesDailyTotalsAndAccumulatedTransactions(t *testing.T) {
+	setupTestDB(t)
+
+	offeringID := categoryID(t, "income", "Offering")
+	stationeryID := categoryID(t, "expenditure", "Stationery")
+	bankID := categoryID(t, "asset", "Bank")
+
+	insertTransaction(t, "2026-05-01", "income", "Offering", offeringID, 150)
+	insertTransaction(t, "2026-05-01", "expenditure", "Stationery", stationeryID, 40)
+	insertTransaction(t, "2026-05-01", "asset", "Bank", bankID, 20)
+	insertTransaction(t, "2026-04-30", "income", "Offering", offeringID, 999)
+
+	data, err := buildDashboardData(
+		time.Date(2026, time.May, 1, 14, 0, 0, 0, time.UTC),
+		"dashboard",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("build dashboard data: %v", err)
+	}
+
+	if data.DailyIncome != 150 {
+		t.Fatalf("daily income = %v, want 150", data.DailyIncome)
+	}
+	if data.DailyExpense != 40 {
+		t.Fatalf("daily expense = %v, want 40", data.DailyExpense)
+	}
+	if data.DailyAsset != 20 {
+		t.Fatalf("daily asset = %v, want 20", data.DailyAsset)
+	}
+	if data.DailyLiability != 0 {
+		t.Fatalf("daily liability = %v, want 0", data.DailyLiability)
+	}
+	if data.DailyNetIncome != 110 {
+		t.Fatalf("daily net income = %v, want 110", data.DailyNetIncome)
+	}
+	if data.DailyPostedCount != 3 {
+		t.Fatalf("daily posted count = %d, want 3", data.DailyPostedCount)
+	}
+	if len(data.DailyTransactions) != 3 {
+		t.Fatalf("daily transactions len = %d, want 3", len(data.DailyTransactions))
+	}
+	if data.DailyTransactions[0].Amount != 150 || data.DailyTransactions[1].Amount != 40 || data.DailyTransactions[2].Amount != 20 {
+		t.Fatalf("daily transactions were not accumulated in same-day posting order: %#v", data.DailyTransactions)
+	}
+	if data.CurrentDayLabel != "Friday, 01 May 2026" {
+		t.Fatalf("current day label = %q, want %q", data.CurrentDayLabel, "Friday, 01 May 2026")
+	}
+}
+
 func TestBuildBalanceDataUsesYearEndLogic(t *testing.T) {
 	setupTestDB(t)
 

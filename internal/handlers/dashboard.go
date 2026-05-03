@@ -15,32 +15,39 @@ import (
 // bar chart with a surplus trend line. The OpenModal field allows redirects to pre-open
 // a specific modal (e.g., the "add transaction" form) after a form submission or navigation.
 type DashboardData struct {
-	Active             string
-	Message            string
-	OpenModal          string
-	GreetingIntro      string
-	GreetingMessage    string
-	GreetingCount      int
-	GreetingTimeLabel  string
-	ShowSetupHint      bool
-	CurrentMonth       string
-	CurrentYear        int
-	CurrentDate        string
-	MonthIncome        float64
-	MonthExpense       float64
-	MonthSurplus       float64
-	YearIncome         float64
-	YearExpense        float64
-	YearSurplus        float64
-	BankBalance        float64
-	MomoBalance        float64
-	CashBalance        float64
-	IncomeCats         []CatOption
-	ExpenseCats        []CatOption
-	AssetCats          []CatOption
-	LiabilityCats      []CatOption
-	RecentTransactions []RecentTx
-	Chart              ChartData
+	Active            string
+	Message           string
+	OpenModal         string
+	GreetingIntro     string
+	GreetingMessage   string
+	GreetingCount     int
+	GreetingTimeLabel string
+	ShowSetupHint     bool
+	CurrentMonth      string
+	CurrentYear       int
+	CurrentDate       string
+	CurrentDayLabel   string
+	MonthIncome       float64
+	MonthExpense      float64
+	MonthSurplus      float64
+	YearIncome        float64
+	YearExpense       float64
+	YearSurplus       float64
+	DailyIncome       float64
+	DailyExpense      float64
+	DailyAsset        float64
+	DailyLiability    float64
+	DailyNetIncome    float64
+	DailyPostedCount  int
+	BankBalance       float64
+	MomoBalance       float64
+	CashBalance       float64
+	IncomeCats        []CatOption
+	ExpenseCats       []CatOption
+	AssetCats         []CatOption
+	LiabilityCats     []CatOption
+	DailyTransactions []RecentTx
+	Chart             ChartData
 }
 
 // RecentTx represents a single row in the dashboard's recent transaction feed. It carries
@@ -103,16 +110,17 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	}
 
 	data := DashboardData{
-		Active:        active,
-		Message:       message,
-		OpenModal:     openModal,
-		CurrentMonth:  now.Format("January 2006"),
-		CurrentYear:   now.Year(),
-		CurrentDate:   now.Format("2006-01-02"),
-		IncomeCats:    incomeCats,
-		ExpenseCats:   expenseCats,
-		AssetCats:     assetCats,
-		LiabilityCats: liabilityCats,
+		Active:          active,
+		Message:         message,
+		OpenModal:       openModal,
+		CurrentMonth:    now.Format("January 2006"),
+		CurrentYear:     now.Year(),
+		CurrentDate:     now.Format("2006-01-02"),
+		CurrentDayLabel: now.Format("Monday, 02 January 2006"),
+		IncomeCats:      incomeCats,
+		ExpenseCats:     expenseCats,
+		AssetCats:       assetCats,
+		LiabilityCats:   liabilityCats,
 	}
 
 	greetingConfig, err := loadDashboardGreetingState(now)
@@ -140,6 +148,15 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 		return DashboardData{}, fmt.Errorf("load yearly totals: %w", err)
 	}
 	data.YearSurplus = data.YearIncome - data.YearExpense
+
+	// I keep the daily summary separate from the monthly and yearly figures because the client asked
+	// for a place to see "today so far" without mentally subtracting values from broader periods.
+	dayStart := now.Format("2006-01-02")
+	dayEnd := now.AddDate(0, 0, 1).Format("2006-01-02")
+	if err := loadDailyDashboardTotals(dayStart, dayEnd, &data); err != nil {
+		return DashboardData{}, fmt.Errorf("load daily totals: %w", err)
+	}
+	data.DailyNetIncome = data.DailyIncome - data.DailyExpense
 
 	// I treat opening balances as part of the current liquid account position because the asset
 	// transactions only capture in-year movement, not the carried-forward starting cash.
@@ -196,20 +213,18 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 		return DashboardData{}, fmt.Errorf("iterate account balances: %w", err)
 	}
 
-	// I keep the recent feed intentionally short and simple because the dashboard is for quick
-	// visibility. The register page is where full transaction review belongs.
-	// Fetch the ten most recent transactions across all types, sorted by date descending
-	// and then by ID descending (so within the same date, newer entries appear first).
-	// No date filtering is applied—this feed shows the latest activity regardless of
-	// when it occurred, giving immediate visibility into the most recent entries.
+	// I replaced the old generic "recent" feed with a same-day accumulated view because the client
+	// specifically asked for a way to see the day's total movement and the postings behind it.
+	// Ordering by ID ascending makes the list read like a build-up of the day's activity instead
+	// of a reverse-chronological log that is better suited to the full register.
 	recentRows, err := db.DB.Query(`
 		SELECT date, type, category, description, amount
 		FROM transactions
-		ORDER BY date DESC, id DESC
-		LIMIT 10
-	`)
+		WHERE date >= ? AND date < ?
+		ORDER BY date ASC, id ASC
+	`, dayStart, dayEnd)
 	if err != nil {
-		return DashboardData{}, fmt.Errorf("query recent transactions: %w", err)
+		return DashboardData{}, fmt.Errorf("query daily transactions: %w", err)
 	}
 	defer recentRows.Close()
 
@@ -222,12 +237,12 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 			&transaction.Description,
 			&transaction.Amount,
 		); err != nil {
-			return DashboardData{}, fmt.Errorf("scan recent transaction: %w", err)
+			return DashboardData{}, fmt.Errorf("scan daily transaction: %w", err)
 		}
-		data.RecentTransactions = append(data.RecentTransactions, transaction)
+		data.DailyTransactions = append(data.DailyTransactions, transaction)
 	}
 	if err := recentRows.Err(); err != nil {
-		return DashboardData{}, fmt.Errorf("iterate recent transactions: %w", err)
+		return DashboardData{}, fmt.Errorf("iterate daily transactions: %w", err)
 	}
 
 	// I reuse the same monthly totals aggregation that powers the report pages so the dashboard
@@ -282,6 +297,47 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	}
 
 	return data, nil
+}
+
+// loadDailyDashboardTotals populates the dashboard's same-day operational totals using one grouped
+// query over the four transaction namespaces. I keep this logic next to the dashboard builder rather
+// than reusing the monthly income/expense helper because the daily view needs all four types, plus a
+// posting count, to answer the client's question about "what has happened today so far" in one pass.
+func loadDailyDashboardTotals(startDate, endDate string, data *DashboardData) error {
+	rows, err := db.DB.Query(`
+		SELECT type, COALESCE(SUM(amount), 0), COUNT(*)
+		FROM transactions
+		WHERE date >= ? AND date < ?
+		GROUP BY type
+	`, startDate, endDate)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			transactionType string
+			total           float64
+			count           int
+		)
+		if err := rows.Scan(&transactionType, &total, &count); err != nil {
+			return err
+		}
+		data.DailyPostedCount += count
+		switch transactionType {
+		case "income":
+			data.DailyIncome = total
+		case "expenditure":
+			data.DailyExpense = total
+		case "asset":
+			data.DailyAsset = total
+		case "liability":
+			data.DailyLiability = total
+		}
+	}
+
+	return rows.Err()
 }
 
 // loadIncomeExpenseTotals queries the total income and total expenditure within a given

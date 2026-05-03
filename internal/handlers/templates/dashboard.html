@@ -97,6 +97,42 @@
         </div>
     </section>
 
+    <section class="card reveal">
+        <div class="card-header">
+            <div>
+                <h3>Daily Totals</h3>
+                <p>Accumulated postings for {{.CurrentDayLabel}}.</p>
+            </div>
+            <a href="/transactions?year={{.CurrentYear}}" data-nav-loading class="btn btn-sm btn-secondary">Open Register</a>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Income Today</div>
+                <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyIncome}}">{{formatCompactMoney .DailyIncome}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Expenditure Today</div>
+                <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyExpense}}">{{formatCompactMoney .DailyExpense}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Net Income Today</div>
+                <div class="stat-value compact-money {{if lt .DailyNetIncome 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .DailyNetIncome}}">{{formatCompactMoney .DailyNetIncome}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Asset Movement Today</div>
+                <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyAsset}}">{{formatCompactMoney .DailyAsset}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Liability Movement Today</div>
+                <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyLiability}}">{{formatCompactMoney .DailyLiability}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Transactions Posted Today</div>
+                <div class="stat-value">{{.DailyPostedCount}}</div>
+            </div>
+        </div>
+    </section>
+
     <section class="card chart-card reveal">
         <div class="card-header">
             <div>
@@ -119,42 +155,56 @@
         <div class="card table-card" data-table-stage>
             <div class="card-header">
                 <div>
-                    <h3>Recent Transactions</h3>
-                    <p>Latest postings captured in the ledger.</p>
+                    <h3>Today's Accumulated Transactions</h3>
+                    <p>Every posting captured so far for {{.CurrentDayLabel}}.</p>
                 </div>
-                <a href="/annual" data-nav-loading class="btn btn-sm btn-secondary">Open Statements</a>
+                <a href="/transactions?year={{.CurrentYear}}" data-nav-loading class="btn btn-sm btn-secondary">Open Register</a>
             </div>
-            <table class="data-table ledger-table">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Category</th>
-                        <th>Description</th>
-                        <th class="text-right">Amount</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{range .RecentTransactions}}
-                    <tr>
-                        <td>{{.Date}}</td>
-                        <td><span class="type-pill type-pill-{{.Type}}">{{.Type}}</span></td>
-                        <td>{{.Category}}</td>
-                        <td>{{.Description}}</td>
-                        <td class="text-right">{{formatMoney .Amount}}</td>
-                    </tr>
-                    {{end}}
-                    {{if not .RecentTransactions}}
-                    <tr>
-                        <td colspan="5" class="text-center">No transactions yet</td>
-                    </tr>
-                    {{end}}
-                </tbody>
-            </table>
+            <div class="table-scroll">
+                <table class="data-table ledger-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Category</th>
+                            <th>Description</th>
+                            <th class="text-right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .DailyTransactions}}
+                        <tr>
+                            <td>{{.Date}}</td>
+                            <td><span class="type-pill type-pill-{{.Type}}">{{.Type}}</span></td>
+                            <td>{{.Category}}</td>
+                            <td>{{if .Description}}{{.Description}}{{else}}-{{end}}</td>
+                            <td class="text-right">{{formatMoney .Amount}}</td>
+                        </tr>
+                        {{end}}
+                        {{if not .DailyTransactions}}
+                        <tr>
+                            <td colspan="5" class="text-center">No transactions posted yet for today</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="card status-card">
-            <h3>At a Glance</h3>
+            <h3>Day At a Glance</h3>
+            <div class="mini-metric">
+                <span>Today</span>
+                <strong>{{.CurrentDayLabel}}</strong>
+            </div>
+            <div class="mini-metric">
+                <span>Transactions Posted</span>
+                <strong>{{.DailyPostedCount}}</strong>
+            </div>
+            <div class="mini-metric">
+                <span>Daily Net Income</span>
+                <strong class="compact-money {{if lt .DailyNetIncome 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .DailyNetIncome}}">{{formatCompactMoney .DailyNetIncome}}</strong>
+            </div>
             <div class="mini-metric">
                 <span>Current Month</span>
                 <strong>{{.CurrentMonth}}</strong>
@@ -162,14 +212,6 @@
             <div class="mini-metric">
                 <span>Monthly Surplus</span>
                 <strong class="compact-money {{if lt .MonthSurplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .MonthSurplus}}">{{formatCompactMoney .MonthSurplus}}</strong>
-            </div>
-            <div class="mini-metric">
-                <span>Total Year Expense</span>
-                <strong class="compact-money" data-money-value="{{formatMoneyRaw .YearExpense}}">{{formatCompactMoney .YearExpense}}</strong>
-            </div>
-            <div class="mini-metric">
-                <span>Entry Console</span>
-                <strong>Animated modal workflow</strong>
             </div>
         </div>
     </section>
