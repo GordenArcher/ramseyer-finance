@@ -802,7 +802,11 @@ button {
     transform: translateY(-1px);
 }
 
-.btn:disabled,
+.btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+}
+
 .btn.is-loading {
     cursor: wait;
 }

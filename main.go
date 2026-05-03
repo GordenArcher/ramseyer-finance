@@ -153,6 +153,9 @@ func main() {
 	if err := w.Bind("pickBackupFile", nativepicker.PickBackupFile); err != nil {
 		log.Fatalf("Failed to bind native backup picker: %v", err)
 	}
+	if err := w.Bind("openExternalURL", nativepicker.OpenExternalURL); err != nil {
+		log.Fatalf("Failed to bind external URL opener: %v", err)
+	}
 	if err := w.Bind("quitApp", func() {
 		w.Terminate()
 	}); err != nil {

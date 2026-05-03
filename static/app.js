@@ -760,6 +760,7 @@ function initUpdateCenter() {
   const applyButtonDefaultLabel = applyButton
     ? applyButton.textContent.trim()
     : "Download and Apply Update";
+  let canApplyUpdateInPlace = false;
 
   function setText(node, value) {
     if (node) {
@@ -785,6 +786,7 @@ function initUpdateCenter() {
       applyButton.disabled = false;
       applyButton.textContent = applyButtonDefaultLabel;
     }
+    canApplyUpdateInPlace = false;
   }
 
   function setButtonLoading(button, loading, loadingLabel) {
@@ -813,6 +815,28 @@ function initUpdateCenter() {
     return response.json();
   }
 
+  async function openReleasePage() {
+    const releaseURL = releaseLink?.href || "";
+    if (!releaseURL || releaseURL === "#") {
+      throw new Error("No release page is available for this update yet.");
+    }
+
+    // I route external release links through the native shell first because embedded desktop
+    // webviews are inconsistent about target=_blank. Falling back to window.open keeps browsers
+    // working when the app is not running inside the packaged shell.
+    if (typeof window.openExternalURL === "function") {
+      await window.openExternalURL(releaseURL);
+      return;
+    }
+
+    const popup = window.open(releaseURL, "_blank", "noopener,noreferrer");
+    if (popup) {
+      return;
+    }
+
+    window.location.href = releaseURL;
+  }
+
   checkButton.addEventListener("click", async () => {
     setStatus(inlineStatus, "");
     setButtonLoading(checkButton, true, "Checking...");
@@ -835,13 +859,14 @@ function initUpdateCenter() {
         releaseLink.href = payload.release_url || "#";
       }
 
+      canApplyUpdateInPlace = Boolean(payload.can_apply);
       if (applyButton) {
         if (payload.can_apply) {
           applyButton.disabled = false;
           applyButton.textContent = applyButtonDefaultLabel;
         } else {
-          applyButton.disabled = true;
-          applyButton.textContent = "Available in Windows Package";
+          applyButton.disabled = false;
+          applyButton.textContent = "Open Windows Release";
         }
       }
       setStatus(
@@ -868,9 +893,42 @@ function initUpdateCenter() {
     return;
   }
 
+  if (releaseLink) {
+    releaseLink.addEventListener("click", async (event) => {
+      event.preventDefault();
+      try {
+        await openReleasePage();
+      } catch (error) {
+        setStatus(
+          modalStatus,
+          error instanceof Error ? error.message : "Could not open the release page.",
+          "error",
+        );
+      }
+    });
+  }
+
   updateModal.addEventListener("modal:close", resetUpdateModalState);
 
   applyButton.addEventListener("click", async () => {
+    if (!canApplyUpdateInPlace) {
+      setStatus(
+        modalStatus,
+        "This environment can check for updates, but only the packaged Windows desktop app can apply them in place. Use the release page to download the new package.",
+        "error",
+      );
+      try {
+        await openReleasePage();
+      } catch (error) {
+        setStatus(
+          modalStatus,
+          error instanceof Error ? error.message : "Could not open the release page.",
+          "error",
+        );
+      }
+      return;
+    }
+
     setStatus(modalStatus, "");
     setButtonLoading(applyButton, true, "Preparing...");
     startPageLoading();

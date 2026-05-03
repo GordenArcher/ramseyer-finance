@@ -41,6 +41,27 @@ func PickBackupFile() (string, error) {
 	}
 }
 
+// OpenExternalURL launches the provided URL in the user's default browser through the operating
+// system shell. I keep this helper in the same native package as the file picker because both are
+// desktop-shell bridges that compensate for webview behavior being weaker than a full browser.
+func OpenExternalURL(target string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return fmt.Errorf("external URL is required")
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", target).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+	case "linux":
+		return exec.Command("xdg-open", target).Start()
+	default:
+		return fmt.Errorf("external URL opening is not supported on %s", runtime.GOOS)
+	}
+}
+
 // pickBackupFileMacOS opens the native macOS file picker using osascript (AppleScript via
 // the command line). It displays a dialog prompting the user to "Select a backup file to
 // restore" and returns the chosen file's POSIX path (e.g., "/Users/name/Downloads/backup.db").
