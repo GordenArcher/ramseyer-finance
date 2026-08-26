@@ -1,4 +1,4 @@
-package handlers
+package finance
 
 import (
 	"encoding/json"

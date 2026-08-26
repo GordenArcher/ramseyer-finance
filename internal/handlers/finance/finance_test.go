@@ -1,4 +1,4 @@
-package handlers
+package finance
 
 import (
 	"fmt"
@@ -806,7 +806,7 @@ func TestBackupPageUsesSearchableInAppRestoreLibrary(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	BackupPage(recorder, httptest.NewRequest(http.MethodGet, "/backup", nil))
+	backupservice.BackupPage(recorder, httptest.NewRequest(http.MethodGet, "/backup", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("backup page status = %d, want 200: %s", recorder.Code, recorder.Body.String())
 	}

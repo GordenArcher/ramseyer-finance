@@ -10,7 +10,7 @@ import (
 	"log"
 	"net/http"
 	"ramseyer-finance/internal/db"
-	webhandlers "ramseyer-finance/internal/handlers"
+	"ramseyer-finance/internal/webui"
 	"strings"
 	"sync"
 	"time"
@@ -83,7 +83,7 @@ func LoginPage(w http.ResponseWriter, r *http.Request) {
 		data.Mode = "unlock"
 	}
 
-	webhandlers.RenderStandaloneTemplate(w, "login", data)
+	webui.RenderStandaloneTemplate(w, "login", data)
 }
 
 // SetupPIN handles the initial PIN creation POST request. It is only callable when no PIN

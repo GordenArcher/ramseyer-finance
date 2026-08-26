@@ -1,8 +1,7 @@
-package handlers
+package backup
 
 import (
 	"net/http"
-	backupservice "ramseyer-finance/internal/handlers/backup"
 	"strings"
 )
 
@@ -31,8 +30,8 @@ func SaveAutoBackupSettings(w http.ResponseWriter, r *http.Request) {
 	enabled := strings.TrimSpace(r.FormValue("enabled")) != ""
 	// Normalise the frequency before persisting so the stored value is always a recognised
 	// string ("weekly", "monthly", or "quarterly"), regardless of what the form submitted.
-	frequency := backupservice.NormalizeAutoBackupFrequency(r.FormValue("frequency"))
-	if err := backupservice.SaveAutoBackupConfig(enabled, frequency); err != nil {
+	frequency := NormalizeAutoBackupFrequency(r.FormValue("frequency"))
+	if err := SaveAutoBackupConfig(enabled, frequency); err != nil {
 		serverError(w, err)
 		return
 	}

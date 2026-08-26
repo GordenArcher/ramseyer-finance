@@ -1,4 +1,4 @@
-package handlers
+package finance
 
 import (
 	"database/sql"
@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/webui"
 	"sort"
 	"strconv"
 	"strings"
@@ -776,4 +777,11 @@ func alertTone(message string) string {
 		}
 	}
 	return "success"
+}
+
+// RenderTemplate is the finance package's narrow bridge to the neutral UI renderer. Keeping
+// templates outside handler domains lets authentication and backup render their own screens
+// without importing finance or creating package cycles.
+func RenderTemplate(w http.ResponseWriter, name string, data interface{}) {
+	webui.RenderTemplate(w, name, data)
 }

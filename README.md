@@ -25,12 +25,13 @@ Ramseyer Finance is a local desktop finance manager for church operations. It ru
 - `main.go`: application bootstrap, embedded assets, local server, desktop webview
 - `internal/db/`: SQLite schema, migrations, and backup/restore helpers
 - `internal/appmeta/`: embedded version and release-channel metadata
-- `internal/handlers/`: report, transaction, setup, and small route facades
+- `internal/routes/`: the complete HTTP route table and middleware composition
+- `internal/handlers/finance/`: clearly named statement, transaction, dashboard, category, and settings handlers
 - `internal/handlers/auth/`: PIN authentication and route middleware
-- `internal/handlers/backup/`: backup scheduling, history, file storage, and restore-library services
+- `internal/handlers/backup/`: backup routes, scheduling, history, file storage, and restore-library services
 - `internal/handlers/updates/`: GitHub Release checks and packaged update staging
 - `internal/handlers/viewmodels/`: shared presentation models used across report handlers
-- `internal/handlers/templates/`: templates grouped into `auth/`, `pages/`, `reports/`, and `partials/`
+- `internal/webui/`: shared rendering with templates grouped into `auth/`, `pages/`, `reports/`, and `partials/`
 - `cmd/updater/`: packaged Windows updater helper used for in-app updates
 - `cmd/launcher/`: terminal-free Windows GUI entry point
 - `internal/desktop/`: minimal desktop bridge for opening trusted external links

@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
-	backupservice "ramseyer-finance/internal/handlers/backup"
+	"ramseyer-finance/internal/webui"
 	"strings"
 	"time"
 )
@@ -21,8 +21,8 @@ type BackupData struct {
 	Active            string
 	Message           string
 	MessageTone       string
-	History           []backupservice.BackupHistoryEntry
-	RestoreCandidates []backupservice.RestoreCandidate
+	History           []BackupHistoryEntry
+	RestoreCandidates []RestoreCandidate
 }
 
 // BackupPage serves the backup management interface. It loads the most recent 20 backup
@@ -30,12 +30,12 @@ type BackupData struct {
 // full backup template. The page includes controls for manual backup download, backup
 // restore, and a log of recent backup activity.
 func BackupPage(w http.ResponseWriter, r *http.Request) {
-	history, err := backupservice.LoadBackupHistory(20)
+	history, err := LoadBackupHistory(20)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	restoreCandidates, err := backupservice.LoadRestoreCandidates()
+	restoreCandidates, err := LoadRestoreCandidates()
 	if err != nil {
 		serverError(w, err)
 		return
@@ -48,7 +48,7 @@ func BackupPage(w http.ResponseWriter, r *http.Request) {
 		History:           history,
 		RestoreCandidates: restoreCandidates,
 	}
-	RenderTemplate(w, "backup", data)
+	webui.RenderTemplate(w, "backup", data)
 }
 
 // DownloadBackup handles backup file download requests. It supports two delivery modes
@@ -110,20 +110,20 @@ func RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	// action in the app. If the wrong file is chosen, I still have a rollback point.
 	safetyBackupPath, err := createSafetyBackup(time.Now())
 	if err != nil {
-		_ = backupservice.RecordBackupEvent("pre-restore-safety", "failed", "", err.Error())
+		_ = RecordBackupEvent("pre-restore-safety", "failed", "", err.Error())
 		serverError(w, fmt.Errorf("create safety backup: %w", err))
 		return
 	}
-	_ = backupservice.RecordBackupEvent("pre-restore-safety", "success", safetyBackupPath, "Safety backup created before restore")
+	_ = RecordBackupEvent("pre-restore-safety", "success", safetyBackupPath, "Safety backup created before restore")
 
 	// I route restore through the database layer instead of swapping files inside the handler
 	// because SQLite WAL mode needs a controlled restore path, not a blind overwrite.
 	if err := db.RestoreFromReader(restoreReader); err != nil {
-		_ = backupservice.RecordBackupEvent("restore", "failed", restoreLabel, err.Error())
+		_ = RecordBackupEvent("restore", "failed", restoreLabel, err.Error())
 		serverError(w, err)
 		return
 	}
-	_ = backupservice.RecordBackupEvent("restore", "success", restoreLabel, "Backup restore completed")
+	_ = RecordBackupEvent("restore", "success", restoreLabel, "Backup restore completed")
 
 	http.Redirect(w, r, "/backup?msg=Restore+successful", http.StatusSeeOther)
 }
@@ -147,7 +147,7 @@ func saveBackupLocally(w http.ResponseWriter) {
 		_ = os.Remove(backupPath)
 	}()
 
-	downloadsDir, err := backupservice.ResolveUserDownloadsDir()
+	downloadsDir, err := ResolveUserDownloadsDir()
 	if err != nil {
 		serverError(w, err)
 		return
@@ -157,15 +157,15 @@ func saveBackupLocally(w http.ResponseWriter) {
 	// Use nextAvailableFilePath to avoid clobbering existing backups with the same date.
 	// This generates names like "ramseyer-finance-backup-2026-05-01 (2).db" if the base
 	// name is already taken.
-	targetPath := backupservice.NextAvailableFilePath(downloadsDir, filename)
-	if err := backupservice.CopyFile(backupPath, targetPath); err != nil {
-		_ = backupservice.RecordBackupEvent("manual-download", "failed", targetPath, err.Error())
+	targetPath := NextAvailableFilePath(downloadsDir, filename)
+	if err := CopyFile(backupPath, targetPath); err != nil {
+		_ = RecordBackupEvent("manual-download", "failed", targetPath, err.Error())
 		serverError(w, fmt.Errorf("save backup to downloads: %w", err))
 		return
 	}
-	_ = backupservice.RecordBackupEvent("manual-download", "success", targetPath, "Manual backup download")
+	_ = RecordBackupEvent("manual-download", "success", targetPath, "Manual backup download")
 
-	backupservice.WriteJSON(w, http.StatusOK, backupservice.SavedFileResponse{
+	WriteJSON(w, http.StatusOK, SavedFileResponse{
 		Path:     targetPath,
 		Filename: filepath.Base(targetPath),
 		Message:  "Backup saved",
@@ -185,7 +185,7 @@ func openRestoreSource(r *http.Request) (io.ReadCloser, string, func(), error) {
 	// tricked into reading an arbitrary local file rather than a managed SQLite backup.
 	backupPath := strings.TrimSpace(r.FormValue("backup_path"))
 	if backupPath != "" {
-		validatedPath, err := backupservice.ValidateManagedRestorePath(backupPath)
+		validatedPath, err := ValidateManagedRestorePath(backupPath)
 		if err != nil {
 			return nil, "", func() {}, err
 		}
@@ -224,7 +224,7 @@ func createSafetyBackup(now time.Time) (string, error) {
 		_ = os.Remove(backupPath)
 	}()
 
-	rootDir, err := backupservice.ResolveBackupRootDir()
+	rootDir, err := ResolveBackupRootDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve backup root directory: %w", err)
 	}
@@ -239,7 +239,7 @@ func createSafetyBackup(now time.Time) (string, error) {
 
 	filename := "ramseyer-finance-pre-restore-" + now.Format("2006-01-02-150405") + ".db"
 	targetPath := filepath.Join(safetyDir, filename)
-	if err := backupservice.CopyFile(backupPath, targetPath); err != nil {
+	if err := CopyFile(backupPath, targetPath); err != nil {
 		return "", fmt.Errorf("save safety backup: %w", err)
 	}
 
