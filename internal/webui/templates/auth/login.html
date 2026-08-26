@@ -29,10 +29,6 @@
                 {{end}}
             </div>
 
-            {{if .Message}}
-            <div class="alert alert-{{.MessageTone}}" data-auto-dismiss-alert>{{.Message}}</div>
-            {{end}}
-
             <form
                 method="POST"
                 action="{{if eq .Mode "setup"}}/api/auth/setup{{else}}/api/auth/unlock{{end}}"
@@ -41,6 +37,9 @@
                 data-auth-mode="{{.Mode}}"
                 data-loading-form
             >
+                {{if .Message}}
+                <div class="alert alert-{{.MessageTone}}" data-auto-dismiss-alert>{{.Message}}</div>
+                {{end}}
                 <input type="hidden" name="pin" value="" />
                 <div class="pin-display" aria-live="polite">
                     <span class="pin-dot"></span>

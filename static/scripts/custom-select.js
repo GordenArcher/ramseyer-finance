@@ -4,6 +4,8 @@
 (function registerCustomSelectComponent() {
   "use strict";
 
+  let selectorPanelSequence = 0;
+
   function queryAll(selector, root = document) {
     return Array.from(root.querySelectorAll(selector));
   }
@@ -24,6 +26,121 @@
     if (choices.length === 0) {
       return;
     }
+    const optionList = panel.querySelector(".custom-selector-options");
+    let positionFrame = 0;
+    if (!panel.id) {
+      selectorPanelSequence += 1;
+      panel.id = `custom-selector-panel-${selectorPanelSequence}`;
+    }
+    trigger.setAttribute("aria-controls", panel.id);
+
+    // The panel is moved under document.body while open. A selector often lives inside a
+    // modal, table card, or horizontally scrolling section whose overflow rules would clip
+    // an ordinary absolutely positioned child. Portalling the panel to the window removes
+    // that boundary while the stored element references keep selection state connected to
+    // the original field.
+    function positionPortalPanel() {
+      if (panel.hidden || !selector.classList.contains("is-open")) {
+        return;
+      }
+
+      const viewportMargin = 12;
+      const panelGap = 8;
+      const triggerBounds = trigger.getBoundingClientRect();
+      if (
+        triggerBounds.bottom < viewportMargin ||
+        triggerBounds.top > window.innerHeight - viewportMargin
+      ) {
+        closeSelector();
+        return;
+      }
+
+      const minimumWidth = selector.classList.contains("custom-form-selector")
+        ? 280
+        : 240;
+      const panelWidth = Math.min(
+        Math.max(triggerBounds.width, minimumWidth),
+        window.innerWidth - viewportMargin * 2,
+      );
+      panel.style.width = `${panelWidth}px`;
+      panel.style.maxHeight = "";
+      if (optionList) {
+        optionList.style.maxHeight = "";
+      }
+
+      const naturalPanelHeight = panel.getBoundingClientRect().height;
+      const roomBelow =
+        window.innerHeight - triggerBounds.bottom - panelGap - viewportMargin;
+      const roomAbove = triggerBounds.top - panelGap - viewportMargin;
+      const openAbove =
+        roomBelow < naturalPanelHeight && roomAbove > roomBelow;
+      const availableHeight = Math.max(96, openAbove ? roomAbove : roomBelow);
+
+      // Only the option list should scroll. Constraining the entire panel would make the
+      // search box disappear while browsing long lists, which is especially frustrating in
+      // compact modals. I calculate the non-list chrome once, then give the remaining space
+      // to the options with a small usable minimum for constrained windows.
+      if (optionList && naturalPanelHeight > availableHeight) {
+        const optionBounds = optionList.getBoundingClientRect();
+        const fixedPanelHeight = naturalPanelHeight - optionBounds.height;
+        optionList.style.maxHeight = `${Math.max(
+          72,
+          availableHeight - fixedPanelHeight,
+        )}px`;
+      }
+      panel.style.maxHeight = `${availableHeight}px`;
+
+      const positionedHeight = panel.getBoundingClientRect().height;
+      const preferredLeft = selector.classList.contains(
+        "custom-selector-align-end",
+      )
+        ? triggerBounds.right - panelWidth
+        : triggerBounds.left;
+      const left = Math.max(
+        viewportMargin,
+        Math.min(
+          preferredLeft,
+          window.innerWidth - panelWidth - viewportMargin,
+        ),
+      );
+      const preferredTop = openAbove
+        ? triggerBounds.top - positionedHeight - panelGap
+        : triggerBounds.bottom + panelGap;
+      const top = Math.max(
+        viewportMargin,
+        Math.min(
+          preferredTop,
+          window.innerHeight - positionedHeight - viewportMargin,
+        ),
+      );
+
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+      selector.classList.toggle("opens-upward", openAbove);
+    }
+
+    // Scroll events can originate from any nested card or modal and do not normally bubble.
+    // A capture listener sees all of them, while requestAnimationFrame collapses a burst of
+    // wheel events into one layout calculation so the floating panel follows its trigger
+    // smoothly without doing expensive geometry work for every scroll event.
+    function schedulePortalPosition() {
+      if (positionFrame !== 0) {
+        return;
+      }
+      positionFrame = window.requestAnimationFrame(() => {
+        positionFrame = 0;
+        positionPortalPanel();
+      });
+    }
+
+    function stopPortalTracking() {
+      window.removeEventListener("resize", schedulePortalPosition);
+      window.removeEventListener("scroll", schedulePortalPosition, true);
+      if (positionFrame !== 0) {
+        window.cancelAnimationFrame(positionFrame);
+        positionFrame = 0;
+      }
+    }
 
     function resetSearch() {
       if (search) {
@@ -38,7 +155,14 @@
     }
 
     function closeSelector(returnFocus = false) {
+      stopPortalTracking();
       panel.hidden = true;
+      panel.classList.remove("is-portaled");
+      panel.style.removeProperty("left");
+      panel.style.removeProperty("top");
+      panel.style.removeProperty("width");
+      panel.style.removeProperty("max-height");
+      optionList?.style.removeProperty("max-height");
       selector.classList.remove("is-open", "opens-upward");
       trigger.setAttribute("aria-expanded", "false");
       resetSearch();
@@ -57,16 +181,14 @@
           }
         },
       );
+      document.body.appendChild(panel);
+      panel.classList.add("is-portaled");
       panel.hidden = false;
       selector.classList.add("is-open");
       trigger.setAttribute("aria-expanded", "true");
-      const triggerBounds = trigger.getBoundingClientRect();
-      const panelBounds = panel.getBoundingClientRect();
-      const roomBelow = window.innerHeight - triggerBounds.bottom;
-      selector.classList.toggle(
-        "opens-upward",
-        roomBelow < panelBounds.height + 16 && triggerBounds.top > roomBelow,
-      );
+      positionPortalPanel();
+      window.addEventListener("resize", schedulePortalPosition);
+      window.addEventListener("scroll", schedulePortalPosition, true);
       window.requestAnimationFrame(() => search?.focus());
     }
 
@@ -143,6 +265,7 @@
     panel.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         closeSelector(true);
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         if (document.activeElement !== search) {

@@ -70,6 +70,17 @@
     animation: panel-in 140ms ease both;
 }
 
+/* Open panels are portalled to the document body so cards, tables, and modal sections cannot
+   crop them with overflow. JavaScript supplies viewport-safe coordinates and dimensions. */
+.custom-selector-panel.is-portaled {
+    position: fixed;
+    z-index: 200;
+    right: auto;
+    bottom: auto;
+    margin: 0;
+    overflow: hidden;
+}
+
 .custom-selector.opens-upward .custom-selector-panel {
     top: auto;
     bottom: calc(100% + 8px);
@@ -106,6 +117,8 @@
     gap: 4px;
     max-height: 220px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
 }
 
 .custom-selector-option {
