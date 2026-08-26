@@ -122,6 +122,20 @@ button {
     backdrop-filter: blur(10px);
 }
 
+.sidebar-brand-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sidebar-brand-icon {
+    width: 58px;
+    height: 58px;
+    flex: 0 0 auto;
+    border-radius: 16px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
 .sidebar-header h1,
 .page-header h2,
 .hero-copy h2,
@@ -1341,6 +1355,14 @@ button {
     display: flex;
     flex-direction: column;
     justify-content: center;
+}
+
+.auth-brand-icon {
+    width: 112px;
+    height: 112px;
+    margin-bottom: 22px;
+    border-radius: 28px;
+    box-shadow: 0 20px 42px rgba(15, 24, 40, 0.2);
 }
 
 .auth-copy h1 {
