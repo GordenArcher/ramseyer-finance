@@ -235,7 +235,7 @@ func stageAndLaunchWindowsUpdate(asset githubReleaseAsset) error {
 		return fmt.Errorf("copy updater helper to temp: %w", err)
 	}
 
-	relaunchPath := filepath.Join(installRoot, "START-Ramseyer-Finance.bat")
+	relaunchPath := filepath.Join(installRoot, "Ramseyer Finance.exe")
 	if _, err := os.Stat(relaunchPath); err != nil {
 		relaunchPath = executablePath
 	}

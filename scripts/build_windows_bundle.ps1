@@ -7,7 +7,7 @@ $DistDir = Join-Path $RootDir "dist"
 $BundleDir = Join-Path $DistDir "$AppName-windows"
 $AppDir = Join-Path $BundleDir "app"
 $ZipPath = Join-Path $DistDir "$AppName-windows.zip"
-$LauncherPath = Join-Path $BundleDir "START-Ramseyer-Finance.bat"
+$LauncherPath = Join-Path $BundleDir "Ramseyer Finance.exe"
 $ReadmePath = Join-Path $BundleDir "README-Windows.txt"
 
 if (Test-Path $BundleDir) {
@@ -19,25 +19,21 @@ if (Test-Path $ZipPath) {
 
 New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
 
-go build -o (Join-Path $AppDir $BinaryName) (Join-Path $RootDir "main.go")
-go build -o (Join-Path $AppDir "updater.exe") (Join-Path $RootDir "cmd\updater")
+go build -ldflags "-H=windowsgui" -o (Join-Path $AppDir $BinaryName) (Join-Path $RootDir "main.go")
+go build -ldflags "-H=windowsgui" -o (Join-Path $AppDir "updater.exe") (Join-Path $RootDir "cmd\updater")
+go build -ldflags "-H=windowsgui" -o $LauncherPath (Join-Path $RootDir "cmd\launcher")
 
 Copy-Item (Join-Path $RootDir "README.md") $BundleDir
 Copy-Item (Join-Path $RootDir "docs") (Join-Path $BundleDir "docs") -Recurse
-
-@"
-@echo off
-setlocal
-cd /d "%~dp0app"
-start "" "ramseyer-finance.exe"
-"@ | Set-Content -Encoding ASCII $LauncherPath
 
 @"
 Ramseyer Finance Windows Package
 
 How to start:
 1. Open the extracted folder.
-2. Double-click START-Ramseyer-Finance.bat
+2. Double-click Ramseyer Finance.exe
+
+The application is built as a native Windows GUI program. It does not open Command Prompt or require a terminal.
 
 Important:
 - The app stores its SQLite database under %%AppData%%\ramseyer-finance by default.

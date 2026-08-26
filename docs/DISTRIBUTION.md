@@ -16,7 +16,7 @@ Output:
 ### Basic Windows binary (for local testing only)
 
 ```powershell
-go build -o build\ramseyer-finance.exe main.go
+go build -ldflags "-H=windowsgui" -o build\ramseyer-finance.exe main.go
 ```
 
 ### Packaged Windows bundle (for client delivery)
@@ -35,12 +35,12 @@ make macos-app
 
 The `build_windows_bundle.ps1` script performs these steps in order:
 
-1. Builds `ramseyer-finance.exe` from source
-2. Builds `updater.exe` from `cmd/updater`
+1. Builds the GUI-subsystem `ramseyer-finance.exe` from source
+2. Builds the GUI-subsystem `updater.exe` from `cmd/updater`
 3. Creates `dist\Ramseyer Finance-windows\app\`
-4. Copies both executables into the package folder
+4. Copies both application executables into the package folder
 5. Copies the `docs/` folder into the package
-6. Writes a `START-Ramseyer-Finance.bat` launcher for easy double-click startup
+6. Builds a `Ramseyer Finance.exe` GUI launcher for terminal-free double-click startup
 7. Writes a short `README-Windows.txt` handoff note with first-run instructions
 8. Zips the entire package folder for delivery
 
@@ -84,14 +84,14 @@ Before publishing a GitHub Release, verify the following on a Windows machine us
 
 1. [ ] Run tests: `go test ./...`
 2. [ ] Build the Windows package: `.\scripts\build_windows_bundle.ps1`
-3. [ ] Launch `ramseyer-finance.exe` from the package folder
+3. [ ] Double-click the root `Ramseyer Finance.exe` launcher and confirm no terminal appears
 4. [ ] Confirm first-run PIN setup flow completes
 5. [ ] Confirm login with the created PIN works
 6. [ ] Confirm transaction entry (income and expenditure) saves correctly
 7. [ ] Confirm register edit and delete work, including the duplicate warning
 8. [ ] Confirm export saves a file locally (CSV or PDF)
 9. [ ] Confirm manual backup download saves a file
-10. [ ] Confirm the native restore file picker opens and selects a file
+10. [ ] Confirm the searchable restore library filters and selects a backup without opening a native picker
 11. [ ] Confirm auto-backup settings save and the scheduler logs activity
 12. [ ] Confirm `Check for Updates` reaches the latest GitHub Release
 13. [ ] Update `internal/appmeta/meta.go` to the new version before tagging

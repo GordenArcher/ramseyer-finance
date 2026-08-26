@@ -125,6 +125,11 @@ type AnnualData struct {
 	TotalPriorExpense float64
 	Surplus           float64
 	PriorSurplus      float64
+	OpeningFund       float64
+	PriorAdjustment   float64
+	AdjustedFund      float64
+	ClosingFund       float64
+	FundConfigured    bool
 }
 
 // LineRow represents a single row in the annual income statement's line-item table. It
@@ -381,6 +386,72 @@ func buildAnnualData(year int) (AnnualData, error) {
 	if err != nil {
 		return AnnualData{}, fmt.Errorf("load annual expenditure lines: %w", err)
 	}
+	assetSchedule, err := buildFixedAssetData(year)
+	if err != nil {
+		return AnnualData{}, fmt.Errorf("build current fixed-asset schedule: %w", err)
+	}
+	priorAssetSchedule, err := buildFixedAssetData(year - 1)
+	if err != nil {
+		return AnnualData{}, fmt.Errorf("build prior fixed-asset schedule: %w", err)
+	}
+	for index := range data.ExpenseLines {
+		if data.ExpenseLines[index].Name != "Depreciation & Amortization Expenses" {
+			continue
+		}
+		// Explicit expense postings remain authoritative when present. Otherwise the app
+		// supplies the charge calculated by Note 21 so the performance statement and asset
+		// schedule cannot silently omit depreciation.
+		if data.ExpenseLines[index].Amount == 0 {
+			data.ExpenseLines[index].Amount = assetSchedule.TotalCharge
+			data.TotalExpense += assetSchedule.TotalCharge
+		}
+		if data.ExpenseLines[index].PriorAmount == 0 {
+			data.ExpenseLines[index].PriorAmount = priorAssetSchedule.TotalCharge
+			data.TotalPriorExpense += priorAssetSchedule.TotalCharge
+		}
+		data.ExpenseLines[index].Variance = data.ExpenseLines[index].Amount - data.ExpenseLines[index].Budget
+		break
+	}
+
+	// The PCG statement presents harvest proceeds net of harvest expenses. I keep the
+	// underlying postings in their natural income and expenditure types for monthly and
+	// operational reporting, then perform the presentation reclassification here. Removing
+	// the same amount from income and expenditure preserves the year's surplus while making
+	// both the statement line and Note 5 agree with the workbook.
+	var harvestExpense LineRow
+	filteredExpenses := data.ExpenseLines[:0]
+	for _, line := range data.ExpenseLines {
+		if line.Name == "Harvest Expenses" {
+			harvestExpense = line
+			continue
+		}
+		filteredExpenses = append(filteredExpenses, line)
+	}
+	data.ExpenseLines = filteredExpenses
+	if harvestExpense.Name != "" {
+		for index := range data.IncomeLines {
+			if data.IncomeLines[index].Name != "Harvest Proceeds" {
+				continue
+			}
+			data.IncomeLines[index].Name = "Harvest Proceeds (Net)"
+			data.IncomeLines[index].Amount -= harvestExpense.Amount
+			data.IncomeLines[index].PriorAmount -= harvestExpense.PriorAmount
+			data.IncomeLines[index].Budget -= harvestExpense.Budget
+			data.IncomeLines[index].Variance = data.IncomeLines[index].Amount - data.IncomeLines[index].Budget
+			break
+		}
+		data.TotalIncome -= harvestExpense.Amount
+		data.TotalPriorIncome -= harvestExpense.PriorAmount
+		data.TotalExpense -= harvestExpense.Amount
+		data.TotalPriorExpense -= harvestExpense.PriorAmount
+	}
+	for index := range data.IncomeLines {
+		if data.IncomeLines[index].IsTotal {
+			data.IncomeLines[index].Amount = data.TotalIncome
+			data.IncomeLines[index].PriorAmount = data.TotalPriorIncome
+			break
+		}
+	}
 	data.ExpenseLines = append(data.ExpenseLines, LineRow{
 		Name:        "TOTAL EXPENDITURE",
 		Amount:      data.TotalExpense,
@@ -391,6 +462,15 @@ func buildAnnualData(year int) (AnnualData, error) {
 
 	data.Surplus = data.TotalIncome - data.TotalExpense
 	data.PriorSurplus = data.TotalPriorIncome - data.TotalPriorExpense
+	fund, err := loadFundRollforward(year)
+	if err != nil {
+		return AnnualData{}, fmt.Errorf("load accumulated fund roll-forward: %w", err)
+	}
+	data.FundConfigured = fund.Exists
+	data.OpeningFund = fund.OpeningBalance
+	data.PriorAdjustment = fund.PriorYearAdjustment
+	data.AdjustedFund = data.OpeningFund + data.PriorAdjustment
+	data.ClosingFund = data.AdjustedFund + data.Surplus
 	// The annual comparison chart uses paired bars for the current and prior year,
 	// grouped by the three key metrics: income, expenditure, and surplus. The prior
 	// year uses a muted grey to push visual focus toward the current year's results.
@@ -521,7 +601,7 @@ func loadAnnualLines(year int, categoryType string) ([]LineRow, float64, float64
 			AND b.category_id = top.id
 		WHERE top.type = ? AND top.parent_id = 0
 		GROUP BY top.id, top.name, top.note_ref, b.amount
-		ORDER BY top.id
+		ORDER BY CAST(NULLIF(top.note_ref, '') AS INTEGER), top.id
 	`, startDate, endDate, priorStartDate, priorEndDate, priorStartDate, endDate, year, categoryType)
 	if err != nil {
 		return nil, 0, 0, err

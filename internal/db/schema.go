@@ -44,6 +44,32 @@ CREATE TABLE IF NOT EXISTS opening_balances (
     UNIQUE(year, account_type)
 );
 
+CREATE TABLE IF NOT EXISTS fund_rollforwards (
+    year INTEGER PRIMARY KEY,
+    opening_balance REAL NOT NULL DEFAULT 0,
+    prior_year_adjustment REAL NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS account_opening_balances (
+    year INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(year, category_id),
+    FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+CREATE TABLE IF NOT EXISTS fixed_asset_openings (
+    year INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    opening_cost REAL NOT NULL DEFAULT 0,
+    opening_accumulated_depreciation REAL NOT NULL DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY(year, category_id),
+    FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''

@@ -14,24 +14,31 @@ import (
 // comparison. Totals and derived figures (accumulated fund, income surplus, total equity)
 // are carried at the top level for the summary section and the comparison chart.
 type BalanceData struct {
-	Active                string
-	Year                  string
-	PriorYear             string
-	Years                 []int
-	NonCurrentAssets      []BalanceLine
-	CurrentAssets         []BalanceLine
-	TotalAssets           float64
-	PriorTotalAssets      float64
-	Liabilities           []BalanceLine
-	Chart                 ChartData
-	TotalLiabilities      float64
-	PriorTotalLiabilities float64
-	AccumulatedFund       float64
-	PriorAccumulatedFund  float64
-	IncomeSurplus         float64
-	PriorIncomeSurplus    float64
-	TotalEquity           float64
-	PriorTotalEquity      float64
+	Active                 string
+	Year                   string
+	PriorYear              string
+	Years                  []int
+	NonCurrentAssets       []BalanceLine
+	CurrentAssets          []BalanceLine
+	TotalAssets            float64
+	PriorTotalAssets       float64
+	LongTermLiabilities    []BalanceLine
+	CurrentLiabilities     []BalanceLine
+	Chart                  ChartData
+	TotalLiabilities       float64
+	PriorTotalLiabilities  float64
+	AccumulatedFund        float64
+	PriorAccumulatedFund   float64
+	IncomeSurplus          float64
+	PriorIncomeSurplus     float64
+	TotalEquity            float64
+	PriorTotalEquity       float64
+	PriorYearAdjustment    float64
+	PriorPriorAdjustment   float64
+	BalanceDifference      float64
+	PriorBalanceDifference float64
+	FundConfigured         bool
+	PriorFundConfigured    bool
 }
 
 // BalanceLine represents a single row in the balance sheet report. It pairs a display name
@@ -51,14 +58,18 @@ type BalanceLine struct {
 // buildBalanceData function then extracts and orders the map entries into the template
 // struct.
 type balanceSnapshot struct {
-	NonCurrentAssets map[string]float64
-	CurrentAssets    map[string]float64
-	Liabilities      map[string]float64
-	TotalAssets      float64
-	TotalLiabilities float64
-	AccumulatedFund  float64
-	IncomeSurplus    float64
-	TotalEquity      float64
+	NonCurrentAssets    map[string]float64
+	CurrentAssets       map[string]float64
+	LongTermLiabilities map[string]float64
+	CurrentLiabilities  map[string]float64
+	TotalAssets         float64
+	TotalLiabilities    float64
+	AccumulatedFund     float64
+	PriorYearAdjustment float64
+	IncomeSurplus       float64
+	TotalEquity         float64
+	BalanceDifference   float64
+	FundConfigured      bool
 }
 
 type balanceCategoryDef struct {
@@ -125,9 +136,13 @@ func buildBalanceData(year int) (BalanceData, error) {
 	if err != nil {
 		return BalanceData{}, fmt.Errorf("load current asset definitions: %w", err)
 	}
-	liabilityDefs, err := loadTopLevelCategoryDefs("liability", "")
+	longTermLiabilityDefs, err := loadTopLevelCategoryDefs("liability", "long_term_liability")
 	if err != nil {
-		return BalanceData{}, fmt.Errorf("load liability definitions: %w", err)
+		return BalanceData{}, fmt.Errorf("load long-term liability definitions: %w", err)
+	}
+	currentLiabilityDefs, err := loadTopLevelCategoryDefs("liability", "current_liability")
+	if err != nil {
+		return BalanceData{}, fmt.Errorf("load current liability definitions: %w", err)
 	}
 
 	// I now use the stored top-level category metadata as the line definition source so any
@@ -148,11 +163,19 @@ func buildBalanceData(year int) (BalanceData, error) {
 		})
 	}
 
-	for _, item := range liabilityDefs {
-		data.Liabilities = append(data.Liabilities, BalanceLine{
+	for _, item := range longTermLiabilityDefs {
+		data.LongTermLiabilities = append(data.LongTermLiabilities, BalanceLine{
 			Name:        item.Name,
-			Amount:      currentSnapshot.Liabilities[item.Name],
-			PriorAmount: priorSnapshot.Liabilities[item.Name],
+			Amount:      currentSnapshot.LongTermLiabilities[item.Name],
+			PriorAmount: priorSnapshot.LongTermLiabilities[item.Name],
+		})
+	}
+
+	for _, item := range currentLiabilityDefs {
+		data.CurrentLiabilities = append(data.CurrentLiabilities, BalanceLine{
+			Name:        item.Name,
+			Amount:      currentSnapshot.CurrentLiabilities[item.Name],
+			PriorAmount: priorSnapshot.CurrentLiabilities[item.Name],
 		})
 	}
 
@@ -168,6 +191,12 @@ func buildBalanceData(year int) (BalanceData, error) {
 	data.PriorTotalEquity = priorSnapshot.TotalEquity
 	data.AccumulatedFund = currentSnapshot.AccumulatedFund
 	data.PriorAccumulatedFund = priorSnapshot.AccumulatedFund
+	data.PriorYearAdjustment = currentSnapshot.PriorYearAdjustment
+	data.PriorPriorAdjustment = priorSnapshot.PriorYearAdjustment
+	data.BalanceDifference = currentSnapshot.BalanceDifference
+	data.PriorBalanceDifference = priorSnapshot.BalanceDifference
+	data.FundConfigured = currentSnapshot.FundConfigured
+	data.PriorFundConfigured = priorSnapshot.FundConfigured
 
 	// Build a grouped bar chart comparing the five key balance sheet figures across the
 	// current and prior years. The prior year uses a muted grey colour while the current
@@ -228,17 +257,32 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load current asset definitions for %d: %w", year, err)
 	}
-	liabilityDefs, err := loadTopLevelCategoryDefs("liability", "")
+	longTermLiabilityDefs, err := loadTopLevelCategoryDefs("liability", "long_term_liability")
 	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("load liability definitions for %d: %w", year, err)
+		return balanceSnapshot{}, fmt.Errorf("load long-term liability definitions for %d: %w", year, err)
+	}
+	currentLiabilityDefs, err := loadTopLevelCategoryDefs("liability", "current_liability")
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load current liability definitions for %d: %w", year, err)
 	}
 
 	// Non-current assets are cumulative: all transactions from the beginning of time up to
 	// the end of the reporting year. There is no opening balance to add because these
 	// categories represent long-term holdings, not flow accounts.
-	nonCurrentTotals, err := loadTopLevelSums("asset", categoryDefNames(nonCurrentDefs), yearEnd)
+	nonCurrentTotals, err := loadTopLevelPositions("asset", categoryDefNames(nonCurrentDefs), yearStart, yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load non-current asset totals for %d: %w", year, err)
+	}
+	assetSchedule, err := buildFixedAssetData(year)
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("build non-current asset schedule for %d: %w", year, err)
+	}
+	// When detailed class movements exist, Note 21's carrying amounts replace gross cost in
+	// the financial position. The zero-cost guard preserves legacy installations that posted
+	// directly to the old top-level PPE account and therefore cannot yet be depreciated by class.
+	if assetSchedule.TotalClosingCost != 0 {
+		nonCurrentTotals["Property, Plant & Equipment"] = assetSchedule.PPECarryingAmount
+		nonCurrentTotals["Intangible Assets"] = assetSchedule.IntangibleCarryingAmount
 	}
 
 	// Opening balances are stored in the settings table and represent the cash position at
@@ -251,7 +295,7 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 
 	// I split liquid assets from the other current assets because bank, cash, and momo are the
 	// only accounts that combine opening balances with in-year movement.
-	currentAssetTotals, err := loadTopLevelSums("asset", categoryDefNames(currentDefs), yearEnd)
+	currentAssetTotals, err := loadTopLevelPositions("asset", categoryDefNames(currentDefs), yearStart, yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load current asset totals for %d: %w", year, err)
 	}
@@ -278,15 +322,20 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 
 	// Liabilities are cumulative up to year-end, following the same pattern as non-current
 	// assets. They represent obligations that persist across periods.
-	liabilityTotals, err := loadTopLevelSums("liability", categoryDefNames(liabilityDefs), yearEnd)
+	longTermLiabilityTotals, err := loadTopLevelPositions("liability", categoryDefNames(longTermLiabilityDefs), yearStart, yearEnd)
 	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("load liabilities for %d: %w", year, err)
+		return balanceSnapshot{}, fmt.Errorf("load long-term liabilities for %d: %w", year, err)
+	}
+	currentLiabilityTotals, err := loadTopLevelPositions("liability", categoryDefNames(currentLiabilityDefs), yearStart, yearEnd)
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load current liabilities for %d: %w", year, err)
 	}
 
 	snapshot := balanceSnapshot{
-		NonCurrentAssets: nonCurrentTotals,
-		CurrentAssets:    currentAssets,
-		Liabilities:      liabilityTotals,
+		NonCurrentAssets:    nonCurrentTotals,
+		CurrentAssets:       currentAssets,
+		LongTermLiabilities: longTermLiabilityTotals,
+		CurrentLiabilities:  currentLiabilityTotals,
 	}
 
 	// Sum all asset and liability categories into their respective totals. The iteration
@@ -297,23 +346,38 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 	for _, amount := range snapshot.CurrentAssets {
 		snapshot.TotalAssets += amount
 	}
-	for _, amount := range snapshot.Liabilities {
+	for _, amount := range snapshot.LongTermLiabilities {
+		snapshot.TotalLiabilities += amount
+	}
+	for _, amount := range snapshot.CurrentLiabilities {
 		snapshot.TotalLiabilities += amount
 	}
 
-	// I derive accumulated fund as residual equity after removing the current-year surplus so the
-	// statement does not double-count this year's operating result.
 	// Income surplus is the net of all income and expenditure transactions within the
-	// reporting year. It feeds into the equity calculation: accumulated fund represents
-	// equity built up in prior periods, while income surplus is the current period's
-	// contribution.
+	// reporting year. The opening fund and prior-year adjustment are independently entered
+	// in Setup, so the balance check below can expose omitted assets or liabilities instead
+	// of manufacturing a residual equity figure that always makes the statement balance.
 	var yearlyIncome, yearlyExpense float64
 	if err := loadIncomeExpenseTotals(yearStart, yearEnd, &yearlyIncome, &yearlyExpense); err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load income surplus for %d: %w", year, err)
 	}
+	postedDepreciation, err := loadNoteMovement("expenditure", "21", yearStart, yearEnd, false)
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load posted depreciation for %d: %w", year, err)
+	}
+	if postedDepreciation == 0 {
+		yearlyExpense += assetSchedule.TotalCharge
+	}
 	snapshot.IncomeSurplus = yearlyIncome - yearlyExpense
-	snapshot.TotalEquity = snapshot.TotalAssets - snapshot.TotalLiabilities
-	snapshot.AccumulatedFund = snapshot.TotalEquity - snapshot.IncomeSurplus
+	fund, err := loadFundRollforward(year)
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load accumulated fund roll-forward for %d: %w", year, err)
+	}
+	snapshot.FundConfigured = fund.Exists
+	snapshot.PriorYearAdjustment = fund.PriorYearAdjustment
+	snapshot.AccumulatedFund = fund.OpeningBalance + fund.PriorYearAdjustment
+	snapshot.TotalEquity = snapshot.AccumulatedFund + snapshot.IncomeSurplus
+	snapshot.BalanceDifference = snapshot.TotalAssets - snapshot.TotalLiabilities - snapshot.TotalEquity
 
 	return snapshot, nil
 }
@@ -382,6 +446,128 @@ func loadTopLevelSums(categoryType string, names []string, endDate string) (map[
 	}
 
 	return totals, nil
+}
+
+// loadTopLevelPositions combines independently entered opening balances with signed
+// current-year movements. When a category family has no configured opening, it falls back
+// to the historical cumulative behaviour used by older releases so upgrades do not lose
+// balances merely because the new setup screen has not yet been completed.
+func loadTopLevelPositions(categoryType string, names []string, startDate, endDate string) (map[string]float64, error) {
+	historical, err := loadTopLevelSums(categoryType, names, endDate)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return historical, nil
+	}
+
+	placeholders := make([]string, len(names))
+	args := []any{startDate[:4], categoryType}
+	for index, name := range names {
+		placeholders[index] = "?"
+		args = append(args, name)
+	}
+	openingQuery := fmt.Sprintf(`
+		SELECT top.name, COALESCE(SUM(b.amount), 0), COUNT(b.category_id)
+		FROM categories top
+		LEFT JOIN categories leaf ON leaf.type = top.type AND (leaf.id = top.id OR leaf.parent_id = top.id)
+		LEFT JOIN account_opening_balances b ON b.category_id = leaf.id AND b.year = ?
+		WHERE top.type = ? AND top.parent_id = 0 AND top.name IN (%s)
+		GROUP BY top.id, top.name
+	`, strings.Join(placeholders, ","))
+	rows, err := db.DB.Query(openingQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	openings := map[string]float64{}
+	configured := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var amount float64
+		var count int
+		if err := rows.Scan(&name, &amount, &count); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		openings[name] = amount
+		configured[name] = count > 0
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	movements, err := loadTopLevelPeriodSums(categoryType, names, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		if configured[name] {
+			historical[name] = openings[name] + movements[name]
+		}
+	}
+
+	// Legacy releases stored only Bank/Cash/Momo openings in a separate table. Once those
+	// accounts are nested beneath the workbook's Note 26 parent, preserve the confirmed
+	// brought-forward total unless the operator has supplied newer account-level openings.
+	if categoryType == "asset" && containsString(names, "Cash & Cash Equivalents") && !configured["Cash & Cash Equivalents"] {
+		var legacyOpening float64
+		var legacyCount int
+		if err := db.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0), COUNT(*)
+			FROM opening_balances
+			WHERE year = ?
+		`, startDate[:4]).Scan(&legacyOpening, &legacyCount); err != nil {
+			return nil, err
+		}
+		if legacyCount > 0 {
+			historical["Cash & Cash Equivalents"] = legacyOpening + movements["Cash & Cash Equivalents"]
+		}
+	}
+	return historical, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func loadTopLevelPeriodSums(categoryType string, names []string, startDate, endDate string) (map[string]float64, error) {
+	if len(names) == 0 {
+		return map[string]float64{}, nil
+	}
+	placeholders := make([]string, len(names))
+	args := []any{startDate, endDate, categoryType}
+	for index, name := range names {
+		placeholders[index] = "?"
+		args = append(args, name)
+	}
+	query := fmt.Sprintf(`
+		SELECT top.name, COALESCE(SUM(t.amount), 0)
+		FROM categories top
+		LEFT JOIN categories leaf ON leaf.type = top.type AND (leaf.id = top.id OR leaf.parent_id = top.id)
+		LEFT JOIN transactions t ON t.category_id = leaf.id AND t.type = top.type AND t.date >= ? AND t.date < ?
+		WHERE top.type = ? AND top.parent_id = 0 AND top.name IN (%s)
+		GROUP BY top.id, top.name
+	`, strings.Join(placeholders, ","))
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]float64{}
+	for rows.Next() {
+		var name string
+		var amount float64
+		if err := rows.Scan(&name, &amount); err != nil {
+			return nil, err
+		}
+		result[name] = amount
+	}
+	return result, rows.Err()
 }
 
 // loadDirectCategorySums computes the total transaction amount for each named category,

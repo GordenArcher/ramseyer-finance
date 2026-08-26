@@ -1521,6 +1521,157 @@ button {
     }
 }
 
+.restore-library {
+    display: grid;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.48);
+}
+
+.backup-library-filters {
+    display: grid;
+    grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(130px, 1fr));
+    gap: 12px;
+    align-items: end;
+}
+
+.backup-library-filters .form-group {
+    margin: 0;
+}
+
+.backup-library-summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    font-weight: 800;
+}
+
+.backup-library-list {
+    display: grid;
+    gap: 10px;
+    max-height: 390px;
+    padding-right: 6px;
+    overflow-y: auto;
+}
+
+.backup-library-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface-strong);
+    cursor: pointer;
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.backup-library-item:hover,
+.backup-library-item:focus-within {
+    border-color: rgba(24, 78, 72, 0.4);
+    box-shadow: 0 12px 28px rgba(22, 18, 12, 0.08);
+    transform: translateY(-1px);
+}
+
+.backup-library-item.is-selected {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 2px rgba(24, 78, 72, 0.12);
+}
+
+.backup-library-item input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.backup-library-marker {
+    width: 18px;
+    height: 18px;
+    margin-top: 3px;
+    border: 2px solid var(--line-strong);
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: inset 0 0 0 4px #fff;
+}
+
+.backup-library-item.is-selected .backup-library-marker {
+    border-color: var(--accent);
+    background: var(--accent);
+}
+
+.backup-library-details {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+}
+
+.backup-library-details strong {
+    overflow: hidden;
+    color: var(--ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backup-library-details span,
+.backup-library-details small {
+    color: var(--ink-soft);
+}
+
+.backup-library-details small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backup-library-empty {
+    padding: 28px 16px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 16px;
+    color: var(--ink-soft);
+    text-align: center;
+}
+
+.restore-drop-zone {
+    display: grid;
+    gap: 5px;
+    margin-bottom: 18px;
+    padding: 22px;
+    border: 2px dashed var(--line-strong);
+    border-radius: var(--radius-md);
+    color: var(--ink-soft);
+    text-align: center;
+    transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.restore-drop-zone input {
+    display: none;
+}
+
+.restore-drop-zone strong {
+    color: var(--ink);
+}
+
+.restore-drop-zone.is-dragging,
+.restore-drop-zone.has-file {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.restore-drop-zone.has-file small {
+    color: var(--accent);
+    font-weight: 800;
+}
+
 @media (max-width: 1100px) {
     .app {
         grid-template-columns: 1fr;
@@ -1557,6 +1708,14 @@ button {
     .auth-panel,
     .setup-grid {
         grid-template-columns: 1fr;
+    }
+
+    .backup-library-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .backup-library-filters .form-group-span {
+        grid-column: 1 / -1;
     }
 }
 
@@ -1620,5 +1779,51 @@ button {
 
     .pin-display {
         grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .backup-library-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .backup-library-filters .form-group-span {
+        grid-column: auto;
+    }
+}
+
+@media print {
+    body,
+    .app-body {
+        background: #fff;
+    }
+
+    .app {
+        display: block;
+    }
+
+    .sidebar,
+    .year-selector,
+    [data-print-page],
+    .alert,
+    .chart-card,
+    .modal-shell,
+    .money-popover {
+        display: none !important;
+    }
+
+    .content {
+        padding: 0;
+        gap: 14px;
+    }
+
+    .page-header,
+    .card,
+    .table-card {
+        box-shadow: none;
+        border-color: #c8c8c8;
+        break-inside: avoid;
+    }
+
+    .data-table {
+        font-size: 10pt;
     }
 }

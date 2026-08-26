@@ -2,13 +2,14 @@
 {{define "content"}}
 {{ $selected := .Year }}
 <div class="page-header reveal">
-    <h2>Annual Income & Expenditure Account</h2>
+    <h2>Statement of Financial Performance</h2>
     <p class="period">Presbyterian Church of Ghana — Ramseyer Congregation, Afiaman</p>
     <div class="year-selector">
         {{range .Years}}
         <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
         {{end}}
     </div>
+    <button type="button" class="btn btn-secondary" data-print-page>Print / Save PDF</button>
 </div>
 
 {{if .Warnings}}
@@ -18,6 +19,23 @@
     {{end}}
 </div>
 {{end}}
+
+{{if not .FundConfigured}}
+<div class="alert alert-warning">The accumulated fund roll-forward has not been configured for {{.Year}}. Set the opening fund in Setup before finalising the statements.</div>
+{{end}}
+
+<div class="card reveal">
+    <h3>Statement of Changes in Accumulated Fund</h3>
+    <table class="data-table">
+        <tbody>
+            <tr><td>Opening balance</td><td class="text-right">{{formatMoney .OpeningFund}}</td></tr>
+            <tr><td>Prior-year adjustments</td><td class="text-right {{if lt .PriorAdjustment 0.0}}negative{{end}}">{{formatMoney .PriorAdjustment}}</td></tr>
+            <tr><td>Adjusted balance</td><td class="text-right">{{formatMoney .AdjustedFund}}</td></tr>
+            <tr><td>Surplus / (Deficit) for the year</td><td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td></tr>
+            <tr class="total-row"><td>Closing accumulated fund</td><td class="text-right">{{formatMoney .ClosingFund}}</td></tr>
+        </tbody>
+    </table>
+</div>
 
 <section class="stats-grid reveal">
     <div class="stat-card">

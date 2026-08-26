@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
@@ -99,7 +100,9 @@ func buildNotesData(year int) (NotesData, error) {
 	}
 
 	// I query both current and prior periods in one pass so each note line is assembled once with
-	// both comparative values attached.
+	// both comparative values attached. Income and expenditure are period flows, while asset and
+	// liability notes are year-end balances, so the CASE expressions deliberately use different
+	// date boundaries for those two accounting behaviours.
 	// The query uses conditional aggregation (SUM with CASE WHEN) to compute current-year
 	// and prior-year totals in the same row, avoiding a separate query or JOIN for the
 	// prior period. The date range for the LEFT JOIN covers the full two-year span
@@ -114,22 +117,30 @@ func buildNotesData(year int) (NotesData, error) {
 			c.name,
 			c.parent_id,
 			c.note_ref,
-			COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amount ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amount ELSE 0 END), 0)
+			COALESCE(SUM(CASE
+				WHEN c.type IN ('income', 'expenditure') AND t.date >= ? AND t.date < ? THEN t.amount
+				WHEN c.type IN ('asset', 'liability') AND t.date < ? THEN t.amount
+				ELSE 0
+			END), 0),
+			COALESCE(SUM(CASE
+				WHEN c.type IN ('income', 'expenditure') AND t.date >= ? AND t.date < ? THEN t.amount
+				WHEN c.type IN ('asset', 'liability') AND t.date < ? THEN t.amount
+				ELSE 0
+			END), 0)
 		FROM categories c
 		LEFT JOIN transactions t
 			ON t.category_id = c.id
 			AND t.type = c.type
 			AND t.date >= ?
 			AND t.date < ?
-		WHERE c.type IN ('income', 'expenditure') AND c.note_ref <> ''
+		WHERE c.type IN ('income', 'expenditure', 'asset', 'liability') AND c.note_ref <> ''
 		GROUP BY c.id, c.type, c.name, c.parent_id, c.note_ref
 		ORDER BY
-			CASE c.type WHEN 'income' THEN 0 ELSE 1 END,
+			CASE c.type WHEN 'income' THEN 0 WHEN 'expenditure' THEN 1 WHEN 'asset' THEN 2 ELSE 3 END,
 			CAST(c.note_ref AS INTEGER),
 			c.parent_id,
 			c.id
-	`, startDate, endDate, priorStartDate, priorEndDate, priorStartDate, endDate)
+	`, startDate, endDate, endDate, priorStartDate, priorEndDate, priorEndDate, priorStartDate, endDate)
 	if err != nil {
 		return NotesData{}, fmt.Errorf("query note categories: %w", err)
 	}
@@ -159,12 +170,26 @@ func buildNotesData(year int) (NotesData, error) {
 			return NotesData{}, fmt.Errorf("scan note category: %w", err)
 		}
 		categories = append(categories, category)
-		if category.ParentID > 0 {
-			childrenByParent[category.ParentID] = append(childrenByParent[category.ParentID], category)
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return NotesData{}, fmt.Errorf("iterate note categories: %w", err)
+	}
+	currentPositions, err := loadCategoryPositions(year)
+	if err != nil {
+		return NotesData{}, fmt.Errorf("load current note account positions: %w", err)
+	}
+	priorPositions, err := loadCategoryPositions(year - 1)
+	if err != nil {
+		return NotesData{}, fmt.Errorf("load prior note account positions: %w", err)
+	}
+	for index := range categories {
+		if categories[index].Type == "asset" || categories[index].Type == "liability" {
+			categories[index].Amount = currentPositions[categories[index].ID]
+			categories[index].PriorAmount = priorPositions[categories[index].ID]
+		}
+		if categories[index].ParentID > 0 {
+			childrenByParent[categories[index].ParentID] = append(childrenByParent[categories[index].ParentID], categories[index])
+		}
 	}
 
 	// sectionOrder preserves the insertion order of note sections so they appear in the
@@ -188,7 +213,13 @@ func buildNotesData(year int) (NotesData, error) {
 		// Use a composite key of type + note_ref to distinguish between income and
 		// expenditure sections that might share the same note_ref number. In practice
 		// note_refs are unique across types, but this is a defensive measure.
-		sectionKey := category.Type + ":" + category.NoteRef
+		sectionKey := category.NoteRef
+		// Note 21 contains both the depreciation/amortization expense disclosure and the
+		// non-current-asset schedule. They share a workbook note number but must remain two
+		// separate tables or their fundamentally different amounts would be added together.
+		if category.NoteRef == "21" {
+			sectionKey += ":" + category.Type
+		}
 		section, ok := sections[sectionKey]
 		if !ok {
 			section = &NoteSection{
@@ -204,15 +235,26 @@ func buildNotesData(year int) (NotesData, error) {
 		// in at least one of the two periods. Categories with zero in both periods
 		// are hidden to keep the notes concise—the section still exists because it
 		// may have active children, but the parent line is omitted.
+		amountSign := 1.0
+		if category.Type == "expenditure" && category.NoteRef == "5" {
+			// Harvest proceeds are presented net in the workbook. The underlying expense stays
+			// an expenditure posting for operational reports, but Note 5 displays it as a
+			// deduction so its total reconciles to the statement line.
+			amountSign = -1
+		}
 		if category.Amount != 0 || category.PriorAmount != 0 {
+			lineName := category.Name
+			if amountSign < 0 {
+				lineName = "Deduct: " + lineName
+			}
 			section.Lines = append(section.Lines, NoteLine{
-				Name:        category.Name,
-				Amount:      category.Amount,
-				PriorAmount: category.PriorAmount,
+				Name:        lineName,
+				Amount:      category.Amount * amountSign,
+				PriorAmount: category.PriorAmount * amountSign,
 			})
 		}
-		section.Total += category.Amount
-		section.PriorTotal += category.PriorAmount
+		section.Total += category.Amount * amountSign
+		section.PriorTotal += category.PriorAmount * amountSign
 
 		// Append all child categories that belong to this parent. Children with zero
 		// activity in both periods are skipped to avoid cluttering the report with
@@ -224,12 +266,41 @@ func buildNotesData(year int) (NotesData, error) {
 			}
 			section.Lines = append(section.Lines, NoteLine{
 				Name:        child.Name,
-				Amount:      child.Amount,
-				PriorAmount: child.PriorAmount,
+				Amount:      child.Amount * amountSign,
+				PriorAmount: child.PriorAmount * amountSign,
 			})
-			section.Total += child.Amount
-			section.PriorTotal += child.PriorAmount
+			section.Total += child.Amount * amountSign
+			section.PriorTotal += child.PriorAmount * amountSign
 		}
+	}
+
+	assetSchedule, err := buildFixedAssetData(year)
+	if err != nil {
+		return NotesData{}, fmt.Errorf("build current Note 21 schedule: %w", err)
+	}
+	priorAssetSchedule, err := buildFixedAssetData(year - 1)
+	if err != nil {
+		return NotesData{}, fmt.Errorf("build prior Note 21 schedule: %w", err)
+	}
+	if expenseSection := sections["21:expenditure"]; expenseSection != nil && expenseSection.Total == 0 && expenseSection.PriorTotal == 0 {
+		expenseSection.Lines = []NoteLine{{
+			Name:        "Calculated depreciation & amortization charge",
+			Amount:      assetSchedule.TotalCharge,
+			PriorAmount: priorAssetSchedule.TotalCharge,
+		}}
+		expenseSection.Total = assetSchedule.TotalCharge
+		expenseSection.PriorTotal = priorAssetSchedule.TotalCharge
+	}
+	if assetSection := sections["21:asset"]; assetSection != nil && (assetSchedule.TotalClosingCost != 0 || priorAssetSchedule.TotalClosingCost != 0) {
+		assetSection.Title = "Non-Current Assets Schedule"
+		assetSection.Lines = []NoteLine{{Name: "Property, Plant & Equipment — carrying amount", Amount: assetSchedule.PPECarryingAmount, PriorAmount: priorAssetSchedule.PPECarryingAmount}}
+		assetSection.Total = assetSchedule.PPECarryingAmount
+		assetSection.PriorTotal = priorAssetSchedule.PPECarryingAmount
+	}
+	if intangibleSection := sections["23"]; intangibleSection != nil && (assetSchedule.TotalClosingCost != 0 || priorAssetSchedule.TotalClosingCost != 0) {
+		intangibleSection.Lines = []NoteLine{{Name: "Software — carrying amount", Amount: assetSchedule.IntangibleCarryingAmount, PriorAmount: priorAssetSchedule.IntangibleCarryingAmount}}
+		intangibleSection.Total = assetSchedule.IntangibleCarryingAmount
+		intangibleSection.PriorTotal = priorAssetSchedule.IntangibleCarryingAmount
 	}
 
 	// Transfer the ordered sections into the data struct. Using sectionOrder ensures
@@ -242,6 +313,110 @@ func buildNotesData(year int) (NotesData, error) {
 	return data, nil
 }
 
+// loadCategoryPositions applies the same opening-plus-movement rule used by the statement
+// of financial position, but at individual account level for Notes 21–28. A configured
+// opening supersedes prior transaction history; accounts without one retain the legacy
+// cumulative calculation for backward compatibility.
+func loadCategoryPositions(year int) (map[int64]float64, error) {
+	startDate, endDate := yearBounds(year)
+	rows, err := db.DB.Query(`
+		SELECT c.id,
+			COALESCE(opening.amount, 0),
+			CASE WHEN opening.category_id IS NULL THEN 0 ELSE 1 END,
+			COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN t.date < ? THEN t.amount ELSE 0 END), 0)
+		FROM categories c
+		LEFT JOIN account_opening_balances opening ON opening.category_id = c.id AND opening.year = ?
+		LEFT JOIN transactions t ON t.category_id = c.id AND t.type = c.type AND t.date < ?
+		WHERE c.type IN ('asset', 'liability')
+		GROUP BY c.id, opening.category_id, opening.amount
+	`, startDate, endDate, endDate, year, endDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	positions := map[int64]float64{}
+	for rows.Next() {
+		var id int64
+		var opening, movement, cumulative float64
+		var configured int
+		if err := rows.Scan(&id, &opening, &configured, &movement, &cumulative); err != nil {
+			return nil, err
+		}
+		positions[id] = cumulative
+		if configured == 1 {
+			positions[id] = opening + movement
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Retain the original Bank/Cash/Momo opening setup for upgraded databases. The standard
+	// chart now nests these accounts under Note 26, but their durable names still let us map
+	// each legacy opening to the correct account without altering historical transactions.
+	legacyRows, err := db.DB.Query(`
+		SELECT account_type, amount
+		FROM opening_balances
+		WHERE year = ?
+	`, year)
+	if err != nil {
+		return nil, err
+	}
+	type legacyOpening struct {
+		accountType string
+		amount      float64
+	}
+	var legacyOpenings []legacyOpening
+	for legacyRows.Next() {
+		var opening legacyOpening
+		if err := legacyRows.Scan(&opening.accountType, &opening.amount); err != nil {
+			legacyRows.Close()
+			return nil, err
+		}
+		legacyOpenings = append(legacyOpenings, opening)
+	}
+	if err := legacyRows.Close(); err != nil {
+		return nil, err
+	}
+
+	for _, opening := range legacyOpenings {
+		accountName := accountLabel(opening.accountType)
+		var categoryID int64
+		if err := db.DB.QueryRow(`
+			SELECT id FROM categories
+			WHERE type = 'asset' AND name = ?
+			ORDER BY CASE WHEN parent_id <> 0 THEN 0 ELSE 1 END, id
+			LIMIT 1
+		`, accountName).Scan(&categoryID); err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return nil, err
+		}
+		var explicitOpeningCount int
+		if err := db.DB.QueryRow(`
+			SELECT COUNT(*) FROM account_opening_balances
+			WHERE year = ? AND category_id = ?
+		`, year, categoryID).Scan(&explicitOpeningCount); err != nil {
+			return nil, err
+		}
+		if explicitOpeningCount > 0 {
+			continue
+		}
+		var movement float64
+		if err := db.DB.QueryRow(`
+			SELECT COALESCE(SUM(amount), 0)
+			FROM transactions
+			WHERE type = 'asset' AND category_id = ? AND date >= ? AND date < ?
+		`, categoryID, startDate, endDate).Scan(&movement); err != nil {
+			return nil, err
+		}
+		positions[categoryID] = opening.amount + movement
+	}
+	return positions, nil
+}
+
 // noteTitle resolves a note_ref code to a human-readable section title for the notes
 // report. It uses a hard-coded lookup table that maps the numeric note_ref values assigned
 // in the category seed data to their corresponding financial reporting titles. If a
@@ -249,22 +424,36 @@ func buildNotesData(year int) (NotesData, error) {
 // with new note_ref values), the function falls back to the category's own display name,
 // ensuring that every note section has some visible title.
 func noteTitle(noteRef, fallback string) string {
-	// These titles correspond to the standard chart of accounts used by the application.
-	// Note references 1–9 cover income groupings, and 10–12 cover expenditure groupings,
-	// matching the structure defined in the seedCategories function.
+	// These titles correspond to the updated PCG standard workbook. Notes 3–8 cover income,
+	// 9–21 cover expenditure and non-current assets, and 22–28 cover the remaining statement
+	// of financial position disclosures.
 	titles := map[string]string{
-		"1":  "Offertory",
-		"2":  "Tithe",
-		"3":  "V.T.O.",
-		"4":  "Donations Received",
-		"5":  "Revivals",
-		"6":  "Harvest Proceeds",
-		"7":  "Other Incomes",
-		"8":  "Group Almanac Days",
-		"9":  "Donation for Manse",
-		"10": "Ministry & Programme Expenses",
-		"11": "Administrative Expenses",
-		"12": "Operating Expenses",
+		"3":  "Tithes",
+		"4":  "Offerings",
+		"5":  "Harvest Proceeds (Net)",
+		"6":  "Donations Received",
+		"7":  "Investment Income",
+		"8":  "Other Income",
+		"9":  "Contributions Paid",
+		"10": "Agents' Expenses",
+		"11": "Staff Cost",
+		"12": "Other Allowances",
+		"13": "Evangelism Expenses",
+		"14": "Group & Committee Expenses",
+		"15": "Meetings and Conferences",
+		"16": "Training, Seminars, Workshops & Retreats",
+		"17": "Social Services",
+		"18": "Levies Paid",
+		"19": "Property Upkeep",
+		"20": "General Administration Expenses",
+		"21": "Property, Plant, Equipment, Depreciation & Amortization",
+		"22": "Long Term Investment",
+		"23": "Intangible Assets",
+		"24": "Inventories",
+		"25": "Accounts Receivable & Prepayments",
+		"26": "Cash & Cash Equivalents",
+		"27": "Long Term Loan",
+		"28": "Accounts Payable & Accruals",
 	}
 	if title, ok := titles[noteRef]; ok {
 		return title

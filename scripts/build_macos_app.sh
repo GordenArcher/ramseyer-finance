@@ -14,6 +14,12 @@ PLIST_PATH="$CONTENTS_DIR/Info.plist"
 ZIP_PATH="$DIST_DIR/$APP_NAME-macos.zip"
 ICON_SOURCE="$ROOT_DIR/static/app-icon.icns"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+APP_VERSION="${APP_VERSION:-$(sed -n 's/.*CurrentVersion = "v\([0-9][^"]*\)".*/\1/p' "$ROOT_DIR/internal/appmeta/meta.go")}"
+
+if [[ -z "$APP_VERSION" ]]; then
+  printf '%s\n' "Could not read the app version from internal/appmeta/meta.go" >&2
+  exit 1
+fi
 
 rm -rf "$APP_DIR" "$ZIP_PATH"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
@@ -39,9 +45,9 @@ cat > "$PLIST_PATH" <<EOF
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>$APP_VERSION</string>
 	<key>CFBundleVersion</key>
-	<string>1.0.0</string>
+	<string>$APP_VERSION</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>NSHighResolutionCapable</key>
@@ -63,4 +69,3 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 
 echo "Built app bundle: $APP_DIR"
 echo "Built zip archive: $ZIP_PATH"
-

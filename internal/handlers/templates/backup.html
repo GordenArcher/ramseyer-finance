@@ -31,27 +31,92 @@
         data-confirm-action-label="Restore"
         data-confirm-message="Restore this backup and replace all current data? This action cannot be undone."
     >
-        <div class="form-group">
-            <label>Selected Backup File</label>
-            <input type="hidden" name="backup_path" value="" data-native-file-path />
-            <div class="form-actions">
-                <button type="button" class="btn btn-secondary" data-native-file-picker>Choose Backup File</button>
+        <div class="restore-library" data-backup-library>
+            <div class="card-header">
+                <div>
+                    <h4>Backup Library</h4>
+                    <p>Search and filter backups created or previously used by this app.</p>
+                </div>
+                <a href="/backup" class="btn btn-sm btn-secondary" data-nav-loading>Refresh</a>
             </div>
-            <p class="section-copy" data-native-file-name>No backup file selected yet.</p>
-            <p class="section-copy">If the desktop picker is unavailable, use the browser file input below.</p>
+            <div class="backup-library-filters">
+                <div class="form-group form-group-span">
+                    <label for="backup-search">Search backups</label>
+                    <input id="backup-search" type="search" placeholder="Search filename, type, date, or path" autocomplete="off" data-backup-search />
+                </div>
+                <div class="form-group">
+                    <label for="backup-kind-filter">Source</label>
+                    <select id="backup-kind-filter" data-backup-kind-filter>
+                        <option value="all">All sources</option>
+                        <option value="manual">Manual</option>
+                        <option value="automatic">Automatic</option>
+                        <option value="safety">Safety</option>
+                        <option value="history">History</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="backup-age-filter">Date</label>
+                    <select id="backup-age-filter" data-backup-age-filter>
+                        <option value="all">Any date</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                        <option value="365">Last year</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="backup-extension-filter">Format</label>
+                    <select id="backup-extension-filter" data-backup-extension-filter>
+                        <option value="all">All SQLite formats</option>
+                        <option value="db">.db</option>
+                        <option value="sqlite">.sqlite</option>
+                        <option value="sqlite3">.sqlite3</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="backup-sort">Sort</label>
+                    <select id="backup-sort" data-backup-sort>
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                        <option value="name">Filename A–Z</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="backup-library-summary">
+                <span data-backup-result-count>{{len .RestoreCandidates}} backup{{if ne (len .RestoreCandidates) 1}}s{{end}}</span>
+                <span data-backup-selected-label>No backup selected</span>
+            </div>
+
+            <div class="backup-library-list" data-backup-list>
+                {{range .RestoreCandidates}}
+                <label class="backup-library-item"
+                    data-backup-option
+                    data-backup-kind="{{.Kind}}"
+                    data-backup-extension="{{.Extension}}"
+                    data-backup-modified="{{.ModifiedUnix}}">
+                    <input type="radio" name="backup_path" value="{{.Path}}" data-backup-radio />
+                    <span class="backup-library-marker" aria-hidden="true"></span>
+                    <span class="backup-library-details">
+                        <strong>{{.Name}}</strong>
+                        <span>{{.KindLabel}} · {{.ModifiedLabel}} · {{.SizeLabel}} · .{{.Extension}}</span>
+                        <small>{{.Path}}</small>
+                    </span>
+                </label>
+                {{end}}
+                <p class="backup-library-empty" data-backup-empty {{if .RestoreCandidates}}hidden{{end}}>
+                    No backups match the current search and filters.
+                </p>
+            </div>
         </div>
-        <div class="form-group">
-            <label>Browser Fallback File Input</label>
-            <input
-                class="file-input"
-                id="backup_file"
-                type="file"
-                name="backup_file"
-                accept=".db,.sqlite,.sqlite3"
-                data-restore-file-input
-            />
-            <p class="section-copy">Supported files: .db, .sqlite, .sqlite3</p>
+
+        <div class="restore-drop-zone" data-backup-drop-zone>
+            <input id="backup_file" type="file" name="backup_file" accept=".db,.sqlite,.sqlite3" data-restore-file-input tabindex="-1" />
+            <strong>Need a backup outside this library?</strong>
+            <span>Drag and drop a .db, .sqlite, or .sqlite3 file here. No system picker will open.</span>
+            <small data-backup-drop-label>No external file dropped.</small>
         </div>
+
         <button type="submit" class="btn btn-danger">
             Restore from Backup
         </button>

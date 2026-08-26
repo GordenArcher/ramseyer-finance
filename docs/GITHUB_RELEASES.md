@@ -38,7 +38,7 @@ Run these checks on Windows using the packaged `.exe` (not `go run`):
 - [ ] Transaction edit and delete work, including duplicate warning
 - [ ] Export saves a file locally (test CSV and at least one other format)
 - [ ] Manual backup download saves a `.db` file
-- [ ] Restore file picker opens (native dialog on Windows)
+- [ ] Searchable restore library selects managed backups without opening a native dialog
 - [ ] Auto-backup settings save and display correctly on the Setup screen
 
 ## What to Upload
@@ -67,7 +67,7 @@ How to use:
 1. Download the ZIP file.
 2. Extract it to a folder on your machine.
 3. Open the extracted folder.
-4. Double-click START-Ramseyer-Finance.bat.
+4. Double-click Ramseyer Finance.exe.
 
 On first launch:
 - The app will ask you to create a PIN.
@@ -89,6 +89,6 @@ The client should only need to:
 1. Open the GitHub Release link
 2. Download the Windows ZIP asset
 3. Extract it to any folder
-4. Double-click `START-Ramseyer-Finance.bat`
+4. Double-click `Ramseyer Finance.exe`
 
 No cloning. No Go. No command line. No build steps.

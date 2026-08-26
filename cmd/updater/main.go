@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -97,12 +96,11 @@ func runUpdate(pid int, zipPath, targetDir, relaunchPath string) error {
 	return relaunchApplication(relaunchPath)
 }
 
-// waitForProcessExit polls the Windows task list every 700ms until the target
-// process is no longer running or the timeout is reached. The polling interval
-// is short enough to minimise delay after the app exits but long enough to
-// avoid excessive CPU usage during the wait. The function uses tasklist.exe
-// with a PID filter for a lightweight check that doesn't require elevated
-// privileges or external dependencies.
+// waitForProcessExit checks the native Windows process handle every 700ms until
+// the target process is no longer running or the timeout is reached. The polling
+// interval is short enough to minimise delay after the app exits but long enough
+// to avoid excessive CPU usage. The platform helper deliberately avoids invoking
+// tasklist.exe so an update never flashes a command window on the operator's screen.
 func waitForProcessExit(pid int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -116,28 +114,6 @@ func waitForProcessExit(pid int, timeout time.Duration) error {
 		time.Sleep(700 * time.Millisecond)
 	}
 	return fmt.Errorf("timed out waiting for app process %d to exit", pid)
-}
-
-// isProcessRunning checks whether a process with the given PID exists in the
-// Windows task list. It runs `tasklist /FI "PID eq N" /NH` and inspects the
-// output. tasklist returns "No tasks are running" or an empty result when the
-// PID is not found; any other output containing the PID indicates the process
-// is still alive. The function does not require the process to be owned by the
-// same user, so it works correctly even if the updater is launched with
-// different credentials.
-func isProcessRunning(pid int) (bool, error) {
-	output, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/NH").CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("query running process: %w", err)
-	}
-	text := strings.ToLower(string(output))
-	if strings.Contains(text, "no tasks are running") {
-		return false, nil
-	}
-	// The PID is matched with surrounding whitespace or punctuation to avoid
-	// false positives (e.g., PID 12 matching against PID 1234). tasklist
-	// formats PIDs with surrounding spaces or followed by a comma.
-	return strings.Contains(text, fmt.Sprintf(" %d ", pid)) || strings.Contains(text, fmt.Sprintf(",%d", pid)), nil
 }
 
 // unzipRelease extracts a ZIP archive into the given destination directory and
@@ -236,7 +212,7 @@ func replaceInstallRoot(sourceRoot, targetRoot string) error {
 	// are left untouched. Each removal failure is silently ignored because
 	// the file may not exist in the current installation (e.g., an older
 	// version that didn't include a particular doc file).
-	managedTargets := []string{"app", "docs", "README.md", "README-Windows.txt", "START-Ramseyer-Finance.bat"}
+	managedTargets := []string{"app", "docs", "README.md", "README-Windows.txt", "Ramseyer Finance.exe", "START-Ramseyer-Finance.bat"}
 	for _, name := range managedTargets {
 		_ = os.RemoveAll(filepath.Join(targetRoot, name))
 	}
@@ -294,17 +270,9 @@ func copyTree(sourceRoot, targetRoot string) error {
 	})
 }
 
-// relaunchApplication starts the updated application. If the relaunch path
-// ends with .bat or .cmd (the launcher script), it uses `cmd /C start` to open
-// it in a new window, which is the expected behaviour for a double-click
-// launcher. For direct executables, it starts the process directly. The
-// function uses Start() rather than Run() so the updater can exit immediately
-// after spawning the new process; it does not wait for the application to
-// finish launching.
+// relaunchApplication starts the updated GUI launcher without waiting for it.
+// The Windows platform helper creates a detached, hidden-window process so the
+// entire update and restart path remains free of terminal windows.
 func relaunchApplication(relaunchPath string) error {
-	lowerPath := strings.ToLower(relaunchPath)
-	if strings.HasSuffix(lowerPath, ".bat") || strings.HasSuffix(lowerPath, ".cmd") {
-		return exec.Command("cmd", "/C", "start", "", relaunchPath).Start()
-	}
-	return exec.Command(relaunchPath).Start()
+	return newDetachedCommand(relaunchPath).Start()
 }

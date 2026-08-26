@@ -20,16 +20,21 @@ import (
 // operational settings. The Message and MessageTone fields provide feedback after form
 // submissions (e.g., "Budget saved" or "Opening balance saved").
 type SetupData struct {
-	Active          string
-	AppVersion      string
-	Years           []int
-	Categories      []BudgetOption
-	Budgets         []SavedBudget
-	OpeningBalances []SavedOpeningBalance
-	AutoBackup      AutoBackupConfig
-	DashboardConfig DashboardGreetingConfig
-	Message         string
-	MessageTone     string
+	Active             string
+	AppVersion         string
+	Years              []int
+	Categories         []BudgetOption
+	Budgets            []SavedBudget
+	OpeningBalances    []SavedOpeningBalance
+	FundRollforwards   []SavedFundRollforward
+	BalanceAccounts    []BalanceAccountOption
+	AccountOpenings    []SavedAccountOpeningBalance
+	FixedAssetOptions  []FixedAssetOpeningOption
+	FixedAssetOpenings []SavedFixedAssetOpening
+	AutoBackup         AutoBackupConfig
+	DashboardConfig    DashboardGreetingConfig
+	Message            string
+	MessageTone        string
 }
 
 // SetupPage serves the application setup and configuration page. It loads the list of
@@ -63,6 +68,31 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	fundRollforwards, err := loadSavedFundRollforwards()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	balanceAccounts, err := loadBalanceAccountOptions()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	accountOpenings, err := loadSavedAccountOpeningBalances()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	fixedAssetOptions, err := loadFixedAssetOpeningOptions()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	fixedAssetOpenings, err := loadSavedFixedAssetOpenings()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 	autoBackupConfig, err := loadAutoBackupConfig()
 	if err != nil {
 		serverError(w, err)
@@ -75,18 +105,176 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := SetupData{
-		Active:          "setup",
-		AppVersion:      appmeta.CurrentVersion,
-		Years:           years,
-		Categories:      categories,
-		Budgets:         budgets,
-		OpeningBalances: openingBalances,
-		AutoBackup:      autoBackupConfig,
-		DashboardConfig: dashboardConfig,
-		Message:         r.URL.Query().Get("msg"),
-		MessageTone:     alertTone(r.URL.Query().Get("msg")),
+		Active:             "setup",
+		AppVersion:         appmeta.CurrentVersion,
+		Years:              years,
+		Categories:         categories,
+		Budgets:            budgets,
+		OpeningBalances:    openingBalances,
+		FundRollforwards:   fundRollforwards,
+		BalanceAccounts:    balanceAccounts,
+		AccountOpenings:    accountOpenings,
+		FixedAssetOptions:  fixedAssetOptions,
+		FixedAssetOpenings: fixedAssetOpenings,
+		AutoBackup:         autoBackupConfig,
+		DashboardConfig:    dashboardConfig,
+		Message:            r.URL.Query().Get("msg"),
+		MessageTone:        alertTone(r.URL.Query().Get("msg")),
 	}
 	RenderTemplate(w, "setup", data)
+}
+
+// SaveFixedAssetOpening captures both cost and accumulated depreciation at the start of a
+// reporting year. A single net asset balance cannot produce Note 21's two roll-forwards,
+// so these values are stored separately and current additions plus the calculated charge
+// are applied on top of them.
+func SaveFixedAssetOpening(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		badRequest(w, "Invalid form submission")
+		return
+	}
+	year, err := strconv.Atoi(strings.TrimSpace(r.FormValue("year")))
+	if err != nil {
+		badRequest(w, "Invalid year")
+		return
+	}
+	categoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("category_id")), 10, 64)
+	if err != nil || categoryID <= 0 {
+		badRequest(w, "Invalid fixed-asset class")
+		return
+	}
+	openingCost, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("opening_cost")), 64)
+	if err != nil || openingCost < 0 {
+		badRequest(w, "Opening cost must be zero or greater")
+		return
+	}
+	openingDep, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("opening_accumulated_depreciation")), 64)
+	if err != nil || openingDep < 0 || openingDep > openingCost {
+		badRequest(w, "Opening accumulated depreciation must be between zero and opening cost")
+		return
+	}
+	var valid int
+	if err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM categories c JOIN categories parent ON parent.id = c.parent_id
+		WHERE c.id = ? AND c.type = 'asset' AND parent.name IN ('Property, Plant & Equipment', 'Intangible Assets')
+	`, categoryID).Scan(&valid); err != nil {
+		serverError(w, err)
+		return
+	}
+	if valid == 0 {
+		badRequest(w, "Selected account is not a fixed or intangible asset class")
+		return
+	}
+	if _, err := db.DB.Exec(`
+		INSERT INTO fixed_asset_openings (year, category_id, opening_cost, opening_accumulated_depreciation, updated_at)
+		VALUES (?, ?, ?, ?, datetime('now','localtime'))
+		ON CONFLICT(year, category_id) DO UPDATE SET
+			opening_cost = excluded.opening_cost,
+			opening_accumulated_depreciation = excluded.opening_accumulated_depreciation,
+			updated_at = datetime('now','localtime')
+	`, year, categoryID, openingCost, openingDep); err != nil {
+		serverError(w, err)
+		return
+	}
+	http.Redirect(w, r, "/setup?msg=Fixed-asset+opening+saved", http.StatusSeeOther)
+}
+
+// SaveAccountOpeningBalance records the brought-forward position of any asset or liability
+// account. This replaces the previous cash-only limitation and lets the statement of
+// financial position begin from independently confirmed year-opening balances for every
+// workbook note from 21 through 28.
+func SaveAccountOpeningBalance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		badRequest(w, "Invalid form submission")
+		return
+	}
+	year, err := strconv.Atoi(strings.TrimSpace(r.FormValue("year")))
+	if err != nil {
+		badRequest(w, "Invalid year")
+		return
+	}
+	categoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("category_id")), 10, 64)
+	if err != nil || categoryID <= 0 {
+		badRequest(w, "Invalid balance-sheet account")
+		return
+	}
+	amount, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("amount")), 64)
+	if err != nil || amount < 0 {
+		badRequest(w, "Opening balance must be zero or greater")
+		return
+	}
+	var categoryType string
+	if err := db.DB.QueryRow(`SELECT type FROM categories WHERE id = ? AND type IN ('asset', 'liability')`, categoryID).Scan(&categoryType); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			badRequest(w, "Opening balances require an asset or liability account")
+			return
+		}
+		serverError(w, err)
+		return
+	}
+	if _, err := db.DB.Exec(`
+		INSERT INTO account_opening_balances (year, category_id, amount, updated_at)
+		VALUES (?, ?, ?, datetime('now','localtime'))
+		ON CONFLICT(year, category_id) DO UPDATE SET amount = excluded.amount, updated_at = datetime('now','localtime')
+	`, year, categoryID, amount); err != nil {
+		serverError(w, err)
+		return
+	}
+	http.Redirect(w, r, "/setup?msg=Account+opening+balance+saved", http.StatusSeeOther)
+}
+
+// SaveFundRollforward stores the opening accumulated fund and any prior-year correction
+// for a reporting year. These values are independent of current transactions; the reports
+// add the calculated annual surplus to them and then compare the resulting closing fund
+// with net assets, exposing incomplete balance-sheet postings instead of hiding them.
+func SaveFundRollforward(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		badRequest(w, "Invalid form submission")
+		return
+	}
+
+	year, err := strconv.Atoi(strings.TrimSpace(r.FormValue("year")))
+	if err != nil {
+		badRequest(w, "Invalid year")
+		return
+	}
+	openingBalance, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("opening_balance")), 64)
+	if err != nil {
+		badRequest(w, "Invalid opening accumulated fund")
+		return
+	}
+	priorAdjustment, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("prior_year_adjustment")), 64)
+	if err != nil {
+		badRequest(w, "Invalid prior-year adjustment")
+		return
+	}
+
+	if _, err := db.DB.Exec(`
+		INSERT INTO fund_rollforwards (year, opening_balance, prior_year_adjustment, updated_at)
+		VALUES (?, ?, ?, datetime('now','localtime'))
+		ON CONFLICT(year) DO UPDATE SET
+			opening_balance = excluded.opening_balance,
+			prior_year_adjustment = excluded.prior_year_adjustment,
+			updated_at = datetime('now','localtime')
+	`, year, openingBalance, priorAdjustment); err != nil {
+		serverError(w, err)
+		return
+	}
+
+	http.Redirect(w, r, "/setup?msg=Accumulated+fund+roll-forward+saved", http.StatusSeeOther)
 }
 
 // SaveBudget handles POST requests to create or update a budget entry for a specific year

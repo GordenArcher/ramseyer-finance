@@ -42,7 +42,7 @@ func TestSyncTransactionCategoryMetadataBackfillsNoteRef(t *testing.T) {
 	defer Close()
 
 	var offeringID int64
-	if err := DB.QueryRow(`SELECT id FROM categories WHERE type='income' AND name='Offering'`).Scan(&offeringID); err != nil {
+	if err := DB.QueryRow(`SELECT id FROM categories WHERE type='income' AND name='Offerings'`).Scan(&offeringID); err != nil {
 		t.Fatalf("lookup offering category: %v", err)
 	}
 
@@ -68,10 +68,85 @@ func TestSyncTransactionCategoryMetadataBackfillsNoteRef(t *testing.T) {
 	).Scan(&categoryName, &noteRef); err != nil {
 		t.Fatalf("query synced transaction: %v", err)
 	}
-	if categoryName != "Offering" {
-		t.Fatalf("category = %q, want Offering", categoryName)
+	if categoryName != "Offerings" {
+		t.Fatalf("category = %q, want Offerings", categoryName)
 	}
-	if noteRef != "1" {
-		t.Fatalf("note_ref = %q, want 1", noteRef)
+	if noteRef != "4" {
+		t.Fatalf("note_ref = %q, want 4", noteRef)
+	}
+}
+
+func TestSeedCategoriesMigratesLegacyChildrenAndCashHierarchy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	if err := Initialize(path); err != nil {
+		t.Fatalf("initialize database: %v", err)
+	}
+	defer Close()
+
+	offeringResult, err := DB.Exec(`
+		INSERT INTO categories (type, name, parent_id, note_ref, report_section)
+		VALUES ('income', 'Offering', 0, '1', '')
+	`)
+	if err != nil {
+		t.Fatalf("insert legacy offering: %v", err)
+	}
+	offeringID, err := offeringResult.LastInsertId()
+	if err != nil {
+		t.Fatalf("legacy offering id: %v", err)
+	}
+	if _, err := DB.Exec(`
+		INSERT INTO categories (type, name, parent_id, note_ref, report_section)
+		VALUES ('income', 'Children Service', ?, '1', '')
+	`, offeringID); err != nil {
+		t.Fatalf("insert legacy offering child: %v", err)
+	}
+	if _, err := DB.Exec(`
+		INSERT INTO categories (type, name, parent_id, note_ref, report_section)
+		VALUES ('asset', 'Legacy Cash Marker', 0, '', '')
+	`); err != nil {
+		t.Fatalf("insert marker category: %v", err)
+	}
+
+	// Fresh initialization already supplied the child Bank account. Move it temporarily to
+	// a harmless name so this test can reproduce the old top-level Bank row, then let the
+	// migration reconcile that row with the standard Note 26 hierarchy.
+	if _, err := DB.Exec(`
+		UPDATE categories SET name = 'Workbook Bank Placeholder'
+		WHERE type = 'asset' AND name = 'Bank' AND parent_id <> 0
+	`); err != nil {
+		t.Fatalf("rename standard Bank child: %v", err)
+	}
+	if _, err := DB.Exec(`
+		INSERT INTO categories (type, name, parent_id, note_ref, report_section)
+		VALUES ('asset', 'Bank', 0, '', 'current_asset')
+	`); err != nil {
+		t.Fatalf("insert legacy Bank category: %v", err)
+	}
+	if err := seedCategories(); err != nil {
+		t.Fatalf("rerun category seed migration: %v", err)
+	}
+
+	var childNote string
+	if err := DB.QueryRow(`
+		SELECT note_ref FROM categories
+		WHERE type = 'income' AND name = 'Children Service' AND parent_id = ?
+	`, offeringID).Scan(&childNote); err != nil {
+		t.Fatalf("query migrated offering child: %v", err)
+	}
+	if childNote != "4" {
+		t.Fatalf("legacy child note = %q, want 4", childNote)
+	}
+
+	var bankParent string
+	if err := DB.QueryRow(`
+		SELECT parent.name
+		FROM categories bank
+		JOIN categories parent ON parent.id = bank.parent_id
+		WHERE bank.type = 'asset' AND bank.name = 'Bank'
+	`).Scan(&bankParent); err != nil {
+		t.Fatalf("query migrated Bank parent: %v", err)
+	}
+	if bankParent != "Cash & Cash Equivalents" {
+		t.Fatalf("Bank parent = %q, want Cash & Cash Equivalents", bankParent)
 	}
 }

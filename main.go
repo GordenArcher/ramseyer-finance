@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/desktop"
 	"ramseyer-finance/internal/handlers"
-	"ramseyer-finance/internal/nativepicker"
 	"strings"
 
 	webview "github.com/webview/webview_go"
@@ -92,7 +92,10 @@ func main() {
 	mux.HandleFunc("/monthly", handlers.WithAuth(handlers.MonthlyReport))
 	mux.HandleFunc("/quarterly", handlers.WithAuth(handlers.QuarterlyReport))
 	mux.HandleFunc("/annual", handlers.WithAuth(handlers.AnnualReport))
+	mux.HandleFunc("/trial-balance", handlers.WithAuth(handlers.TrialBalance))
 	mux.HandleFunc("/balance-sheet", handlers.WithAuth(handlers.BalanceSheet))
+	mux.HandleFunc("/cash-flow", handlers.WithAuth(handlers.CashFlowStatement))
+	mux.HandleFunc("/fixed-assets", handlers.WithAuth(handlers.FixedAssetSchedule))
 	mux.HandleFunc("/notes", handlers.WithAuth(handlers.NotesPage))
 	mux.HandleFunc("/categories", handlers.WithAuth(handlers.CategoriesPage))
 	mux.HandleFunc("/setup", handlers.WithAuth(handlers.SetupPage))
@@ -101,6 +104,9 @@ func main() {
 	mux.HandleFunc("/api/budget/save", handlers.WithAuth(handlers.SaveBudget))
 	mux.HandleFunc("/api/budget/delete", handlers.WithAuth(handlers.DeleteBudget))
 	mux.HandleFunc("/api/opening-balance/save", handlers.WithAuth(handlers.SaveOpeningBalance))
+	mux.HandleFunc("/api/fund-rollforward/save", handlers.WithAuth(handlers.SaveFundRollforward))
+	mux.HandleFunc("/api/account-opening-balance/save", handlers.WithAuth(handlers.SaveAccountOpeningBalance))
+	mux.HandleFunc("/api/fixed-asset-opening/save", handlers.WithAuth(handlers.SaveFixedAssetOpening))
 	mux.HandleFunc("/api/settings/dashboard-greeting/save", handlers.WithAuth(handlers.SaveDashboardGreetingSettings))
 	mux.HandleFunc("/api/settings/auto-backup/save", handlers.WithAuth(handlers.SaveAutoBackupSettings))
 	mux.HandleFunc("/api/update/check", handlers.WithAuth(handlers.CheckForUpdates))
@@ -132,28 +138,21 @@ func main() {
 	// of the application and is shut down when main() returns (via the deferred Close).
 	// The listener's address is logged so developers can see which port was assigned.
 	go func() {
-		fmt.Printf("Server running on http://%s\n", listener.Addr().String())
+		log.Printf("Server running on http://%s", listener.Addr().String())
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
 	}()
 
 	// I use a webview shell instead of building a separate native UI because the product is
-	// still HTML-driven, but I still bind native helpers like the restore picker where embedded
-	// browser behavior is weaker than a real desktop app.
+	// HTML-driven. Backup selection deliberately stays in that UI now; the only desktop bridge
+	// opens trusted release links in the user's browser and never exposes filesystem pickers.
 	// Create a new webview window (false = no debug inspector). The webview wraps the
 	// HTML/CSS/JS frontend in a native desktop window without requiring Electron or a
 	// separate browser. The window title and default size are set before navigation.
-	// The native backup file picker (Go function) is bound to a JavaScript global
-	// (window.pickBackupFile) so the frontend can invoke the OS-native file dialog
-	// from the restore form, which works around limitations in embedded webview file
-	// input handling.
 	w := webview.New(false)
 	defer w.Destroy()
-	if err := w.Bind("pickBackupFile", nativepicker.PickBackupFile); err != nil {
-		log.Fatalf("Failed to bind native backup picker: %v", err)
-	}
-	if err := w.Bind("openExternalURL", nativepicker.OpenExternalURL); err != nil {
+	if err := w.Bind("openExternalURL", desktop.OpenExternalURL); err != nil {
 		log.Fatalf("Failed to bind external URL opener: %v", err)
 	}
 	if err := w.Bind("quitApp", func() {

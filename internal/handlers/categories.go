@@ -194,7 +194,7 @@ func SaveCategory(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, "Category type cannot be changed once created")
 			return
 		}
-		if existing.Type == "asset" && existing.ParentID == 0 {
+		if existing.Type == "asset" {
 			switch existing.Name {
 			case "Bank", "Cash", "Momo":
 				if name != existing.Name {
@@ -262,8 +262,8 @@ func SaveCategory(w http.ResponseWriter, r *http.Request) {
 			if reportSection == "" {
 				reportSection = "current_liability"
 			}
-			if reportSection != "current_liability" {
-				badRequest(w, "Top-level liability categories must use the Current Liability section")
+			if reportSection != "current_liability" && reportSection != "long_term_liability" {
+				badRequest(w, "Top-level liability categories must choose Current Liability or Long-Term Liability")
 				return
 			}
 		}

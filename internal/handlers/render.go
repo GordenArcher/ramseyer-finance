@@ -39,6 +39,11 @@ var funcMap = template.FuncMap{
 	// trailing zeros trimmed (e.g., "1500.50" becomes "1500.5"). Used when the value is
 	// fed into JavaScript or data attributes rather than displayed directly.
 	"formatMoneyRaw": formatMoneyRaw,
+	// formatPercent converts the stored decimal rate used by the depreciation engine into
+	// the percentage label accountants expect in the Note 21 schedule.
+	"formatPercent": func(rate float64) string {
+		return fmt.Sprintf("%.0f%%", rate*100)
+	},
 	// toJSON serialises a Go value to its JSON representation and returns it as a
 	// template.JS value, which bypasses HTML escaping. This is essential for embedding
 	// chart data or other structured data into <script> tags in the template. If

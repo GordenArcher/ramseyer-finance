@@ -23,14 +23,14 @@ The Windows release package (`Ramseyer Finance-windows.zip`) contains:
 
 ```
 Ramseyer Finance-windows/
+├── Ramseyer Finance.exe          (terminal-free launcher)
 ├── app/
-│   └── ramseyer-finance.exe      (main application)
+│   ├── ramseyer-finance.exe      (main application)
 │   └── updater.exe               (in-app updater helper)
 ├── docs/
 │   ├── INSTALLATION.md
 │   ├── OPERATIONS.md
 │   └── WINDOWS.md
-├── START-Ramseyer-Finance.bat    (double-click launcher)
 └── README-Windows.txt            (quick-start note)
 ```
 
@@ -40,14 +40,15 @@ Ramseyer Finance-windows/
 
 1. Extract the delivered `.zip` file to a stable location (Desktop or Documents recommended).
 2. Open the extracted folder.
-3. Double-click `START-Ramseyer-Finance.bat`.
+3. Double-click `Ramseyer Finance.exe`.
 
 **Direct method:**
 
 1. Open the `app` folder inside the extracted package.
 2. Double-click `ramseyer-finance.exe`.
 
-Both methods produce the same result. The `.bat` launcher is provided for operators who are more comfortable with a clearly labelled entry point.
+Both methods produce the same result. The clearly labelled root executable is the preferred
+entry point; it launches the GUI application without opening a terminal window.
 
 ## Windows File Locations
 
@@ -123,11 +124,15 @@ The client should never need to:
 
 - Clone the repository
 - Install Go or any other development tools
-- Run terminal or PowerShell build commands
+- Run terminal, Command Prompt, or PowerShell commands
 - Package the application manually
 - Edit configuration files
 
-The packaged `.exe` and `.bat` launcher are self-contained. No setup wizard, installer, or administrator permissions are required.
+Backup restore also stays inside the app: its searchable library replaces Windows file
+dialogs, and external backups can be dragged onto the restore panel.
+
+The packaged GUI executables are self-contained. No batch launcher, setup wizard, installer,
+terminal, or administrator permissions are required.
 
 ## Important Clarifications
 

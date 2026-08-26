@@ -35,13 +35,10 @@ The PIN is a local lock for this installation only. It is not an online account 
 
 1. Extract the ZIP file to any folder.
 2. Open the extracted folder.
-3. Double-click `START-Ramseyer-Finance.bat`.
+3. Double-click `Ramseyer Finance.exe`.
 
-Alternatively, run the executable directly:
-
-```powershell
-.\app\ramseyer-finance.exe
-```
+The packaged launcher and application are native Windows GUI executables. Neither normal
+start-up nor an in-app update opens Command Prompt or PowerShell.
 
 ### Packaged macOS release
 
@@ -123,10 +120,10 @@ Restoring a backup replaces the current database entirely. To protect against ac
 - Safety backups are stored in `Ramseyer Finance Backups/Safety/` with a timestamp in the filename.
 - If the wrong backup file was selected, the safety backup can be used as a rollback point.
 
-The restore page supports two file selection methods:
-
-- **Packaged app:** native desktop file picker dialog
-- **Browser or development:** standard file upload input
+The restore page uses an in-app backup library with search, source, date, format, and sort
+filters. Managed manual, automatic, and safety backups appear automatically. To use an
+external backup, drag and drop it onto the restore panel; the app does not open a native
+filesystem dialog.
 
 ## Auto-Backup Behaviour
 
@@ -155,9 +152,12 @@ Retention limits are applied per frequency. Switching from Weekly to Monthly doe
 
 This should no longer happen. The database is stored in a stable user config directory, not beside the temporary `go run` executable. Rerunning the app uses the same database file.
 
-### "The restore file picker works in a browser but not in the desktop app"
+### "My backup does not appear in the restore library"
 
-The packaged desktop app uses a native OS file picker instead of the webview's built-in file input. If the native picker button does not respond, verify that the app was launched from the correct package folder and that no antivirus software is blocking the shell integration.
+Click **Refresh** after moving a backup into Downloads or the managed `Ramseyer Finance
+Backups` folders. Files outside those locations appear when they have previously been used
+successfully; otherwise drag and drop the external `.db`, `.sqlite`, or `.sqlite3` file onto
+the restore panel.
 
 ### "Where did my export go?"
 

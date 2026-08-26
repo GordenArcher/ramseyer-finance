@@ -1,0 +1,25 @@
+{{template "layout" .}}
+{{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Trial Balance</h2>
+    <p class="period">For the year ended 31 December {{.Year}}</p>
+    <div class="year-selector">{{range .Years}}<a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>{{end}}</div>
+    <button type="button" class="btn btn-secondary" data-print-page>Print / Save PDF</button>
+</div>
+
+{{if ne .Difference 0.0}}
+<div class="alert alert-warning">The Trial Balance differs by GH¢ {{formatMoney .Difference}}. Add or correct the counterpart balance-sheet movements before relying on the statements.</div>
+{{end}}
+
+<div class="card table-card reveal" data-table-stage>
+    <table class="data-table">
+        <thead><tr><th>Note</th><th>Account</th><th class="text-right">Debit (GH¢)</th><th class="text-right">Credit (GH¢)</th></tr></thead>
+        <tbody>
+        {{range .Lines}}<tr><td>{{.Note}}</td><td>{{.Account}}</td><td class="text-right">{{if .Debit}}{{formatMoney .Debit}}{{end}}</td><td class="text-right">{{if .Credit}}{{formatMoney .Credit}}{{end}}</td></tr>{{end}}
+        <tr class="total-row"><td></td><td>Total</td><td class="text-right">{{formatMoney .TotalDebit}}</td><td class="text-right">{{formatMoney .TotalCredit}}</td></tr>
+        <tr class="total-row"><td></td><td>Difference</td><td colspan="2" class="text-right">{{formatMoney .Difference}}</td></tr>
+        </tbody>
+    </table>
+</div>
+{{end}}

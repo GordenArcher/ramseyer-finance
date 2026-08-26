@@ -15,7 +15,7 @@
 <div class="card reveal">
     <h3>Chart of Accounts</h3>
     <p class="section-copy">
-        The workbook categories are only starter data now. Any new income, expenditure, asset, or liability should be added here so it becomes available in entry screens and reports.
+        The updated PCG workbook chart is the reporting baseline. Add congregation-specific accounts here under the appropriate workbook parent so they inherit the correct note and become available in entry screens and reports.
     </p>
 </div>
 
@@ -48,7 +48,7 @@
                     <td>{{if .ParentName}}{{.ParentName}}{{else}}Top-level{{end}}</td>
                     <td>{{if .NoteRef}}{{.NoteRef}}{{else}}—{{end}}</td>
                     <td>
-                        {{if eq .ReportSection "current_asset"}}Current Asset{{else if eq .ReportSection "non_current_asset"}}Non-Current Asset{{else if eq .ReportSection "current_liability"}}Current Liability{{else}}—{{end}}
+                        {{if eq .ReportSection "current_asset"}}Current Asset{{else if eq .ReportSection "non_current_asset"}}Non-Current Asset{{else if eq .ReportSection "current_liability"}}Current Liability{{else if eq .ReportSection "long_term_liability"}}Long-Term Liability{{else}}—{{end}}
                     </td>
                     <td>{{if .IsActive}}Active{{else}}Archived{{end}}</td>
                     <td class="text-right">{{.TransactionCount}} tx{{if gt .BudgetCount 0}}, {{.BudgetCount}} budgets{{end}}</td>
@@ -135,11 +135,12 @@
                         <option value="current_asset" {{if eq .CategoryForm.ReportSection "current_asset"}}selected{{end}}>Current Asset</option>
                         <option value="non_current_asset" {{if eq .CategoryForm.ReportSection "non_current_asset"}}selected{{end}}>Non-Current Asset</option>
                         <option value="current_liability" {{if eq .CategoryForm.ReportSection "current_liability"}}selected{{end}}>Current Liability</option>
+                        <option value="long_term_liability" {{if eq .CategoryForm.ReportSection "long_term_liability"}}selected{{end}}>Long-Term Liability</option>
                     </select>
                 </div>
             </div>
             <p class="section-copy">
-                Child income and expenditure categories inherit the parent note reference automatically. Top-level asset categories should choose whether they belong under Current Assets or Non-Current Assets.
+                Child accounts inherit the parent note reference automatically. Top-level assets and liabilities must be assigned to the appropriate financial-position section.
             </p>
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary" data-category-submit-label>{{if .CategoryForm.Loaded}}Update Category{{else}}Save Category{{end}}</button>

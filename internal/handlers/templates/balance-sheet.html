@@ -8,6 +8,7 @@
         <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
         {{end}}
     </div>
+    <button type="button" class="btn btn-secondary" data-print-page>Print / Save PDF</button>
 </div>
 
 <section class="stats-grid reveal">
@@ -28,6 +29,13 @@
         <div class="stat-value compact-money {{if lt .IncomeSurplus 0.0}}negative{{end}}" data-money-value="{{formatMoneyRaw .IncomeSurplus}}">{{formatCompactMoney .IncomeSurplus}}</div>
     </div>
 </section>
+
+{{if not .FundConfigured}}
+<div class="alert alert-warning">The opening accumulated fund has not been configured for {{.Year}}. Set it in Setup before relying on this statement.</div>
+{{end}}
+{{if ne .BalanceDifference 0.0}}
+<div class="alert alert-warning">The statement is out of balance by GH¢ {{formatMoney .BalanceDifference}}. Reconcile the asset, liability, and accumulated-fund entries.</div>
+{{end}}
 
 <div class="card chart-card reveal">
     <div class="card-header">
@@ -101,6 +109,28 @@
 </div>
 
 <div class="card table-card reveal" data-table-stage>
+    <h3>Long-Term Borrowings</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Description</th>
+                <th class="text-right">{{.PriorYear}} (GH¢)</th>
+                <th class="text-right">{{.Year}} (GH¢)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {{range .LongTermLiabilities}}
+        <tr>
+            <td>{{.Name}}</td>
+            <td class="text-right">{{formatMoney .PriorAmount}}</td>
+            <td class="text-right">{{formatMoney .Amount}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
     <h3>Current Liabilities</h3>
     <table class="data-table">
         <thead>
@@ -111,7 +141,7 @@
             </tr>
         </thead>
         <tbody>
-        {{range .Liabilities}}
+        {{range .CurrentLiabilities}}
         <tr>
             <td>{{.Name}}</td>
             <td class="text-right">{{formatMoney .PriorAmount}}</td>
@@ -134,7 +164,7 @@
         </thead>
         <tbody>
         <tr>
-            <td>Accumulated Fund</td>
+            <td>Adjusted Opening Accumulated Fund</td>
             <td class="text-right">{{formatMoney .PriorAccumulatedFund}}</td>
             <td class="text-right">{{formatMoney .AccumulatedFund}}</td>
         </tr>
@@ -144,9 +174,14 @@
             <td class="text-right">{{formatMoney .IncomeSurplus}}</td>
         </tr>
         <tr class="total-row">
-            <td>Total Equity</td>
+            <td>Closing Accumulated Fund / Total Equity</td>
             <td class="text-right">{{formatMoney .PriorTotalEquity}}</td>
             <td class="text-right">{{formatMoney .TotalEquity}}</td>
+        </tr>
+        <tr>
+            <td>Statement Balance Difference</td>
+            <td class="text-right {{if ne .PriorBalanceDifference 0.0}}negative{{end}}">{{formatMoney .PriorBalanceDifference}}</td>
+            <td class="text-right {{if ne .BalanceDifference 0.0}}negative{{end}}">{{formatMoney .BalanceDifference}}</td>
         </tr>
         </tbody>
     </table>

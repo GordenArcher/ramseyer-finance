@@ -17,10 +17,11 @@ import (
 // contains the most recent backup events—both manual and automatic—for display in the
 // activity log on the page.
 type BackupData struct {
-	Active      string
-	Message     string
-	MessageTone string
-	History     []BackupHistoryEntry
+	Active            string
+	Message           string
+	MessageTone       string
+	History           []BackupHistoryEntry
+	RestoreCandidates []RestoreCandidate
 }
 
 // BackupPage serves the backup management interface. It loads the most recent 20 backup
@@ -33,12 +34,18 @@ func BackupPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	restoreCandidates, err := loadRestoreCandidates()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 
 	data := BackupData{
-		Active:      "backup",
-		Message:     r.URL.Query().Get("msg"),
-		MessageTone: alertTone(r.URL.Query().Get("msg")),
-		History:     history,
+		Active:            "backup",
+		Message:           r.URL.Query().Get("msg"),
+		MessageTone:       alertTone(r.URL.Query().Get("msg")),
+		History:           history,
+		RestoreCandidates: restoreCandidates,
 	}
 	RenderTemplate(w, "backup", data)
 }
@@ -165,22 +172,27 @@ func saveBackupLocally(w http.ResponseWriter) {
 }
 
 // openRestoreSource inspects the incoming HTTP request and returns an io.ReadCloser for
-// the restore payload. It supports two input methods: a native filesystem path (from the
-// desktop webview's file picker, passed as the "backup_path" form field) and a standard
-// multipart file upload (the "backup_file" form field). The function also returns a
+// the restore payload. It supports two input methods: a managed filesystem path selected
+// inside the custom backup library and a multipart file supplied through drag-and-drop.
+// The function also returns a
 // human-readable label for logging (the file path or the uploaded filename), and a cleanup
 // function that callers must defer to close the underlying file handle. If neither input
 // method provides a valid source, it returns a descriptive error.
 func openRestoreSource(r *http.Request) (io.ReadCloser, string, func(), error) {
-	// I accept either a native path or a browser upload because the desktop webview and the browser
-	// do not behave the same way with file inputs. Supporting both keeps restore practical in both environments.
+	// I validate custom-picker paths again on the server because a hidden form value can be
+	// changed with developer tools. Without this boundary, the restore endpoint could be
+	// tricked into reading an arbitrary local file rather than a managed SQLite backup.
 	backupPath := strings.TrimSpace(r.FormValue("backup_path"))
 	if backupPath != "" {
-		file, err := os.Open(backupPath)
+		validatedPath, err := validateManagedRestorePath(backupPath)
+		if err != nil {
+			return nil, "", func() {}, err
+		}
+		file, err := os.Open(validatedPath)
 		if err != nil {
 			return nil, "", func() {}, fmt.Errorf("Selected backup file could not be opened")
 		}
-		return file, backupPath, func() {
+		return file, validatedPath, func() {
 			_ = file.Close()
 		}, nil
 	}

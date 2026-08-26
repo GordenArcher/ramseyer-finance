@@ -11,7 +11,9 @@ Ramseyer Finance is a local desktop finance manager for church operations. It ru
 ## What It Does
 
 - Tracks `income`, `expenditure`, `asset`, and `liability` transactions
-- Shows dashboard summaries plus monthly, quarterly, annual, balance-sheet, and notes views
+- Shows dashboard summaries plus monthly, quarterly, financial-performance, accumulated-fund, balance-sheet, trial-balance, cash-flow, notes, and fixed-asset views
+- Uses the updated PCG standard chart of accounts and Notes 3–28 from the congregation workbook
+- Carries account openings, fixed-asset openings, depreciation, and accumulated-fund roll-forwards into year-end reports
 - Supports transaction editing, deletion, pagination, and audit history
 - Supports manual backup, restore, scheduled auto-backup, and export
 - Supports GitHub Release update checks and packaged Windows in-app updates
@@ -24,7 +26,8 @@ Ramseyer Finance is a local desktop finance manager for church operations. It ru
 - `internal/appmeta/`: embedded version and release-channel metadata
 - `internal/handlers/`: HTTP handlers, reporting logic, auth, exports, backup flows
 - `cmd/updater/`: packaged Windows updater helper used for in-app updates
-- `internal/nativepicker/`: desktop restore file picker bridge
+- `cmd/launcher/`: terminal-free Windows GUI entry point
+- `internal/desktop/`: minimal desktop bridge for opening trusted external links
 - `scripts/`: Windows and macOS build/packaging scripts
 - `static/`: JavaScript and CSS used by the embedded UI
 - `docs/`: installation, operations, and distribution notes
@@ -101,6 +104,10 @@ This creates:
 
 - `dist\Ramseyer Finance-windows\`
 - `dist\Ramseyer Finance-windows.zip`
+
+The extracted package starts by double-clicking `Ramseyer Finance.exe`. The application,
+launcher, and updater use the Windows GUI subsystem, so normal start-up and in-app updates
+do not open Command Prompt or PowerShell.
 
 The Windows packager script lives in `scripts/build_windows_bundle.ps1`.
 

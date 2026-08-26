@@ -1,0 +1,60 @@
+{{template "layout" .}}
+{{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Statement of Cash Flows</h2>
+    <p class="period">For the year ended 31 December {{.Year}}</p>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+    <button type="button" class="btn btn-secondary" data-print-page>Print / Save PDF</button>
+</div>
+
+{{if ne .ReconciliationDifference 0.0}}
+<div class="alert alert-warning">Cash does not reconcile by GH¢ {{formatMoney .ReconciliationDifference}}. Review cash-account movements and balance-sheet postings before finalising the year.</div>
+{{end}}
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Cash Flows from Operating Activities</h3>
+    <table class="data-table"><tbody>
+        <tr><td>Surplus / (Deficit) for the year</td><td class="text-right">{{formatMoney .Surplus}}</td></tr>
+        <tr><td>Depreciation &amp; amortization</td><td class="text-right">{{formatMoney .DepreciationAmortization}}</td></tr>
+        <tr><td>Prior-year adjustments</td><td class="text-right">{{formatMoney .PriorYearAdjustment}}</td></tr>
+        <tr><td>Changes in inventory</td><td class="text-right">{{formatMoney .InventoryMovement}}</td></tr>
+        <tr><td>Changes in receivables &amp; prepayments</td><td class="text-right">{{formatMoney .ReceivablesMovement}}</td></tr>
+        <tr><td>Changes in payables &amp; accruals</td><td class="text-right">{{formatMoney .PayablesMovement}}</td></tr>
+        <tr class="total-row"><td>Net cash from operating activities</td><td class="text-right">{{formatMoney .NetOperatingCash}}</td></tr>
+    </tbody></table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Cash Flows from Investing Activities</h3>
+    <table class="data-table"><tbody>
+        <tr><td>Acquisition of property, plant &amp; equipment</td><td class="text-right">{{formatMoney (negate .PPEAcquisitions)}}</td></tr>
+        <tr><td>Long-term investment additions</td><td class="text-right">{{formatMoney (negate .InvestmentAcquisitions)}}</td></tr>
+        <tr><td>Intangible asset additions</td><td class="text-right">{{formatMoney (negate .IntangibleAcquisitions)}}</td></tr>
+        <tr class="total-row"><td>Net cash used in investing activities</td><td class="text-right">{{formatMoney .NetInvestingCash}}</td></tr>
+    </tbody></table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Cash Flows from Financing Activities</h3>
+    <table class="data-table"><tbody>
+        <tr><td>Long-term loan movement</td><td class="text-right">{{formatMoney .LongTermLoanMovement}}</td></tr>
+        <tr class="total-row"><td>Net cash from financing activities</td><td class="text-right">{{formatMoney .NetFinancingCash}}</td></tr>
+    </tbody></table>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Cash and Cash Equivalents Reconciliation</h3>
+    <table class="data-table"><tbody>
+        <tr><td>Cash &amp; cash equivalents at 1 January</td><td class="text-right">{{formatMoney .OpeningCash}}</td></tr>
+        <tr><td>Net change in cash &amp; cash equivalents</td><td class="text-right">{{formatMoney .NetCashChange}}</td></tr>
+        <tr><td>Expected closing cash</td><td class="text-right">{{formatMoney .ExpectedClosingCash}}</td></tr>
+        <tr><td>Reported closing cash per Note 26</td><td class="text-right">{{formatMoney .ReportedClosingCash}}</td></tr>
+        <tr class="total-row"><td>Reconciliation difference</td><td class="text-right">{{formatMoney .ReconciliationDifference}}</td></tr>
+    </tbody></table>
+</div>
+{{end}}

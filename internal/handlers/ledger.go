@@ -262,8 +262,8 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	amount, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("amount")), 64)
-	if err != nil || amount <= 0 {
-		badRequest(w, "Amount must be greater than zero")
+	if err != nil || amount == 0 || ((transactionType == "income" || transactionType == "expenditure") && amount < 0) {
+		badRequest(w, transactionAmountValidationMessage(transactionType))
 		return
 	}
 

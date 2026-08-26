@@ -18,6 +18,18 @@ func normalizeTransactionDescription(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
+// transactionAmountValidationMessage explains the different sign rules used by operating
+// and balance-sheet postings. Income and expenditure are captured as positive activity,
+// while asset and liability accounts must also support decreases such as loan repayments,
+// asset disposals, and cash withdrawals. Without signed balance movements those accounts
+// could only grow and every later statement would overstate them.
+func transactionAmountValidationMessage(transactionType string) string {
+	if transactionType == "asset" || transactionType == "liability" {
+		return "Amount cannot be zero; use a positive amount for an increase or a negative amount for a decrease"
+	}
+	return "Amount must be greater than zero"
+}
+
 // validateTransactionBusinessRules enforces the application's domain-level validation
 // rules for a transaction before it is created or updated. These rules are separate from
 // basic form validation (which checks data types, ranges, and required fields) and

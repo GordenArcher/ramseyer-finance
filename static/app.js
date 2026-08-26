@@ -428,19 +428,28 @@ function initExportForms() {
   });
 }
 
-// initRestoreForms sets up the backup restore form with dual input modes: a native
-// desktop file picker (via the Go-backed window.pickBackupFile function) and a
-// standard browser <input type="file"> fallback. It wires up the native picker
-// button to call the desktop shell, updates the selected-file label when either
-// input changes, and validates on submit that at least one source has been selected
-// before allowing the form to proceed. This dual-mode design ensures the restore
-// feature works in both the desktop webview and a regular browser.
+// initRestoreForms drives the in-app backup library. It filters and sorts the server-built
+// candidate list without a round trip, keeps one selected restore source, and accepts an
+// external file only through drag-and-drop. No click handler opens an operating-system or
+// browser file dialog, which keeps the entire recovery workflow inside the app's own UI.
 function initRestoreForms() {
   qsa("form[data-restore-form]").forEach((form) => {
-    const nativePathInput = form.querySelector("[data-native-file-path]");
-    const nativeNameNode = form.querySelector("[data-native-file-name]");
-    const browserFileInput = form.querySelector("[data-restore-file-input]");
-    const nativePickerButton = form.querySelector("[data-native-file-picker]");
+    const library = form.querySelector("[data-backup-library]");
+    const list = form.querySelector("[data-backup-list]");
+    const options = qsa("[data-backup-option]", form);
+    const searchInput = form.querySelector("[data-backup-search]");
+    const kindFilter = form.querySelector("[data-backup-kind-filter]");
+    const ageFilter = form.querySelector("[data-backup-age-filter]");
+    const extensionFilter = form.querySelector(
+      "[data-backup-extension-filter]",
+    );
+    const sortControl = form.querySelector("[data-backup-sort]");
+    const resultCount = form.querySelector("[data-backup-result-count]");
+    const selectedLabel = form.querySelector("[data-backup-selected-label]");
+    const emptyState = form.querySelector("[data-backup-empty]");
+    const dropZone = form.querySelector("[data-backup-drop-zone]");
+    const droppedFileInput = form.querySelector("[data-restore-file-input]");
+    const dropLabel = form.querySelector("[data-backup-drop-label]");
 
     function clearStatus() {
       const statusNode = form.querySelector(".form-status");
@@ -450,88 +459,189 @@ function initRestoreForms() {
       }
     }
 
-    function setSelectedLabel(label) {
-      if (nativeNameNode) {
-        nativeNameNode.textContent = label;
+    function clearLibrarySelection() {
+      qsa("[data-backup-radio]", form).forEach((radio) => {
+        radio.checked = false;
+      });
+      options.forEach((option) => option.classList.remove("is-selected"));
+    }
+
+    function clearDroppedFile() {
+      if (droppedFileInput) {
+        droppedFileInput.value = "";
+      }
+      if (dropLabel) {
+        dropLabel.textContent = "No external file dropped.";
+      }
+      dropZone?.classList.remove("has-file");
+    }
+
+    function syncSelectedCandidate(radio) {
+      clearStatus();
+      options.forEach((option) => {
+        option.classList.toggle(
+          "is-selected",
+          option.contains(radio) && radio.checked,
+        );
+      });
+      clearDroppedFile();
+      if (selectedLabel) {
+        const item = radio.closest("[data-backup-option]");
+        const name = item?.querySelector("strong")?.textContent?.trim();
+        selectedLabel.textContent = name
+          ? `Selected: ${name}`
+          : "Backup selected";
       }
     }
 
-    // When the browser file input changes, clear the native path (so the two inputs
-    // are mutually exclusive) and update the label to show the selected filename.
-    if (browserFileInput) {
-      browserFileInput.addEventListener("change", () => {
-        clearStatus();
-        if (browserFileInput.files && browserFileInput.files.length > 0) {
-          if (nativePathInput) {
-            nativePathInput.value = "";
-          }
-          setSelectedLabel(`Browser file: ${browserFileInput.files[0].name}`);
-        } else if (!nativePathInput?.value) {
-          setSelectedLabel("No backup file selected yet.");
+    function selectedCandidateIsVisible() {
+      const checked = form.querySelector("[data-backup-radio]:checked");
+      if (!checked) {
+        return true;
+      }
+      const item = checked.closest("[data-backup-option]");
+      if (item && item.hidden) {
+        clearLibrarySelection();
+        if (selectedLabel) {
+          selectedLabel.textContent = "No backup selected";
         }
-      });
+        return false;
+      }
+      return true;
     }
 
-    // The native picker button calls the desktop shell's file picker (exposed as
-    // window.pickBackupFile by the Go backend). If the function is not available
-    // (e.g., in a regular browser), it shows a message telling the user to use the
-    // browser file input instead. The button shows a loading state while the native
-    // dialog is open, since the dialog is modal and may take time for the user to
-    // navigate.
-    if (nativePickerButton) {
-      nativePickerButton.addEventListener("click", async () => {
+    function applyLibraryFilters() {
+      const query = searchInput?.value.trim().toLowerCase() || "";
+      const selectedKind = kindFilter?.value || "all";
+      const selectedAge = ageFilter?.value || "all";
+      const selectedExtension = extensionFilter?.value || "all";
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      let visibleCount = 0;
+
+      options.forEach((option) => {
+        const modified = Number(option.dataset.backupModified || 0);
+        const ageDays = Math.max(0, (nowSeconds - modified) / 86400);
+        const matchesQuery =
+          !query || option.textContent.toLowerCase().includes(query);
+        const matchesKind =
+          selectedKind === "all" || option.dataset.backupKind === selectedKind;
+        const matchesExtension =
+          selectedExtension === "all" ||
+          option.dataset.backupExtension === selectedExtension;
+        const matchesAge =
+          selectedAge === "all" || ageDays <= Number(selectedAge);
+        option.hidden = !(
+          matchesQuery &&
+          matchesKind &&
+          matchesExtension &&
+          matchesAge
+        );
+        if (!option.hidden) {
+          visibleCount += 1;
+        }
+      });
+
+      if (resultCount) {
+        resultCount.textContent = `${visibleCount} backup${visibleCount === 1 ? "" : "s"}`;
+      }
+      if (emptyState) {
+        emptyState.hidden = visibleCount !== 0;
+      }
+      selectedCandidateIsVisible();
+    }
+
+    function sortLibrary() {
+      if (!list) {
+        return;
+      }
+      const mode = sortControl?.value || "newest";
+      options
+        .slice()
+        .sort((left, right) => {
+          if (mode === "name") {
+            return left.textContent.trim().localeCompare(right.textContent.trim());
+          }
+          const leftTime = Number(left.dataset.backupModified || 0);
+          const rightTime = Number(right.dataset.backupModified || 0);
+          return mode === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+        })
+        .forEach((option) => list.insertBefore(option, emptyState));
+    }
+
+    qsa("[data-backup-radio]", form).forEach((radio) => {
+      radio.addEventListener("change", () => syncSelectedCandidate(radio));
+    });
+    [searchInput, kindFilter, ageFilter, extensionFilter].forEach((control) => {
+      control?.addEventListener("input", applyLibraryFilters);
+      control?.addEventListener("change", applyLibraryFilters);
+    });
+    sortControl?.addEventListener("change", () => {
+      sortLibrary();
+      applyLibraryFilters();
+    });
+
+    if (dropZone && droppedFileInput) {
+      ["dragenter", "dragover"].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropZone.classList.add("is-dragging");
+        });
+      });
+      ["dragleave", "drop"].forEach((eventName) => {
+        dropZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          dropZone.classList.remove("is-dragging");
+        });
+      });
+      dropZone.addEventListener("drop", (event) => {
         clearStatus();
-        if (typeof window.pickBackupFile !== "function") {
-          setSelectedLabel(
-            "Native picker unavailable here. Use the browser fallback file input.",
+        const file = event.dataTransfer?.files?.[0];
+        if (!file) {
+          return;
+        }
+        if (!/\.(db|sqlite|sqlite3)$/i.test(file.name)) {
+          setFormMessage(
+            form,
+            "Drop a .db, .sqlite, or .sqlite3 backup file.",
+            "error",
           );
           return;
         }
 
-        nativePickerButton.disabled = true;
-        nativePickerButton.classList.add("is-loading");
+        // DataTransfer gives the multipart form a real File object without calling
+        // input.click(). That distinction is what makes this a custom drop workflow
+        // rather than another hidden route back to the platform's native picker.
         try {
-          // I ask the desktop shell for the file path because the embedded webview does not
-          // reliably surface file picker dialogs the way a normal browser does.
-          const selectedPath = await window.pickBackupFile();
-          if (!selectedPath) {
-            return;
-          }
-          if (nativePathInput) {
-            nativePathInput.value = selectedPath;
-          }
-          if (browserFileInput) {
-            browserFileInput.value = "";
-          }
-          const parts = String(selectedPath).split(/[\\/]/);
-          setSelectedLabel(`Desktop file: ${parts[parts.length - 1]}`);
-        } catch (error) {
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          droppedFileInput.files = transfer.files;
+        } catch {
           setFormMessage(
             form,
-            error instanceof Error
-              ? error.message
-              : "Could not open the desktop file picker.",
+            "This app could not attach the dropped file. Move it into the Ramseyer Finance Backups folder, then refresh the library.",
             "error",
           );
-        } finally {
-          nativePickerButton.disabled = false;
-          nativePickerButton.classList.remove("is-loading");
+          return;
+        }
+        clearLibrarySelection();
+        dropZone.classList.add("has-file");
+        if (dropLabel) {
+          dropLabel.textContent = `External file: ${file.name}`;
+        }
+        if (selectedLabel) {
+          selectedLabel.textContent = `Selected: ${file.name}`;
         }
       });
     }
 
-    // On form submit, validate that at least one restore source (native path or
-    // browser file) has been provided. If neither is set, prevent submission and
-    // show an error message immediately rather than sending an empty request to the
-    // server. This gives faster feedback and avoids a pointless network round-trip.
     form.addEventListener("submit", (event) => {
-      const hasNativePath = Boolean(nativePathInput?.value.trim());
-      const hasBrowserFile = Boolean(
-        browserFileInput?.files && browserFileInput.files.length > 0,
+      const hasLibrarySelection = Boolean(
+        form.querySelector("[data-backup-radio]:checked"),
       );
-      // I accept either source, but never allow a restore request with neither. The backend
-      // checks again, but stopping here keeps the error immediate and prevents a fake loading state.
-      if (hasNativePath || hasBrowserFile) {
+      const hasDroppedFile = Boolean(
+        droppedFileInput?.files && droppedFileInput.files.length > 0,
+      );
+      if (hasLibrarySelection || hasDroppedFile) {
         return;
       }
 
@@ -544,6 +654,10 @@ function initRestoreForms() {
       restoreLoadingFormState(form);
       stopPageLoading();
     });
+
+    sortLibrary();
+    applyLibraryFilters();
+    library?.classList.add("is-ready");
   });
 }
 
@@ -683,34 +797,6 @@ function initBackupDownloads() {
         stopPageLoading();
       }
     });
-  });
-}
-
-// initFilePickers wires up custom-styled file input components (marked with
-// data-file-picker). Each picker consists of a hidden <input type="file">, a visible
-// trigger button that opens the file dialog, and a name display node that shows the
-// selected filename or "No file chosen". Clicking the trigger programmatically clicks
-// the hidden input, and the change event on the input updates the display.
-function initFilePickers() {
-  qsa("[data-file-picker]").forEach((picker) => {
-    const input = picker.querySelector("[data-file-input]");
-    const trigger = picker.querySelector("[data-file-trigger]");
-    const nameNode = picker.querySelector("[data-file-name]");
-    if (!input || !trigger || !nameNode) {
-      return;
-    }
-
-    const syncName = () => {
-      if (input.files && input.files.length > 0) {
-        nameNode.textContent = input.files[0].name;
-      } else {
-        nameNode.textContent = "No file chosen";
-      }
-    };
-
-    trigger.addEventListener("click", () => input.click());
-    input.addEventListener("change", syncName);
-    syncName();
   });
 }
 
@@ -1384,6 +1470,15 @@ function initPinScreens() {
   qsa("form[data-pin-screen]").forEach(bindPinScreen);
 }
 
+// initStatementPrinting turns each report's print control into a native print/save-PDF
+// action. Keeping the trigger in the embedded UI gives non-technical operators a complete
+// financial-statement handoff without asking them to open a browser menu or terminal.
+function initStatementPrinting() {
+  qsa("[data-print-page]").forEach((button) => {
+    button.addEventListener("click", () => window.print());
+  });
+}
+
 // The DOMContentLoaded handler kicks off all initialisation functions when the page
 // is ready. Each init function is independent and self-contained—they query the DOM
 // for their relevant elements and set up event listeners. Functions that find no
@@ -1395,10 +1490,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initMoneyTooltips();
   initNavigationLoading();
   initPinScreens();
+  initStatementPrinting();
   initExportForms();
   initRestoreForms();
   initBackupDownloads();
-  initFilePickers();
   initConfirmSubmits();
   initLoadingForms();
   initTableStages();

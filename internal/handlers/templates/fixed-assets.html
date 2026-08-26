@@ -1,0 +1,40 @@
+{{template "layout" .}}
+{{define "content"}}
+{{ $selected := .Year }}
+<div class="page-header reveal">
+    <h2>Note 21 — Non-Current Assets Schedule</h2>
+    <p class="period">Property, plant, equipment and intangible assets for {{.Year}}</p>
+    <div class="year-selector">
+        {{range .Years}}
+        <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
+        {{end}}
+    </div>
+    <button type="button" class="btn btn-secondary" data-print-page>Print / Save PDF</button>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <div class="table-scroll">
+    <table class="data-table">
+        <thead><tr>
+            <th>Asset class</th><th>Rate</th>
+            <th class="text-right">Opening cost</th><th class="text-right">Additions</th><th class="text-right">Disposals</th><th class="text-right">Closing cost</th>
+            <th class="text-right">Opening depreciation</th><th class="text-right">Charge</th><th class="text-right">Closing depreciation</th><th class="text-right">Carrying amount</th>
+        </tr></thead>
+        <tbody>
+        {{range .Lines}}
+        <tr>
+            <td>{{.Name}}</td><td>{{if .Rate}}{{formatPercent .Rate}}{{else}}—{{end}}</td>
+            <td class="text-right">{{formatMoney .OpeningCost}}</td><td class="text-right">{{formatMoney .Additions}}</td><td class="text-right">{{formatMoney .Disposals}}</td><td class="text-right">{{formatMoney .ClosingCost}}</td>
+            <td class="text-right">{{formatMoney .OpeningAccumulatedDep}}</td><td class="text-right">{{formatMoney .Charge}}</td><td class="text-right">{{formatMoney .ClosingAccumulatedDep}}</td><td class="text-right">{{formatMoney .CarryingAmount}}</td>
+        </tr>
+        {{end}}
+        <tr class="total-row">
+            <td>Total</td><td></td>
+            <td class="text-right">{{formatMoney .TotalOpeningCost}}</td><td class="text-right">{{formatMoney .TotalAdditions}}</td><td class="text-right">{{formatMoney .TotalDisposals}}</td><td class="text-right">{{formatMoney .TotalClosingCost}}</td>
+            <td class="text-right">{{formatMoney .TotalOpeningAccumulatedDep}}</td><td class="text-right">{{formatMoney .TotalCharge}}</td><td class="text-right">{{formatMoney .TotalClosingAccumulatedDep}}</td><td class="text-right">{{formatMoney .TotalCarryingAmount}}</td>
+        </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+{{end}}

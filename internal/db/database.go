@@ -299,6 +299,54 @@ func backfillTransactionCategoryIDs() error {
 	if err != nil {
 		return fmt.Errorf("update transaction category IDs: %w", err)
 	}
+
+	// Some early databases stored only the previous workbook's display names. These aliases
+	// map those orphaned rows to the closest updated parent account without rewriting the
+	// original text until the normal metadata sync runs. This makes the migration recover
+	// legacy rows that no longer have an exact category-name match.
+	aliases := []struct {
+		categoryType string
+		legacyName   string
+		targetName   string
+	}{
+		{"income", "Offering", "Offerings"},
+		{"income", "Tithe", "Tithes"},
+		{"income", "V.T.O.", "Offerings"},
+		{"income", "Revivals", "Offerings"},
+		{"income", "Other Incomes", "Other Income"},
+		{"income", "Group Almanac Days", "Other Income"},
+		{"income", "Donation for Manse", "Donations Received"},
+		{"expenditure", "Repairs & Maintenance", "Property Upkeep"},
+		{"expenditure", "Salaries & Allowances", "Staff Cost"},
+		{"expenditure", "Donations", "Social Services"},
+		{"expenditure", "Stationery", "General Administration Expenses"},
+		{"expenditure", "Assessment", "Contributions Paid"},
+		{"expenditure", "Evangelism", "Evangelism Expenses"},
+		{"expenditure", "Operating Expenses", "General Administration Expenses"},
+		{"expenditure", "Conferences/Training & Retreat", "Training, Seminars, Workshops & Retreats"},
+		{"expenditure", "Children Service Expense", "Group & Committee Expenses"},
+		{"expenditure", "J.Y. Expense", "Group & Committee Expenses"},
+		{"expenditure", "Utilities", "General Administration Expenses"},
+		{"expenditure", "Other Expenditure", "General Administration Expenses"},
+		{"asset", "Receivables (Debtors)", "Accounts Receivable & Prepayments"},
+		{"asset", "GAP Presbytery", "Long Term Investment"},
+		{"asset", "Investment (Credit Union)", "Long Term Investment"},
+		{"liability", "Payables (Creditors)", "Accounts Payable & Accruals"},
+		{"liability", "District Assessment Owing", "Accounts Payable & Accruals"},
+	}
+	for _, alias := range aliases {
+		if _, err := DB.Exec(`
+			UPDATE transactions
+			SET category_id = (
+				SELECT id FROM categories
+				WHERE type = ? AND name = ? AND parent_id = 0
+				LIMIT 1
+			)
+			WHERE type = ? AND category = ? AND COALESCE(category_id, 0) = 0
+		`, alias.categoryType, alias.targetName, alias.categoryType, alias.legacyName); err != nil {
+			return fmt.Errorf("backfill legacy category alias %s: %w", alias.legacyName, err)
+		}
+	}
 	return nil
 }
 
@@ -340,110 +388,12 @@ func syncTransactionCategoryMetadata() error {
 // parent's INSERT was skipped due to a conflict) are silently skipped. Each category also
 // carries a note_ref code that maps to an external accounting reference system.
 func seedCategories() error {
-	// I only seed the default chart on a truly empty categories table. After first launch,
-	// the database becomes the authority and user changes should not be reintroduced from code.
-	var categoryCount int
-	if err := DB.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&categoryCount); err != nil {
-		return fmt.Errorf("count existing categories: %w", err)
-	}
-	if categoryCount > 0 {
-		return nil
-	}
-
-	// The categories slice defines the complete chart of accounts in memory. Each entry
-	// describes a category type (income, expenditure, asset, or liability), its display
-	// name, an optional parent category name for hierarchical grouping, and a note_ref
-	// code for financial reporting.
-	categories := []struct {
-		catType string
-		name    string
-		parent  string
-		noteRef string
-	}{
-		// INCOME — top level
-		{"income", "Offering", "", "1"},
-		{"income", "Tithe", "", "2"},
-		{"income", "V.T.O.", "", "3"},
-		{"income", "Donations Received", "", "4"},
-		{"income", "Revivals", "", "5"},
-		{"income", "Harvest Proceeds", "", "6"},
-		{"income", "Other Incomes", "", "7"},
-		{"income", "Group Almanac Days", "", "8"},
-		{"income", "Donation for Manse", "", "9"},
-
-		// INCOME — subcategories
-		{"income", "Children Service", "Offering", "1"},
-		{"income", "J.Y. Service", "Offering", "1"},
-		{"income", "Adults' Service", "Offering", "1"},
-		{"income", "Coordinator Appreciation", "Offering", "1"},
-		{"income", "Ash Wednesday", "Offering", "1"},
-		{"income", "Lent Service", "Offering", "1"},
-		{"income", "Speaking", "Offering", "1"},
-		{"income", "Morning Offering", "Offering", "1"},
-		{"income", "1st Day of the Month", "Offering", "1"},
-		{"income", "Friday Evening Prayer", "Offering", "1"},
-		{"income", "Project Offering", "Offering", "1"},
-		{"income", "Men's Week Celebration", "Offering", "1"},
-		{"income", "Women's Week Celebration", "Offering", "1"},
-		{"income", "YAF Week Celebration", "Offering", "1"},
-		{"income", "YPG Week Celebration", "Offering", "1"},
-		{"income", "General Donation", "Donations Received", "4"},
-		{"income", "Donation - Cement", "Donations Received", "4"},
-		{"income", "Monday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Tuesday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Wednesday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Thursday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Friday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Saturday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Sunday Harvest", "Harvest Proceeds", "6"},
-		{"income", "Harvest Launch", "Harvest Proceeds", "6"},
-		{"income", "Youth Harvest", "Harvest Proceeds", "6"},
-		{"income", "Women's Harvest", "Harvest Proceeds", "6"},
-		{"income", "YAF Harvest", "Harvest Proceeds", "6"},
-		{"income", "Men's Harvest", "Harvest Proceeds", "6"},
-		{"income", "Sale of Harvest T-Shirts", "Harvest Proceeds", "6"},
-		{"income", "Aseda Harvest", "Harvest Proceeds", "6"},
-		{"income", "Seed Sowing", "Other Incomes", "7"},
-		{"income", "Health Week", "Group Almanac Days", "8"},
-		{"income", "Music Week", "Group Almanac Days", "8"},
-		{"income", "Blue Cross", "Group Almanac Days", "8"},
-		{"income", "Children Service Day", "Group Almanac Days", "8"},
-		{"income", "YPG Week", "Group Almanac Days", "8"},
-
-		// EXPENDITURE
-		{"expenditure", "Repairs & Maintenance", "", "10"},
-		{"expenditure", "Salaries & Allowances", "", "10"},
-		{"expenditure", "Donations", "", "10"},
-		{"expenditure", "Harvest Expenses", "", ""},
-		{"expenditure", "Stationery", "", "11"},
-		{"expenditure", "Assessment", "", "11"},
-		{"expenditure", "Evangelism", "", ""},
-		{"expenditure", "Operating Expenses", "", "12"},
-		{"expenditure", "Conferences/Training & Retreat", "", ""},
-		{"expenditure", "Children Service Expense", "", ""},
-		{"expenditure", "J.Y. Expense", "", ""},
-		{"expenditure", "Utilities", "", ""},
-		{"expenditure", "Other Expenditure", "", ""},
-
-		// ASSETS
-		{"asset", "Property, Plant & Equipment", "", ""},
-		{"asset", "Land", "Property, Plant & Equipment", ""},
-		{"asset", "Furniture & Equipment", "Property, Plant & Equipment", ""},
-		{"asset", "Building", "Property, Plant & Equipment", ""},
-		{"asset", "Building W.I.P", "Property, Plant & Equipment", ""},
-		{"asset", "Manse W.I.P", "Property, Plant & Equipment", ""},
-		{"asset", "Garden Project", "Property, Plant & Equipment", ""},
-		{"asset", "GAP Presbytery", "", ""},
-		{"asset", "Investment (Credit Union)", "", ""},
-		{"asset", "Receivables (Debtors)", "", ""},
-		{"asset", "Bank", "", ""},
-		{"asset", "Cash", "", ""},
-		{"asset", "Momo", "", ""},
-
-		// LIABILITIES
-		{"liability", "Payables (Creditors)", "", ""},
-		{"liability", "District Assessment Owing", "", ""},
-	}
+	// I ensure the standard chart account-by-account instead of treating it as fresh-install
+	// sample data. The updated workbook is now part of the reporting contract, so existing
+	// installations need its newly introduced accounts too. INSERT OR IGNORE below preserves
+	// archived flags, user renames, and transaction-linked rows while filling only missing
+	// standard accounts.
+	categories := workbookChartCategories()
 
 	// Iterate through every category definition and insert it into the database. Top-level
 	// categories (empty parent field) get parent_id 0. Subcategories look up their parent
@@ -451,14 +401,14 @@ func seedCategories() error {
 	// silently skipped to avoid inserting orphaned rows.
 	for _, c := range categories {
 		var parentID int64 = 0
-		if c.parent != "" {
+		if c.Parent != "" {
 			// Look up the parent category by name and type, restricted to parent_id=0
 			// so we only match top-level categories and never accidentally chain
 			// through a subcategory. If the parent doesn't exist yet (e.g., because
 			// its INSERT was skipped due to a prior duplicate), we skip this child.
 			err := DB.QueryRow(
 				"SELECT id FROM categories WHERE type=? AND name=? AND parent_id=0",
-				c.catType, c.parent,
+				c.CategoryType, c.Parent,
 			).Scan(&parentID)
 			if err != nil {
 				continue
@@ -469,10 +419,159 @@ func seedCategories() error {
 		// previous run.
 		_, err := DB.Exec(
 			"INSERT OR IGNORE INTO categories (type, name, parent_id, note_ref, report_section, is_active) VALUES (?, ?, ?, ?, ?, 1)",
-			c.catType, c.name, parentID, c.noteRef, defaultCategoryReportSection(c.catType, c.name, c.parent),
+			c.CategoryType, c.Name, parentID, c.NoteRef, c.ReportSection,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert category %s: %w", c.name, err)
+			return fmt.Errorf("failed to insert category %s: %w", c.Name, err)
+		}
+	}
+
+	// A previous installation may already have Bank, Cash, and Momo as top-level accounts.
+	// Fold those durable rows into the workbook's Note 26 parent before updating metadata;
+	// this prevents duplicate-looking choices while retaining every existing foreign key.
+	if err := migrateLegacyCashHierarchy(); err != nil {
+		return fmt.Errorf("migrate legacy cash hierarchy: %w", err)
+	}
+
+	// Older releases used a different note vocabulary. I keep those historical categories
+	// available, but move their note references onto the updated workbook sections so old
+	// transactions continue contributing to the correct statements after an upgrade.
+	if err := migrateLegacyCategoryMappings(); err != nil {
+		return fmt.Errorf("migrate legacy category mappings: %w", err)
+	}
+	return nil
+}
+
+// migrateLegacyCategoryMappings translates the previous application's top-level account
+// names into the updated workbook note structure. The migration intentionally changes only
+// report metadata, not transaction values or category IDs, because IDs are the durable links
+// used by budgets, audit history, and existing postings.
+func migrateLegacyCategoryMappings() error {
+	mappings := []struct {
+		categoryType string
+		name         string
+		noteRef      string
+		section      string
+	}{
+		{"income", "Offering", "4", ""},
+		{"income", "Tithe", "3", ""},
+		{"income", "V.T.O.", "4", ""},
+		{"income", "Donations Received", "6", ""},
+		{"income", "Revivals", "4", ""},
+		{"income", "Harvest Proceeds", "5", ""},
+		{"income", "Other Incomes", "8", ""},
+		{"income", "Group Almanac Days", "8", ""},
+		{"income", "Donation for Manse", "6", ""},
+		{"expenditure", "Repairs & Maintenance", "19", ""},
+		{"expenditure", "Salaries & Allowances", "11", ""},
+		{"expenditure", "Donations", "17", ""},
+		{"expenditure", "Harvest Expenses", "5", ""},
+		{"expenditure", "Stationery", "20", ""},
+		{"expenditure", "Assessment", "9", ""},
+		{"expenditure", "Evangelism", "13", ""},
+		{"expenditure", "Operating Expenses", "20", ""},
+		{"expenditure", "Conferences/Training & Retreat", "16", ""},
+		{"expenditure", "Children Service Expense", "14", ""},
+		{"expenditure", "J.Y. Expense", "14", ""},
+		{"expenditure", "Utilities", "20", ""},
+		{"expenditure", "Other Expenditure", "20", ""},
+		{"asset", "Property, Plant & Equipment", "21", "non_current_asset"},
+		{"asset", "GAP Presbytery", "22", "non_current_asset"},
+		{"asset", "Investment (Credit Union)", "22", "non_current_asset"},
+		{"asset", "Receivables (Debtors)", "25", "current_asset"},
+		{"asset", "Bank", "26", "current_asset"},
+		{"asset", "Cash", "26", "current_asset"},
+		{"asset", "Momo", "26", "current_asset"},
+		{"liability", "Payables (Creditors)", "28", "current_liability"},
+		{"liability", "District Assessment Owing", "28", "current_liability"},
+	}
+
+	for _, mapping := range mappings {
+		if _, err := DB.Exec(`
+			UPDATE categories
+			SET note_ref = ?, report_section = ?
+			WHERE type = ? AND name = ?
+		`, mapping.noteRef, mapping.section, mapping.categoryType, mapping.name); err != nil {
+			return fmt.Errorf("update legacy category %s: %w", mapping.name, err)
+		}
+	}
+
+	// Child accounts inherit their parent's note by design throughout the application. This
+	// also repairs old offering and harvest children whose original Note 1–9 references would
+	// otherwise disappear from the updated Notes 3–28 report after an upgrade.
+	if _, err := DB.Exec(`
+		UPDATE categories AS child
+		SET note_ref = COALESCE((
+			SELECT parent.note_ref FROM categories parent WHERE parent.id = child.parent_id
+		), child.note_ref),
+			report_section = ''
+		WHERE child.parent_id <> 0
+	`); err != nil {
+		return fmt.Errorf("inherit updated parent metadata: %w", err)
+	}
+	return nil
+}
+
+// migrateLegacyCashHierarchy reparents the three cash accounts used by earlier releases
+// beneath the workbook's Cash & Cash Equivalents line. seedCategories may just have created
+// an empty child with the same name, so that placeholder is removed only when it has no
+// financial references. If both rows contain data, both are preserved rather than risking
+// an unsafe merge; the legacy top-level line will continue to report independently.
+func migrateLegacyCashHierarchy() error {
+	var cashParentID int64
+	if err := DB.QueryRow(`
+		SELECT id FROM categories
+		WHERE type = 'asset' AND name = 'Cash & Cash Equivalents' AND parent_id = 0
+	`).Scan(&cashParentID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+
+	for _, name := range []string{"Bank", "Cash", "Momo"} {
+		var legacyID int64
+		if err := DB.QueryRow(`
+			SELECT id FROM categories WHERE type = 'asset' AND name = ? AND parent_id = 0
+		`, name).Scan(&legacyID); err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return err
+		}
+
+		var childID int64
+		err := DB.QueryRow(`
+			SELECT id FROM categories WHERE type = 'asset' AND name = ? AND parent_id = ?
+		`, name, cashParentID).Scan(&childID)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == nil {
+			var referenceCount int
+			if err := DB.QueryRow(`
+				SELECT
+					(SELECT COUNT(*) FROM transactions WHERE category_id = ?) +
+					(SELECT COUNT(*) FROM budgets WHERE category_id = ?) +
+					(SELECT COUNT(*) FROM account_opening_balances WHERE category_id = ?) +
+					(SELECT COUNT(*) FROM fixed_asset_openings WHERE category_id = ?)
+			`, childID, childID, childID, childID).Scan(&referenceCount); err != nil {
+				return err
+			}
+			if referenceCount != 0 {
+				continue
+			}
+			if _, err := DB.Exec(`DELETE FROM categories WHERE id = ?`, childID); err != nil {
+				return err
+			}
+		}
+
+		if _, err := DB.Exec(`
+			UPDATE categories
+			SET parent_id = ?, note_ref = '26', report_section = ''
+			WHERE id = ?
+		`, cashParentID, legacyID); err != nil {
+			return err
 		}
 	}
 	return nil

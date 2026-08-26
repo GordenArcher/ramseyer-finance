@@ -32,7 +32,10 @@ Use the **Transactions** register to:
 Use the **Setup** screen to manage:
 
 - **Budgets** — annual budget amounts per top-level income and expenditure category
-- **Opening Balances** — starting cash positions for Bank, Cash, and Momo accounts at the beginning of each fiscal year
+- **Accumulated Fund** — opening fund and prior-year adjustments for the annual roll-forward
+- **Balance-Sheet Openings** — brought-forward asset and liability account positions
+- **Fixed-Asset Openings** — opening cost and accumulated depreciation by Note 21 class
+- **Legacy Cash Openings** — existing Bank, Cash, and Momo opening records retained from earlier releases
 - **PIN Change** — rotate the application lock PIN (requires current PIN)
 - **Auto-Backup** — enable/disable and set frequency
 
@@ -67,7 +70,7 @@ The scheduler:
 ### Restore
 
 1. Navigate to the **Backup** screen.
-2. Select a backup file using the native file picker (desktop) or the browser file input.
+2. Search or filter the in-app backup library and select a restore point. For an external backup, drag and drop it onto the restore panel.
 3. Click **Restore** and confirm the action.
 4. The app creates a **safety backup** of the current database before replacing it.
 5. After restore completes, the app reloads with the restored data.
@@ -108,17 +111,20 @@ Each audit entry stores a full JSON snapshot of the transaction at the time of t
 
 ## Reports
 
-The application includes five financial reports, each accessible from the sidebar:
+The application includes the workbook-aligned statements and supporting reports below:
 
 | Report | Purpose |
 |--------|---------|
 | **Monthly** | Month-by-month breakdown of income, expenditure, and surplus with YTD totals |
 | **Quarterly** | Calendar quarter aggregation (Q1–Q4) with full-year totals |
-| **Annual** | Income statement with prior-year comparison and budget variance |
-| **Balance Sheet** | Year-end snapshot of assets, liabilities, and equity |
-| **Notes** | Detailed breakdown by accounting note reference for income and expenditure |
+| **Financial Performance** | Income, expenditure, surplus, budget variance, and accumulated-fund roll-forward |
+| **Trial Balance** | Natural debit/credit control with an explicit unreconciled difference |
+| **Financial Position** | Year-end assets, liabilities, accumulated fund, and balance difference |
+| **Cash Flow** | Indirect operating, investing, and financing flows reconciled to Note 26 |
+| **Fixed Assets** | Note 21 cost, depreciation/amortization, and carrying-value schedule |
+| **Notes** | Comparative details for workbook Notes 3–28 |
 
-All reports support year selection and include comparative prior-year figures where applicable. The Annual report and Notes page display data quality warnings (e.g., unclassified transactions, missing opening balances) when detected.
+All reports support year selection and include comparative prior-year figures where applicable. Statement pages include **Print / Save PDF**, and reconciliation warnings remain visible on screen until the underlying postings or openings are corrected.
 
 ## Database Notes
 

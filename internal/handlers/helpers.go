@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -45,6 +46,50 @@ type SavedOpeningBalance struct {
 	AccountType  string
 	AccountLabel string
 	Amount       float64
+}
+
+// SavedFundRollforward stores the two independently entered values required to bridge the
+// prior closing accumulated fund into the current reporting year. The current surplus is
+// calculated from transactions, so keeping it out of this setup record prevents operators
+// from accidentally overriding the statement of financial performance.
+type SavedFundRollforward struct {
+	Year                int
+	OpeningBalance      float64
+	PriorYearAdjustment float64
+}
+
+type BalanceAccountOption struct {
+	ID    int64
+	Type  string
+	Label string
+}
+
+type SavedAccountOpeningBalance struct {
+	Year         int
+	CategoryType string
+	AccountLabel string
+	Amount       float64
+}
+
+type FixedAssetOpeningOption struct {
+	ID    int64
+	Label string
+}
+
+type SavedFixedAssetOpening struct {
+	Year                  int
+	AccountLabel          string
+	OpeningCost           float64
+	OpeningAccumulatedDep float64
+}
+
+// FundRollforward is the calculation input shared by the financial performance and
+// financial position reports. Exists distinguishes an intentionally entered zero from a
+// missing setup record, which lets reports warn about incomplete year-opening data.
+type FundRollforward struct {
+	OpeningBalance      float64
+	PriorYearAdjustment float64
+	Exists              bool
 }
 
 // TransactionCategoryMeta holds the resolved category metadata for a single transaction's
@@ -207,6 +252,12 @@ func loadKnownYears() ([]int, error) {
 			SELECT year FROM budgets
 			UNION
 			SELECT year FROM opening_balances
+			UNION
+			SELECT year FROM fund_rollforwards
+			UNION
+			SELECT year FROM account_opening_balances
+			UNION
+			SELECT year FROM fixed_asset_openings
 		)
 		WHERE year IS NOT NULL
 		ORDER BY year
@@ -229,6 +280,152 @@ func loadKnownYears() ([]int, error) {
 	}
 
 	return years, nil
+}
+
+func loadFixedAssetOpeningOptions() ([]FixedAssetOpeningOption, error) {
+	rows, err := db.DB.Query(`
+		SELECT c.id, parent.name || ' / ' || c.name
+		FROM categories c
+		JOIN categories parent ON parent.id = c.parent_id
+		WHERE c.type = 'asset' AND parent.name IN ('Property, Plant & Equipment', 'Intangible Assets')
+		ORDER BY CASE parent.name WHEN 'Property, Plant & Equipment' THEN 0 ELSE 1 END, c.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query fixed-asset opening options: %w", err)
+	}
+	defer rows.Close()
+	var options []FixedAssetOpeningOption
+	for rows.Next() {
+		var option FixedAssetOpeningOption
+		if err := rows.Scan(&option.ID, &option.Label); err != nil {
+			return nil, fmt.Errorf("scan fixed-asset opening option: %w", err)
+		}
+		options = append(options, option)
+	}
+	return options, rows.Err()
+}
+
+func loadSavedFixedAssetOpenings() ([]SavedFixedAssetOpening, error) {
+	rows, err := db.DB.Query(`
+		SELECT o.year, parent.name || ' / ' || c.name, o.opening_cost, o.opening_accumulated_depreciation
+		FROM fixed_asset_openings o
+		JOIN categories c ON c.id = o.category_id
+		JOIN categories parent ON parent.id = c.parent_id
+		ORDER BY o.year DESC, parent.id, c.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query fixed-asset openings: %w", err)
+	}
+	defer rows.Close()
+	var openings []SavedFixedAssetOpening
+	for rows.Next() {
+		var opening SavedFixedAssetOpening
+		if err := rows.Scan(&opening.Year, &opening.AccountLabel, &opening.OpeningCost, &opening.OpeningAccumulatedDep); err != nil {
+			return nil, fmt.Errorf("scan fixed-asset opening: %w", err)
+		}
+		openings = append(openings, opening)
+	}
+	return openings, rows.Err()
+}
+
+func loadBalanceAccountOptions() ([]BalanceAccountOption, error) {
+	rows, err := db.DB.Query(`
+		SELECT c.id, c.type,
+			CASE WHEN parent.name IS NULL THEN c.name ELSE parent.name || ' / ' || c.name END
+		FROM categories c
+		LEFT JOIN categories parent ON parent.id = c.parent_id
+		WHERE c.type IN ('asset', 'liability') AND COALESCE(c.is_active, 1) = 1
+			AND c.name NOT IN ('Property, Plant & Equipment', 'Intangible Assets')
+			AND COALESCE(parent.name, '') NOT IN ('Property, Plant & Equipment', 'Intangible Assets')
+		ORDER BY CASE c.type WHEN 'asset' THEN 0 ELSE 1 END,
+			CASE WHEN c.parent_id = 0 THEN c.id ELSE c.parent_id END, c.parent_id, c.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query balance account options: %w", err)
+	}
+	defer rows.Close()
+	var options []BalanceAccountOption
+	for rows.Next() {
+		var option BalanceAccountOption
+		if err := rows.Scan(&option.ID, &option.Type, &option.Label); err != nil {
+			return nil, fmt.Errorf("scan balance account option: %w", err)
+		}
+		options = append(options, option)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate balance account options: %w", err)
+	}
+	return options, nil
+}
+
+func loadSavedAccountOpeningBalances() ([]SavedAccountOpeningBalance, error) {
+	rows, err := db.DB.Query(`
+		SELECT b.year, c.type,
+			CASE WHEN parent.name IS NULL THEN c.name ELSE parent.name || ' / ' || c.name END,
+			b.amount
+		FROM account_opening_balances b
+		JOIN categories c ON c.id = b.category_id
+		LEFT JOIN categories parent ON parent.id = c.parent_id
+		ORDER BY b.year DESC, c.type, COALESCE(parent.id, c.id), c.id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query account opening balances: %w", err)
+	}
+	defer rows.Close()
+	var balances []SavedAccountOpeningBalance
+	for rows.Next() {
+		var balance SavedAccountOpeningBalance
+		if err := rows.Scan(&balance.Year, &balance.CategoryType, &balance.AccountLabel, &balance.Amount); err != nil {
+			return nil, fmt.Errorf("scan account opening balance: %w", err)
+		}
+		balances = append(balances, balance)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate account opening balances: %w", err)
+	}
+	return balances, nil
+}
+
+func loadSavedFundRollforwards() ([]SavedFundRollforward, error) {
+	rows, err := db.DB.Query(`
+		SELECT year, opening_balance, prior_year_adjustment
+		FROM fund_rollforwards
+		ORDER BY year DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query fund rollforwards: %w", err)
+	}
+	defer rows.Close()
+
+	var records []SavedFundRollforward
+	for rows.Next() {
+		var record SavedFundRollforward
+		if err := rows.Scan(&record.Year, &record.OpeningBalance, &record.PriorYearAdjustment); err != nil {
+			return nil, fmt.Errorf("scan fund rollforward: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate fund rollforwards: %w", err)
+	}
+	return records, nil
+}
+
+func loadFundRollforward(year int) (FundRollforward, error) {
+	var result FundRollforward
+	err := db.DB.QueryRow(`
+		SELECT opening_balance, prior_year_adjustment
+		FROM fund_rollforwards
+		WHERE year = ?
+	`, year).Scan(&result.OpeningBalance, &result.PriorYearAdjustment)
+	if err == sql.ErrNoRows {
+		return result, nil
+	}
+	if err != nil {
+		return FundRollforward{}, fmt.Errorf("query fund rollforward for %d: %w", year, err)
+	}
+	result.Exists = true
+	return result, nil
 }
 
 // sortYears converts a set of unique years into a sorted integer slice in ascending order.
