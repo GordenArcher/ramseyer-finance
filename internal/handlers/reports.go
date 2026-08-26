@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/handlers/viewmodels"
 )
 
 // MonthlyData carries the template variables for the monthly breakdown report page. It
@@ -17,7 +18,7 @@ type MonthlyData struct {
 	Year       string
 	Years      []int
 	Months     []MonthRow
-	Chart      ChartData
+	Chart      viewmodels.ChartData
 	YTDIncome  float64
 	YTDExpense float64
 	YTDSurplus float64
@@ -65,7 +66,7 @@ type QuarterlyData struct {
 	Year         string
 	Years        []int
 	Quarters     []QuarterRow
-	Chart        ChartData
+	Chart        viewmodels.ChartData
 	TotalIncome  float64
 	TotalExpense float64
 	TotalSurplus float64
@@ -118,7 +119,7 @@ type AnnualData struct {
 	Warnings          []string
 	IncomeLines       []LineRow
 	ExpenseLines      []LineRow
-	Chart             ChartData
+	Chart             viewmodels.ChartData
 	TotalIncome       float64
 	TotalPriorIncome  float64
 	TotalExpense      float64
@@ -222,7 +223,7 @@ func buildMonthlyData(year int) (MonthlyData, error) {
 	data.YTDSurplus = data.YTDIncome - data.YTDExpense
 	// Chart colours match the dashboard: gold bars for income, green bars for expense,
 	// and a red line for surplus/deficit trend.
-	data.Chart.Datasets = []ChartDataset{
+	data.Chart.Datasets = []viewmodels.ChartDataset{
 		{
 			Label:     "Income",
 			Type:      "bar",
@@ -310,7 +311,7 @@ func buildQuarterlyData(year int) (QuarterlyData, error) {
 	data.TotalSurplus = data.TotalIncome - data.TotalExpense
 	// Chart uses the same colour scheme as the monthly report for visual consistency
 	// across the reporting section.
-	data.Chart.Datasets = []ChartDataset{
+	data.Chart.Datasets = []viewmodels.ChartDataset{
 		{
 			Label:     "Income",
 			Type:      "bar",
@@ -474,9 +475,9 @@ func buildAnnualData(year int) (AnnualData, error) {
 	// The annual comparison chart uses paired bars for the current and prior year,
 	// grouped by the three key metrics: income, expenditure, and surplus. The prior
 	// year uses a muted grey to push visual focus toward the current year's results.
-	data.Chart = ChartData{
+	data.Chart = viewmodels.ChartData{
 		Labels: []string{"Income", "Expenditure", "Surplus"},
-		Datasets: []ChartDataset{
+		Datasets: []viewmodels.ChartDataset{
 			{
 				Label:     data.PriorYear,
 				Type:      "bar",

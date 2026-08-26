@@ -12,14 +12,32 @@ import (
 )
 
 // templateFS embeds all HTML template files directly into the compiled binary. The "templates/"
-// directory contains the page-level templates (dashboard.html, transactions.html, etc.), and
-// the "templates/partials/" directory contains reusable fragments (sidebar, modals, chart
-// includes). Using embed means the application is a single self-contained binary with no
-// external template file dependencies at runtime—no need to worry about missing template
-// files or incorrect relative paths in production deployments.
+// directory is grouped into auth, pages, reports, and reusable partials. Using embed means the
+// application is a single self-contained binary with no external template file dependencies
+// at runtime—no need to worry about missing files or incorrect relative paths in production.
 //
-//go:embed templates/*.html templates/partials/*.html
+//go:embed templates/layout.html templates/auth/*.html templates/pages/*.html templates/reports/*.html templates/partials/*.html
 var templateFS embed.FS
+
+// templateFolders keeps route names independent from the on-disk grouping. Handlers can keep
+// calling RenderTemplate with a stable page name while the template tree remains organised by
+// responsibility instead of accumulating every screen in one directory.
+var templateFolders = map[string]string{
+	"annual":        "reports",
+	"backup":        "pages",
+	"balance-sheet": "reports",
+	"cash-flow":     "reports",
+	"categories":    "pages",
+	"dashboard":     "pages",
+	"data-entry":    "pages",
+	"fixed-assets":  "reports",
+	"monthly":       "reports",
+	"notes":         "reports",
+	"quarterly":     "reports",
+	"setup":         "pages",
+	"transactions":  "pages",
+	"trial-balance": "reports",
+}
 
 // funcMap defines the custom template functions available to all Go HTML templates rendered
 // by this application. These functions are registered before parsing so they can be called
@@ -185,11 +203,17 @@ func formatMoneyRaw(f float64) string {
 func RenderTemplate(w http.ResponseWriter, name string, data interface{}) {
 	// I parse the page template together with the shared layout and partials on each render so the
 	// correct content block wins for the requested page instead of leaking from unrelated templates.
+	folder, exists := templateFolders[name]
+	if !exists {
+		log.Printf("unknown template %s", name)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 	templates, err := template.New("").Funcs(funcMap).ParseFS(
 		templateFS,
 		"templates/layout.html",
 		"templates/partials/*.html",
-		"templates/"+name+".html",
+		"templates/"+folder+"/"+name+".html",
 	)
 	if err != nil {
 		log.Printf("parse template %s: %v", name, err)
@@ -217,7 +241,7 @@ func RenderStandaloneTemplate(w http.ResponseWriter, name string, data interface
 	// authenticated app shell.
 	templates, err := template.New("").Funcs(funcMap).ParseFS(
 		templateFS,
-		"templates/"+name+".html",
+		"templates/auth/"+name+".html",
 	)
 	if err != nil {
 		log.Printf("parse standalone template %s: %v", name, err)

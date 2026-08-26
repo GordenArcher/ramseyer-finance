@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/handlers/viewmodels"
 	"time"
 )
 
@@ -47,7 +48,7 @@ type DashboardData struct {
 	AssetCats         []CatOption
 	LiabilityCats     []CatOption
 	DailyTransactions []RecentTx
-	Chart             ChartData
+	Chart             viewmodels.ChartData
 }
 
 // RecentTx represents a single row in the dashboard's recent transaction feed. It carries
@@ -273,7 +274,7 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	// Three datasets are rendered: income as gold bars, expense as green bars, and surplus
 	// as a red line overlaid on top. The bar+line combination makes it easy to see both
 	// the absolute amounts and whether each month ran a surplus or deficit.
-	data.Chart.Datasets = []ChartDataset{
+	data.Chart.Datasets = []viewmodels.ChartDataset{
 		{
 			Label:     "Income",
 			Type:      "bar",

@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 // the requested name if a numeric suffix was added to avoid overwriting), and a
 // human-readable status message for display in the UI. This struct is used by both the
 // backup download and export handlers when the "delivery=native" query parameter is set.
-type savedFileResponse struct {
+type SavedFileResponse struct {
 	Path     string `json:"path"`
 	Filename string `json:"filename"`
 	Message  string `json:"message"`
@@ -30,7 +30,7 @@ type savedFileResponse struct {
 // paths are created with MkdirAll so the function succeeds even on a fresh system where
 // the Downloads folder doesn't yet exist. The directory is created with 0755 permissions
 // (owner read/write/execute, group and others read/execute).
-func resolveUserDownloadsDir() (string, error) {
+func ResolveUserDownloadsDir() (string, error) {
 	// I default to the user's Downloads directory because it is the most discoverable destination
 	// for saved exports and backups in a desktop workflow. The fallback only exists for edge cases.
 	homeDir, err := os.UserHomeDir()
@@ -65,7 +65,7 @@ func resolveUserDownloadsDir() (string, error) {
 // cloud-synced folder, or a dedicated backup volume). If the environment variable is not
 // set or is empty, it falls back to the user's Downloads directory—the same location
 // used for manual exports—keeping all saved files in one discoverable place by default.
-func resolveBackupRootDir() (string, error) {
+func ResolveBackupRootDir() (string, error) {
 	// I allow a backup root override for deployments that want managed storage, but the default
 	// path should remain obvious for ordinary local users.
 	if customDir := strings.TrimSpace(os.Getenv("RAMSEYER_FINANCE_BACKUP_DIR")); customDir != "" {
@@ -75,7 +75,7 @@ func resolveBackupRootDir() (string, error) {
 		return customDir, nil
 	}
 
-	return resolveUserDownloadsDir()
+	return ResolveUserDownloadsDir()
 }
 
 // nextAvailableFilePath returns a filesystem path that is guaranteed not to already exist,
@@ -86,7 +86,7 @@ func resolveBackupRootDir() (string, error) {
 // backups, which is especially important because these files serve as durable records.
 // The function scans sequentially from 1 upward with no upper limit, which is safe because
 // the number of colliding files in normal use is small.
-func nextAvailableFilePath(dir, filename string) string {
+func NextAvailableFilePath(dir, filename string) string {
 	// I never overwrite an existing export or backup by default because these files are records.
 	// Name collisions should produce numbered siblings, not silent replacement.
 	extension := filepath.Ext(filename)
@@ -115,7 +115,7 @@ func nextAvailableFilePath(dir, filename string) string {
 // fails (which should be rare for simple structs), the error is silently dropped because
 // at that point the status code and headers have already been written and cannot be
 // changed.
-func writeJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
+func WriteJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	_ = json.NewEncoder(w).Encode(payload)
@@ -129,7 +129,7 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
 // returns successfully, the file data has been handed off to the storage layer. For
 // backup and export operations where the caller may immediately report "file saved" to
 // the user, this durability guarantee matters more than marginal speed.
-func copyFile(sourcePath, destinationPath string) error {
+func CopyFile(sourcePath, destinationPath string) error {
 	// I finish with an fsync so a reported "saved" file has actually been flushed to disk as far
 	// as the OS allows. That matters more here than a tiny speed gain.
 	sourceFile, err := os.Open(sourcePath)

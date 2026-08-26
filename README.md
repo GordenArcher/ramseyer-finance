@@ -16,6 +16,7 @@ Ramseyer Finance is a local desktop finance manager for church operations. It ru
 - Carries account openings, fixed-asset openings, depreciation, and accumulated-fund roll-forwards into year-end reports
 - Supports transaction editing, deletion, pagination, and audit history
 - Supports manual backup, restore, scheduled auto-backup, and export
+- Replaces visible native dropdowns with reusable in-app searchable selectors
 - Supports GitHub Release update checks and packaged Windows in-app updates
 - Uses a local PIN screen for first-run setup and later unlock
 
@@ -24,12 +25,18 @@ Ramseyer Finance is a local desktop finance manager for church operations. It ru
 - `main.go`: application bootstrap, embedded assets, local server, desktop webview
 - `internal/db/`: SQLite schema, migrations, and backup/restore helpers
 - `internal/appmeta/`: embedded version and release-channel metadata
-- `internal/handlers/`: HTTP handlers, reporting logic, auth, exports, backup flows
+- `internal/handlers/`: report, transaction, setup, and small route facades
+- `internal/handlers/auth/`: PIN authentication and route middleware
+- `internal/handlers/backup/`: backup scheduling, history, file storage, and restore-library services
+- `internal/handlers/updates/`: GitHub Release checks and packaged update staging
+- `internal/handlers/viewmodels/`: shared presentation models used across report handlers
+- `internal/handlers/templates/`: templates grouped into `auth/`, `pages/`, `reports/`, and `partials/`
 - `cmd/updater/`: packaged Windows updater helper used for in-app updates
 - `cmd/launcher/`: terminal-free Windows GUI entry point
 - `internal/desktop/`: minimal desktop bridge for opening trusted external links
 - `scripts/`: Windows and macOS build/packaging scripts
-- `static/`: JavaScript and CSS used by the embedded UI
+- `static/scripts/`: shared page behavior, charts, and reusable JavaScript components
+- `static/styles/`: base styling and reusable component styles
 - `docs/`: installation, operations, and distribution notes
 
 ## Local Development

@@ -1,4 +1,4 @@
-package handlers
+package updates
 
 import (
 	"crypto/sha256"
@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"ramseyer-finance/internal/appmeta"
+	backupservice "ramseyer-finance/internal/handlers/backup"
 	"runtime"
 	"strings"
 	"time"
@@ -72,13 +73,13 @@ func CheckForUpdates(w http.ResponseWriter, r *http.Request) {
 		message = "A newer version is available."
 	}
 
-	writeJSON(w, http.StatusOK, updateStatusResponse{
+	backupservice.WriteJSON(w, http.StatusOK, updateStatusResponse{
 		CurrentVersion:  appmeta.CurrentVersion,
 		LatestVersion:   release.TagName,
 		UpdateAvailable: updateAvailable,
 		CanApply:        updateAvailable && asset.BrowserDownloadURL != "" && runtimeCanApplyInPlaceUpdate() && hasBundledUpdaterHelper(),
 		ReleaseURL:      release.HTMLURL,
-		PublishedAt:     formatReleasePublishedAt(release.PublishedAt),
+		PublishedAt:     FormatReleasePublishedAt(release.PublishedAt),
 		Notes:           strings.TrimSpace(release.Body),
 		AssetName:       asset.Name,
 		Message:         message,
@@ -105,7 +106,7 @@ func ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if compareVersions(appmeta.CurrentVersion, release.TagName) >= 0 {
-		writeJSON(w, http.StatusOK, updateApplyResponse{
+		backupservice.WriteJSON(w, http.StatusOK, updateApplyResponse{
 			Message:      "You already have the latest version installed.",
 			QuitRequired: false,
 		})
@@ -117,7 +118,7 @@ func ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updateApplyResponse{
+	backupservice.WriteJSON(w, http.StatusOK, updateApplyResponse{
 		Message:      "Update downloaded. The app will close and restart into the new version.",
 		QuitRequired: true,
 	})
@@ -231,7 +232,7 @@ func stageAndLaunchWindowsUpdate(asset githubReleaseAsset) error {
 	}
 
 	tempUpdaterPath := filepath.Join(stagingDir, "updater.exe")
-	if err := copyFile(updaterPath, tempUpdaterPath); err != nil {
+	if err := backupservice.CopyFile(updaterPath, tempUpdaterPath); err != nil {
 		return fmt.Errorf("copy updater helper to temp: %w", err)
 	}
 
@@ -364,7 +365,7 @@ func parseVersionParts(version string) []int {
 // formatReleasePublishedAt converts the GitHub API release timestamp into the human-facing label
 // shown in the update modal. I do this server-side so the app keeps one consistent production
 // format everywhere instead of leaving date wording to whichever frontend happens to consume it.
-func formatReleasePublishedAt(raw string) string {
+func FormatReleasePublishedAt(raw string) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
@@ -407,4 +408,8 @@ func ordinalSuffix(day int) string {
 func updateError(w http.ResponseWriter, err error, userMessage string) {
 	log.Printf("request failed: %v", err)
 	http.Error(w, userMessage, http.StatusBadGateway)
+}
+
+func badRequest(w http.ResponseWriter, message string) {
+	http.Error(w, message, http.StatusBadRequest)
 }

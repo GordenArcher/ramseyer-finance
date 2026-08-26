@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
+	backupservice "ramseyer-finance/internal/handlers/backup"
+	updatehandlers "ramseyer-finance/internal/handlers/updates"
 	"strconv"
 	"strings"
 	"testing"
@@ -716,12 +718,12 @@ func TestRunAutoBackupIfDueCreatesBackupAndUpdatesLastRun(t *testing.T) {
 	setupTestDB(t)
 	t.Setenv("RAMSEYER_FINANCE_BACKUP_DIR", t.TempDir())
 
-	if err := saveAutoBackupConfig(true, "weekly"); err != nil {
+	if err := backupservice.SaveAutoBackupConfig(true, "weekly"); err != nil {
 		t.Fatalf("save auto backup config: %v", err)
 	}
 
 	now := time.Date(2026, time.May, 1, 9, 30, 0, 0, time.UTC)
-	ran, path, err := RunAutoBackupIfDue(now)
+	ran, path, err := backupservice.RunAutoBackupIfDue(now)
 	if err != nil {
 		t.Fatalf("run auto backup if due: %v", err)
 	}
@@ -735,7 +737,7 @@ func TestRunAutoBackupIfDueCreatesBackupAndUpdatesLastRun(t *testing.T) {
 		t.Fatalf("auto backup file not created: %v", err)
 	}
 
-	lastRunValue, err := db.GetSetting(settingAutoBackupLastRun)
+	lastRunValue, err := db.GetSetting(backupservice.SettingAutoBackupLastRun)
 	if err != nil {
 		t.Fatalf("get auto backup last run: %v", err)
 	}
@@ -743,7 +745,7 @@ func TestRunAutoBackupIfDueCreatesBackupAndUpdatesLastRun(t *testing.T) {
 		t.Fatalf("expected last run setting to be saved")
 	}
 
-	ranAgain, _, err := RunAutoBackupIfDue(now.Add(24 * time.Hour))
+	ranAgain, _, err := backupservice.RunAutoBackupIfDue(now.Add(24 * time.Hour))
 	if err != nil {
 		t.Fatalf("second auto backup run: %v", err)
 	}
@@ -783,7 +785,7 @@ func TestBackupPageUsesSearchableInAppRestoreLibrary(t *testing.T) {
 		}
 	}
 
-	candidates, err := loadRestoreCandidates()
+	candidates, err := backupservice.LoadRestoreCandidates()
 	if err != nil {
 		t.Fatalf("load restore candidates: %v", err)
 	}
@@ -810,7 +812,11 @@ func TestBackupPageUsesSearchableInAppRestoreLibrary(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, marker := range []string{
+		"/static/styles/custom-select.css",
+		"/static/scripts/custom-select.js",
 		"data-backup-search",
+		"data-custom-selector",
+		"data-custom-selector-search",
 		"data-backup-kind-filter",
 		"data-backup-age-filter",
 		"data-backup-extension-filter",
@@ -824,6 +830,16 @@ func TestBackupPageUsesSearchableInAppRestoreLibrary(t *testing.T) {
 	if strings.Contains(body, "data-native-file-picker") || strings.Contains(body, "Choose Backup File") {
 		t.Fatalf("native restore picker remained in backup page")
 	}
+	for _, nativeFilter := range []string{
+		`<select id="backup-kind-filter"`,
+		`<select id="backup-age-filter"`,
+		`<select id="backup-extension-filter"`,
+		`<select id="backup-sort"`,
+	} {
+		if strings.Contains(body, nativeFilter) {
+			t.Fatalf("native backup filter %q remained in backup page", nativeFilter)
+		}
+	}
 }
 
 func TestManagedRestorePathRejectsArbitraryFilesAndAllowsHistory(t *testing.T) {
@@ -835,7 +851,7 @@ func TestManagedRestorePathRejectsArbitraryFilesAndAllowsHistory(t *testing.T) {
 	if err := os.WriteFile(manualPath, []byte("managed"), 0o600); err != nil {
 		t.Fatalf("write managed backup: %v", err)
 	}
-	validatedPath, err := validateManagedRestorePath(manualPath)
+	validatedPath, err := backupservice.ValidateManagedRestorePath(manualPath)
 	if err != nil {
 		t.Fatalf("validate managed backup: %v", err)
 	}
@@ -852,19 +868,19 @@ func TestManagedRestorePathRejectsArbitraryFilesAndAllowsHistory(t *testing.T) {
 	if err := os.WriteFile(externalPath, []byte("external"), 0o600); err != nil {
 		t.Fatalf("write external backup: %v", err)
 	}
-	if _, err := validateManagedRestorePath(externalPath); err == nil {
+	if _, err := backupservice.ValidateManagedRestorePath(externalPath); err == nil {
 		t.Fatalf("arbitrary external path was accepted without history")
 	}
-	if err := recordBackupEvent("restore", "success", externalPath, "Previously restored backup"); err != nil {
+	if err := backupservice.RecordBackupEvent("restore", "success", externalPath, "Previously restored backup"); err != nil {
 		t.Fatalf("record successful restore history: %v", err)
 	}
-	if _, err := validateManagedRestorePath(externalPath); err != nil {
+	if _, err := backupservice.ValidateManagedRestorePath(externalPath); err != nil {
 		t.Fatalf("validate history-backed external path: %v", err)
 	}
 }
 
 func TestFormatReleasePublishedAtUsesHumanReadableLabel(t *testing.T) {
-	formatted := formatReleasePublishedAt("2026-05-03T10:15:00Z")
+	formatted := updatehandlers.FormatReleasePublishedAt("2026-05-03T10:15:00Z")
 	if formatted != "3rd May, 2026 at 10:15 AM UTC" {
 		t.Fatalf("formatted release label = %q, want %q", formatted, "3rd May, 2026 at 10:15 AM UTC")
 	}

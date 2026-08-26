@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
+	backupservice "ramseyer-finance/internal/handlers/backup"
 	"strconv"
 	"strings"
 	"time"
@@ -621,19 +622,19 @@ func buildTransactionExportFile(
 func saveExportLocally(w http.ResponseWriter, filename string, content []byte) {
 	// I save exports locally on behalf of the desktop shell because an embedded webview does not
 	// guarantee the same download UX as a full browser.
-	downloadsDir, err := resolveUserDownloadsDir()
+	downloadsDir, err := backupservice.ResolveUserDownloadsDir()
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 
-	targetPath := nextAvailableFilePath(downloadsDir, filename)
+	targetPath := backupservice.NextAvailableFilePath(downloadsDir, filename)
 	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
 		serverError(w, fmt.Errorf("save export to downloads: %w", err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, savedFileResponse{
+	backupservice.WriteJSON(w, http.StatusOK, backupservice.SavedFileResponse{
 		Path:     targetPath,
 		Filename: filepath.Base(targetPath),
 		Message:  "Export saved",

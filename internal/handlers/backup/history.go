@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"fmt"
@@ -30,7 +30,7 @@ type BackupHistoryEntry struct {
 // By logging both successes and failures, the history table gives the user (and support) a
 // complete picture of all backup-related activity without needing to inspect log files or
 // directory listings.
-func recordBackupEvent(kind, status, filePath, note string) error {
+func RecordBackupEvent(kind, status, filePath, note string) error {
 	// I keep a backup event log in SQLite because file system inspection alone cannot answer
 	// whether the app created a backup, skipped one, or produced a safety copy before restore.
 	if _, err := db.DB.Exec(`
@@ -48,7 +48,7 @@ func recordBackupEvent(kind, status, filePath, note string) error {
 // timestamp from the database's compact format into a human-readable display format.
 // The results are sorted with the most recent event first so the UI shows the latest
 // activity at the top of the activity log.
-func loadBackupHistory(limit int) ([]BackupHistoryEntry, error) {
+func LoadBackupHistory(limit int) ([]BackupHistoryEntry, error) {
 	// I read history from SQLite instead of reconstructing it from directory listings because
 	// the user needs to know which action happened, not just which files exist right now.
 	rows, err := db.DB.Query(`

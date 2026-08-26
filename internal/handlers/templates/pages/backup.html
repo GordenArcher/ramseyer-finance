@@ -1,0 +1,188 @@
+{{template "layout" .}} {{define "content"}}
+<div class="page-header reveal">
+    <h2>Backup & Restore</h2>
+</div>
+
+{{if .Message}}
+<div class="alert alert-{{.MessageTone}} alert-float" data-auto-dismiss-alert>{{.Message}}</div>
+{{end}}
+
+<div class="card reveal">
+    <h3>Download Backup</h3>
+    <p>Save a copy of all financial data to your computer.</p>
+    <a href="/api/backup/download" class="btn btn-primary" data-download-backup
+        >Download Backup File</a
+    >
+</div>
+
+<div class="card reveal">
+    <h3>Restore from Backup</h3>
+    <p class="warning">
+        This will replace all current data. Make sure you have a backup first.
+    </p>
+    <form
+        method="POST"
+        action="/api/backup/restore"
+        enctype="multipart/form-data"
+        data-loading-form
+        data-restore-form
+        data-confirm-submit
+        data-confirm-title="Confirm Restore"
+        data-confirm-action-label="Restore"
+        data-confirm-message="Restore this backup and replace all current data? This action cannot be undone."
+    >
+        <div class="restore-library" data-backup-library>
+            <div class="card-header">
+                <div>
+                    <h4>Backup Library</h4>
+                    <p>Search and filter backups created or previously used by this app.</p>
+                </div>
+                <a href="/backup" class="btn btn-sm btn-secondary" data-nav-loading>Refresh</a>
+            </div>
+            <div class="backup-library-filters">
+                <div class="form-group form-group-span">
+                    <label for="backup-search">Search backups</label>
+                    <input id="backup-search" type="search" placeholder="Search filename, type, date, or path" autocomplete="off" data-backup-search />
+                </div>
+                <div class="form-group custom-selector" data-custom-selector data-backup-kind-filter data-value="all">
+                    <span class="custom-selector-label" id="backup-kind-label">Source</span>
+                    <button type="button" class="custom-selector-trigger" aria-labelledby="backup-kind-label backup-kind-value" aria-haspopup="listbox" aria-expanded="false" data-custom-selector-trigger>
+                        <span id="backup-kind-value" data-custom-selector-value>All sources</span>
+                        <span class="custom-selector-chevron" aria-hidden="true"></span>
+                    </button>
+                    <div class="custom-selector-panel" data-custom-selector-panel hidden>
+                        <input type="search" placeholder="Search sources" aria-label="Search sources" autocomplete="off" data-custom-selector-search />
+                        <div class="custom-selector-options" role="listbox" aria-labelledby="backup-kind-label">
+                            <button type="button" class="custom-selector-option is-selected" role="option" aria-selected="true" data-value="all">All sources</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="manual">Manual</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="automatic">Automatic</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="safety">Safety</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="history">History</button>
+                        </div>
+                        <small class="custom-selector-empty" data-custom-selector-empty hidden>No source matches.</small>
+                    </div>
+                </div>
+                <div class="form-group custom-selector" data-custom-selector data-backup-age-filter data-value="all">
+                    <span class="custom-selector-label" id="backup-age-label">Date</span>
+                    <button type="button" class="custom-selector-trigger" aria-labelledby="backup-age-label backup-age-value" aria-haspopup="listbox" aria-expanded="false" data-custom-selector-trigger>
+                        <span id="backup-age-value" data-custom-selector-value>Any date</span>
+                        <span class="custom-selector-chevron" aria-hidden="true"></span>
+                    </button>
+                    <div class="custom-selector-panel" data-custom-selector-panel hidden>
+                        <input type="search" placeholder="Search dates" aria-label="Search dates" autocomplete="off" data-custom-selector-search />
+                        <div class="custom-selector-options" role="listbox" aria-labelledby="backup-age-label">
+                            <button type="button" class="custom-selector-option is-selected" role="option" aria-selected="true" data-value="all">Any date</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="7">Last 7 days</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="30">Last 30 days</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="90">Last 90 days</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="365">Last year</button>
+                        </div>
+                        <small class="custom-selector-empty" data-custom-selector-empty hidden>No date matches.</small>
+                    </div>
+                </div>
+                <div class="form-group custom-selector" data-custom-selector data-backup-extension-filter data-value="all">
+                    <span class="custom-selector-label" id="backup-extension-label">Format</span>
+                    <button type="button" class="custom-selector-trigger" aria-labelledby="backup-extension-label backup-extension-value" aria-haspopup="listbox" aria-expanded="false" data-custom-selector-trigger>
+                        <span id="backup-extension-value" data-custom-selector-value>All SQLite formats</span>
+                        <span class="custom-selector-chevron" aria-hidden="true"></span>
+                    </button>
+                    <div class="custom-selector-panel" data-custom-selector-panel hidden>
+                        <input type="search" placeholder="Search formats" aria-label="Search formats" autocomplete="off" data-custom-selector-search />
+                        <div class="custom-selector-options" role="listbox" aria-labelledby="backup-extension-label">
+                            <button type="button" class="custom-selector-option is-selected" role="option" aria-selected="true" data-value="all">All SQLite formats</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="db">.db</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="sqlite">.sqlite</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="sqlite3">.sqlite3</button>
+                        </div>
+                        <small class="custom-selector-empty" data-custom-selector-empty hidden>No format matches.</small>
+                    </div>
+                </div>
+                <div class="form-group custom-selector custom-selector-align-end" data-custom-selector data-backup-sort data-value="newest">
+                    <span class="custom-selector-label" id="backup-sort-label">Sort</span>
+                    <button type="button" class="custom-selector-trigger" aria-labelledby="backup-sort-label backup-sort-value" aria-haspopup="listbox" aria-expanded="false" data-custom-selector-trigger>
+                        <span id="backup-sort-value" data-custom-selector-value>Newest first</span>
+                        <span class="custom-selector-chevron" aria-hidden="true"></span>
+                    </button>
+                    <div class="custom-selector-panel" data-custom-selector-panel hidden>
+                        <input type="search" placeholder="Search sorting" aria-label="Search sorting" autocomplete="off" data-custom-selector-search />
+                        <div class="custom-selector-options" role="listbox" aria-labelledby="backup-sort-label">
+                            <button type="button" class="custom-selector-option is-selected" role="option" aria-selected="true" data-value="newest">Newest first</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="oldest">Oldest first</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="name">Filename A–Z</button>
+                        </div>
+                        <small class="custom-selector-empty" data-custom-selector-empty hidden>No sorting option matches.</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="backup-library-summary">
+                <span data-backup-result-count>{{len .RestoreCandidates}} backup{{if ne (len .RestoreCandidates) 1}}s{{end}}</span>
+                <span data-backup-selected-label>No backup selected</span>
+            </div>
+
+            <div class="backup-library-list" data-backup-list>
+                {{range .RestoreCandidates}}
+                <label class="backup-library-item"
+                    data-backup-option
+                    data-backup-kind="{{.Kind}}"
+                    data-backup-extension="{{.Extension}}"
+                    data-backup-modified="{{.ModifiedUnix}}">
+                    <input type="radio" name="backup_path" value="{{.Path}}" data-backup-radio />
+                    <span class="backup-library-marker" aria-hidden="true"></span>
+                    <span class="backup-library-details">
+                        <strong>{{.Name}}</strong>
+                        <span>{{.KindLabel}} · {{.ModifiedLabel}} · {{.SizeLabel}} · .{{.Extension}}</span>
+                        <small>{{.Path}}</small>
+                    </span>
+                </label>
+                {{end}}
+                <p class="backup-library-empty" data-backup-empty {{if .RestoreCandidates}}hidden{{end}}>
+                    No backups match the current search and filters.
+                </p>
+            </div>
+        </div>
+
+        <div class="restore-drop-zone" data-backup-drop-zone>
+            <input id="backup_file" type="file" name="backup_file" accept=".db,.sqlite,.sqlite3" data-restore-file-input tabindex="-1" />
+            <strong>Need a backup outside this library?</strong>
+            <span>Drag and drop a .db, .sqlite, or .sqlite3 file here. No system picker will open.</span>
+            <small data-backup-drop-label>No external file dropped.</small>
+        </div>
+
+        <button type="submit" class="btn btn-danger">
+            Restore from Backup
+        </button>
+    </form>
+</div>
+
+<div class="card table-card reveal" data-table-stage>
+    <h3>Backup History</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Path</th>
+                <th>Note</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .History}}
+            <tr>
+                <td>{{.CreatedAt}}</td>
+                <td>{{.Kind}}</td>
+                <td>{{.Status}}</td>
+                <td>{{if .FilePath}}{{.FilePath}}{{else}}-{{end}}</td>
+                <td>{{if .Note}}{{.Note}}{{else}}-{{end}}</td>
+            </tr>
+            {{end}}
+            {{if not .History}}
+            <tr>
+                <td colspan="5" class="text-center">No backup activity recorded yet</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

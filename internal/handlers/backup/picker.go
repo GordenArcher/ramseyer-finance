@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"fmt"
@@ -33,8 +33,8 @@ type RestoreCandidate struct {
 // paths retained in backup history. I deduplicate by canonical path because the same file
 // normally appears both on disk and in the event log; showing it twice would make users
 // wonder whether two distinct restore points exist when they do not.
-func loadRestoreCandidates() ([]RestoreCandidate, error) {
-	rootDir, err := resolveBackupRootDir()
+func LoadRestoreCandidates() ([]RestoreCandidate, error) {
+	rootDir, err := ResolveBackupRootDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve backup library root: %w", err)
 	}
@@ -57,7 +57,7 @@ func loadRestoreCandidates() ([]RestoreCandidate, error) {
 		return nil, err
 	}
 
-	history, err := loadBackupHistory(200)
+	history, err := LoadBackupHistory(200)
 	if err != nil {
 		return nil, fmt.Errorf("load backup history for picker: %w", err)
 	}
@@ -220,7 +220,7 @@ func formatBackupSize(size int64) string {
 // to read an arbitrary local file. Managed backup folders and app-prefixed manual downloads
 // are accepted directly; a path outside those locations must already exist as a successful
 // backup-history record before restore can open it.
-func validateManagedRestorePath(path string) (string, error) {
+func ValidateManagedRestorePath(path string) (string, error) {
 	if !supportedBackupExtension(path) {
 		return "", fmt.Errorf("Selected file is not a supported SQLite backup")
 	}
@@ -228,7 +228,7 @@ func validateManagedRestorePath(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("Selected backup file could not be opened")
 	}
-	rootDir, err := resolveBackupRootDir()
+	rootDir, err := ResolveBackupRootDir()
 	if err != nil {
 		return "", fmt.Errorf("Backup library could not be resolved")
 	}

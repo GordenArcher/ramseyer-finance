@@ -92,12 +92,13 @@ Before publishing a GitHub Release, verify the following on a Windows machine us
 8. [ ] Confirm export saves a file locally (CSV or PDF)
 9. [ ] Confirm manual backup download saves a file
 10. [ ] Confirm the searchable restore library filters and selects a backup without opening a native picker
-11. [ ] Confirm auto-backup settings save and the scheduler logs activity
-12. [ ] Confirm `Check for Updates` reaches the latest GitHub Release
-13. [ ] Update `internal/appmeta/meta.go` to the new version before tagging
-14. [ ] Create the GitHub Release
-15. [ ] Upload `dist\Ramseyer Finance-windows.zip` as the release asset
-16. [ ] Send the client the release download link and installation notes
+11. [ ] Confirm dropdowns across data entry, reports, categories, and setup use the searchable in-app selector
+12. [ ] Confirm auto-backup settings save and the scheduler logs activity
+13. [ ] Confirm `Check for Updates` reaches the latest GitHub Release
+14. [ ] Update `internal/appmeta/meta.go` to the new version before tagging
+15. [ ] Create the GitHub Release
+16. [ ] Upload `dist\Ramseyer Finance-windows.zip` as the release asset
+17. [ ] Send the client the release download link and installation notes
 
 ## Handoff Contents
 

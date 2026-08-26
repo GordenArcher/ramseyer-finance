@@ -1,0 +1,170 @@
+/* Shared searchable selectors. This component stylesheet stays separate from page layout
+   styles so selector behavior can evolve without further expanding the global stylesheet. */
+.custom-selector {
+    position: relative;
+}
+
+.custom-selector-label {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--ink);
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+.custom-selector-trigger {
+    display: flex;
+    width: 100%;
+    min-height: 46px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-strong);
+    color: var(--ink);
+    font: inherit;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.custom-selector-trigger:hover,
+.custom-selector-trigger:focus-visible,
+.custom-selector.is-open .custom-selector-trigger {
+    border-color: var(--accent);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(24, 78, 72, 0.1);
+    outline: none;
+}
+
+.custom-selector-chevron {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 auto;
+    border-right: 2px solid var(--ink-soft);
+    border-bottom: 2px solid var(--ink-soft);
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 150ms ease;
+}
+
+.custom-selector.is-open .custom-selector-chevron {
+    transform: translateY(2px) rotate(225deg);
+}
+
+.custom-selector-panel {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 8px);
+    left: 0;
+    display: grid;
+    width: max(100%, 230px);
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: var(--surface-strong);
+    box-shadow: 0 20px 48px rgba(22, 18, 12, 0.18);
+    animation: panel-in 140ms ease both;
+}
+
+.custom-selector.opens-upward .custom-selector-panel {
+    top: auto;
+    bottom: calc(100% + 8px);
+}
+
+.custom-selector-panel[hidden] {
+    display: none;
+}
+
+.custom-selector-align-end .custom-selector-panel {
+    right: 0;
+    left: auto;
+}
+
+.custom-selector-panel input[type="search"] {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 11px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+}
+
+.custom-selector-panel input[type="search"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(24, 78, 72, 0.1);
+    outline: none;
+}
+
+.custom-selector-options {
+    display: grid;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.custom-selector-option {
+    width: 100%;
+    padding: 10px 11px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+}
+
+.custom-selector-option:hover,
+.custom-selector-option:focus-visible {
+    background: var(--surface);
+    outline: none;
+}
+
+.custom-selector-option.is-selected {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.custom-selector-option:disabled {
+    color: var(--ink-soft);
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.custom-selector-empty {
+    padding: 8px;
+    color: var(--ink-soft);
+    text-align: center;
+}
+
+.custom-form-selector {
+    width: 100%;
+}
+
+.custom-form-selector .custom-selector-panel {
+    width: max(100%, 260px);
+    max-width: min(340px, calc(100vw - 36px));
+}
+
+.custom-select-source {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+.custom-selector.has-error .custom-selector-trigger {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px rgba(162, 58, 58, 0.12);
+}

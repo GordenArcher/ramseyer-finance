@@ -1,4 +1,4 @@
-package handlers
+package backup
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ import (
 const (
 	settingAutoBackupEnabled   = "auto_backup_enabled"
 	settingAutoBackupFrequency = "auto_backup_frequency"
-	settingAutoBackupLastRun   = "auto_backup_last_run"
+	SettingAutoBackupLastRun   = "auto_backup_last_run"
 )
 
 // AutoBackupConfig holds all the display and scheduling parameters for the automatic backup
@@ -41,7 +41,7 @@ type AutoBackupConfig struct {
 // populated AutoBackupConfig. Missing settings are treated as defaults: auto-backup is
 // disabled, frequency defaults to weekly, and last-run shows "Never". Directory resolution
 // failures are non-fatal—the field is simply left empty so the UI can show a warning.
-func loadAutoBackupConfig() (AutoBackupConfig, error) {
+func LoadAutoBackupConfig() (AutoBackupConfig, error) {
 	// I store backup preferences in SQLite because they are product behavior, not machine setup.
 	// Keeping them alongside the rest of the app data means a restored database also restores
 	// the backup policy the user was actually relying on.
@@ -53,7 +53,7 @@ func loadAutoBackupConfig() (AutoBackupConfig, error) {
 	if err != nil {
 		return AutoBackupConfig{}, err
 	}
-	lastRunValue, err := db.GetSetting(settingAutoBackupLastRun)
+	lastRunValue, err := db.GetSetting(SettingAutoBackupLastRun)
 	if err != nil {
 		return AutoBackupConfig{}, err
 	}
@@ -63,7 +63,7 @@ func loadAutoBackupConfig() (AutoBackupConfig, error) {
 	// the default safe: if the setting is missing or garbled, backups won't run.
 	config := AutoBackupConfig{
 		Enabled:   parseSettingBool(enabledValue),
-		Frequency: normalizeAutoBackupFrequency(frequencyValue),
+		Frequency: NormalizeAutoBackupFrequency(frequencyValue),
 	}
 	if config.Frequency == "" {
 		config.Frequency = "weekly"
@@ -100,7 +100,7 @@ func loadAutoBackupConfig() (AutoBackupConfig, error) {
 // values: "weekly", "monthly", or "quarterly". Any unrecognised input (including empty
 // strings) defaults to "weekly". This function is the single point of normalisation so
 // that every other function can switch on a known, limited set of values.
-func normalizeAutoBackupFrequency(value string) string {
+func NormalizeAutoBackupFrequency(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "weekly":
 		return "weekly"
@@ -132,7 +132,7 @@ func parseSettingBool(value string) bool {
 // calendar month boundaries, as the scheduling is based purely on elapsed time since the
 // last successful backup.
 func autoBackupInterval(frequency string) time.Duration {
-	switch normalizeAutoBackupFrequency(frequency) {
+	switch NormalizeAutoBackupFrequency(frequency) {
 	case "monthly":
 		return 30 * 24 * time.Hour
 	case "quarterly":
@@ -148,7 +148,7 @@ func autoBackupInterval(frequency string) time.Duration {
 // limits are enforced independently per frequency, so switching from weekly to monthly
 // does not cause the old weekly files to be pruned by the monthly retention rule.
 func autoBackupRetention(frequency string) int {
-	switch normalizeAutoBackupFrequency(frequency) {
+	switch NormalizeAutoBackupFrequency(frequency) {
 	case "monthly":
 		return 12
 	case "quarterly":
@@ -162,11 +162,11 @@ func autoBackupRetention(frequency string) int {
 // table. It normalises the frequency before writing, ensuring that only recognised values
 // are stored. The last-run timestamp is not updated here—that is managed separately by
 // RunAutoBackupIfDue after a successful backup completes.
-func saveAutoBackupConfig(enabled bool, frequency string) error {
+func SaveAutoBackupConfig(enabled bool, frequency string) error {
 	if err := db.SetSetting(settingAutoBackupEnabled, strconv.FormatBool(enabled)); err != nil {
 		return err
 	}
-	if err := db.SetSetting(settingAutoBackupFrequency, normalizeAutoBackupFrequency(frequency)); err != nil {
+	if err := db.SetSetting(settingAutoBackupFrequency, NormalizeAutoBackupFrequency(frequency)); err != nil {
 		return err
 	}
 	return nil
@@ -225,7 +225,7 @@ func StartAutoBackupScheduler() func() {
 // designed to be called from both the startup check and the periodic ticker without
 // duplicating backups.
 func RunAutoBackupIfDue(now time.Time) (bool, string, error) {
-	config, err := loadAutoBackupConfig()
+	config, err := LoadAutoBackupConfig()
 	if err != nil {
 		return false, "", fmt.Errorf("load auto backup config: %w", err)
 	}
@@ -240,15 +240,15 @@ func RunAutoBackupIfDue(now time.Time) (bool, string, error) {
 
 	path, err := createAutoBackup(now, config.Frequency)
 	if err != nil {
-		_ = recordBackupEvent("auto-"+config.Frequency, "failed", "", err.Error())
+		_ = RecordBackupEvent("auto-"+config.Frequency, "failed", "", err.Error())
 		return false, "", err
 	}
 	// Persist the completion timestamp immediately so that a crash after this point does
 	// not cause the scheduler to create a duplicate backup on the next startup check.
-	if err := db.SetSetting(settingAutoBackupLastRun, now.UTC().Format(time.RFC3339)); err != nil {
+	if err := db.SetSetting(SettingAutoBackupLastRun, now.UTC().Format(time.RFC3339)); err != nil {
 		return false, "", fmt.Errorf("save auto backup last run: %w", err)
 	}
-	_ = recordBackupEvent("auto-"+config.Frequency, "success", path, "Automatic backup created")
+	_ = RecordBackupEvent("auto-"+config.Frequency, "success", path, "Automatic backup created")
 
 	return true, path, nil
 }
@@ -281,18 +281,18 @@ func createAutoBackup(now time.Time, frequency string) (string, error) {
 	// and the directory listing human-readable.
 	filename := fmt.Sprintf(
 		"ramseyer-finance-auto-%s-%s.db",
-		normalizeAutoBackupFrequency(frequency),
+		NormalizeAutoBackupFrequency(frequency),
 		now.Format("2006-01-02-150405"),
 	)
 	targetPath := filepath.Join(autoBackupDir, filename)
-	if err := copyFile(backupPath, targetPath); err != nil {
+	if err := CopyFile(backupPath, targetPath); err != nil {
 		return "", fmt.Errorf("save auto backup: %w", err)
 	}
 
 	// Retention cleanup runs after the new backup is written, not before, so a full
 	// directory does not prevent the current backup from being saved. If pruning fails, we
 	// log the error but do not fail the backup—a stale file is better than no backup.
-	if err := pruneAutoBackups(autoBackupDir, normalizeAutoBackupFrequency(frequency), autoBackupRetention(frequency)); err != nil {
+	if err := pruneAutoBackups(autoBackupDir, NormalizeAutoBackupFrequency(frequency), autoBackupRetention(frequency)); err != nil {
 		log.Printf("auto backup retention cleanup failed: %v", err)
 	}
 
@@ -305,7 +305,7 @@ func createAutoBackup(now time.Time, frequency string) (string, error) {
 // any manual backups the user might create. If the directory doesn't exist, it is created
 // with permissions 0755 (owner read/write/execute, group and others read/execute).
 func resolveAutoBackupDir() (string, error) {
-	rootDir, err := resolveBackupRootDir()
+	rootDir, err := ResolveBackupRootDir()
 	if err != nil {
 		return "", err
 	}
@@ -335,7 +335,7 @@ func pruneAutoBackups(dir, frequency string, keep int) error {
 		return fmt.Errorf("read auto backup directory: %w", err)
 	}
 
-	prefix := "ramseyer-finance-auto-" + normalizeAutoBackupFrequency(frequency) + "-"
+	prefix := "ramseyer-finance-auto-" + NormalizeAutoBackupFrequency(frequency) + "-"
 	type backupEntry struct {
 		path    string
 		modTime time.Time

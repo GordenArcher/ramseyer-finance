@@ -13,6 +13,9 @@ import (
 	"ramseyer-finance/internal/db"
 	"ramseyer-finance/internal/desktop"
 	"ramseyer-finance/internal/handlers"
+	authhandlers "ramseyer-finance/internal/handlers/auth"
+	backupservice "ramseyer-finance/internal/handlers/backup"
+	updatehandlers "ramseyer-finance/internal/handlers/updates"
 	"strings"
 
 	webview "github.com/webview/webview_go"
@@ -58,11 +61,11 @@ func main() {
 	// startup (to catch backups that should have run while the app was closed) and then
 	// checks every 12 hours. The returned stop function is deferred so the scheduler
 	// goroutine is cleanly shut down when main() exits.
-	stopAutoBackupScheduler := handlers.StartAutoBackupScheduler()
+	stopAutoBackupScheduler := backupservice.StartAutoBackupScheduler()
 	defer stopAutoBackupScheduler()
 
 	// Create a sub-filesystem rooted at "static/" so that http.FileServerFS serves
-	// "/static/style.css" when the browser requests "/static/style.css", without the
+	// "/static/styles/style.css" when the browser requests it, without the
 	// "static/" prefix appearing in the URL path. fs.Sub strips the leading directory.
 	staticSubFS, err := fs.Sub(staticFS, "static")
 	if err != nil {
@@ -73,48 +76,48 @@ func main() {
 	// around this server. Having every route listed here makes it easier to reason about
 	// authenticated areas, destructive endpoints, and future packaging decisions.
 	// Every route is registered on a single ServeMux. Public routes (login, auth API) are
-	// registered without middleware. All other routes are wrapped with handlers.WithAuth,
+	// registered without middleware. All other routes are wrapped with authhandlers.WithAuth,
 	// which redirects unauthenticated requests to the login page. API routes for
 	// destructive actions (create, update, delete, restore) use POST-only handlers to
 	// prevent accidental invocation via GET requests or link prefetching.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/login", handlers.LoginPage)
-	mux.HandleFunc("/api/auth/setup", handlers.SetupPIN)
-	mux.HandleFunc("/api/auth/unlock", handlers.Unlock)
-	mux.HandleFunc("/api/auth/logout", handlers.Logout)
-	mux.HandleFunc("/", handlers.WithAuth(handlers.Dashboard))
-	mux.HandleFunc("/data-entry", handlers.WithAuth(handlers.DataEntryPage))
-	mux.HandleFunc("/transactions", handlers.WithAuth(handlers.TransactionsPage))
-	mux.HandleFunc("/api/transaction/add", handlers.WithAuth(handlers.AddTransaction))
-	mux.HandleFunc("/api/transaction/update", handlers.WithAuth(handlers.UpdateTransaction))
-	mux.HandleFunc("/api/transaction/delete", handlers.WithAuth(handlers.DeleteTransaction))
-	mux.HandleFunc("/api/transactions/export", handlers.WithAuth(handlers.ExportTransactions))
-	mux.HandleFunc("/monthly", handlers.WithAuth(handlers.MonthlyReport))
-	mux.HandleFunc("/quarterly", handlers.WithAuth(handlers.QuarterlyReport))
-	mux.HandleFunc("/annual", handlers.WithAuth(handlers.AnnualReport))
-	mux.HandleFunc("/trial-balance", handlers.WithAuth(handlers.TrialBalance))
-	mux.HandleFunc("/balance-sheet", handlers.WithAuth(handlers.BalanceSheet))
-	mux.HandleFunc("/cash-flow", handlers.WithAuth(handlers.CashFlowStatement))
-	mux.HandleFunc("/fixed-assets", handlers.WithAuth(handlers.FixedAssetSchedule))
-	mux.HandleFunc("/notes", handlers.WithAuth(handlers.NotesPage))
-	mux.HandleFunc("/categories", handlers.WithAuth(handlers.CategoriesPage))
-	mux.HandleFunc("/setup", handlers.WithAuth(handlers.SetupPage))
-	mux.HandleFunc("/api/category/save", handlers.WithAuth(handlers.SaveCategory))
-	mux.HandleFunc("/api/category/toggle", handlers.WithAuth(handlers.ToggleCategoryStatus))
-	mux.HandleFunc("/api/budget/save", handlers.WithAuth(handlers.SaveBudget))
-	mux.HandleFunc("/api/budget/delete", handlers.WithAuth(handlers.DeleteBudget))
-	mux.HandleFunc("/api/opening-balance/save", handlers.WithAuth(handlers.SaveOpeningBalance))
-	mux.HandleFunc("/api/fund-rollforward/save", handlers.WithAuth(handlers.SaveFundRollforward))
-	mux.HandleFunc("/api/account-opening-balance/save", handlers.WithAuth(handlers.SaveAccountOpeningBalance))
-	mux.HandleFunc("/api/fixed-asset-opening/save", handlers.WithAuth(handlers.SaveFixedAssetOpening))
-	mux.HandleFunc("/api/settings/dashboard-greeting/save", handlers.WithAuth(handlers.SaveDashboardGreetingSettings))
-	mux.HandleFunc("/api/settings/auto-backup/save", handlers.WithAuth(handlers.SaveAutoBackupSettings))
-	mux.HandleFunc("/api/update/check", handlers.WithAuth(handlers.CheckForUpdates))
-	mux.HandleFunc("/api/update/apply", handlers.WithAuth(handlers.ApplyUpdate))
-	mux.HandleFunc("/api/auth/change-pin", handlers.WithAuth(handlers.ChangePIN))
-	mux.HandleFunc("/backup", handlers.WithAuth(handlers.BackupPage))
-	mux.HandleFunc("/api/backup/download", handlers.WithAuth(handlers.DownloadBackup))
-	mux.HandleFunc("/api/backup/restore", handlers.WithAuth(handlers.RestoreBackup))
+	mux.HandleFunc("/login", authhandlers.LoginPage)
+	mux.HandleFunc("/api/auth/setup", authhandlers.SetupPIN)
+	mux.HandleFunc("/api/auth/unlock", authhandlers.Unlock)
+	mux.HandleFunc("/api/auth/logout", authhandlers.Logout)
+	mux.HandleFunc("/", authhandlers.WithAuth(handlers.Dashboard))
+	mux.HandleFunc("/data-entry", authhandlers.WithAuth(handlers.DataEntryPage))
+	mux.HandleFunc("/transactions", authhandlers.WithAuth(handlers.TransactionsPage))
+	mux.HandleFunc("/api/transaction/add", authhandlers.WithAuth(handlers.AddTransaction))
+	mux.HandleFunc("/api/transaction/update", authhandlers.WithAuth(handlers.UpdateTransaction))
+	mux.HandleFunc("/api/transaction/delete", authhandlers.WithAuth(handlers.DeleteTransaction))
+	mux.HandleFunc("/api/transactions/export", authhandlers.WithAuth(handlers.ExportTransactions))
+	mux.HandleFunc("/monthly", authhandlers.WithAuth(handlers.MonthlyReport))
+	mux.HandleFunc("/quarterly", authhandlers.WithAuth(handlers.QuarterlyReport))
+	mux.HandleFunc("/annual", authhandlers.WithAuth(handlers.AnnualReport))
+	mux.HandleFunc("/trial-balance", authhandlers.WithAuth(handlers.TrialBalance))
+	mux.HandleFunc("/balance-sheet", authhandlers.WithAuth(handlers.BalanceSheet))
+	mux.HandleFunc("/cash-flow", authhandlers.WithAuth(handlers.CashFlowStatement))
+	mux.HandleFunc("/fixed-assets", authhandlers.WithAuth(handlers.FixedAssetSchedule))
+	mux.HandleFunc("/notes", authhandlers.WithAuth(handlers.NotesPage))
+	mux.HandleFunc("/categories", authhandlers.WithAuth(handlers.CategoriesPage))
+	mux.HandleFunc("/setup", authhandlers.WithAuth(handlers.SetupPage))
+	mux.HandleFunc("/api/category/save", authhandlers.WithAuth(handlers.SaveCategory))
+	mux.HandleFunc("/api/category/toggle", authhandlers.WithAuth(handlers.ToggleCategoryStatus))
+	mux.HandleFunc("/api/budget/save", authhandlers.WithAuth(handlers.SaveBudget))
+	mux.HandleFunc("/api/budget/delete", authhandlers.WithAuth(handlers.DeleteBudget))
+	mux.HandleFunc("/api/opening-balance/save", authhandlers.WithAuth(handlers.SaveOpeningBalance))
+	mux.HandleFunc("/api/fund-rollforward/save", authhandlers.WithAuth(handlers.SaveFundRollforward))
+	mux.HandleFunc("/api/account-opening-balance/save", authhandlers.WithAuth(handlers.SaveAccountOpeningBalance))
+	mux.HandleFunc("/api/fixed-asset-opening/save", authhandlers.WithAuth(handlers.SaveFixedAssetOpening))
+	mux.HandleFunc("/api/settings/dashboard-greeting/save", authhandlers.WithAuth(handlers.SaveDashboardGreetingSettings))
+	mux.HandleFunc("/api/settings/auto-backup/save", authhandlers.WithAuth(handlers.SaveAutoBackupSettings))
+	mux.HandleFunc("/api/update/check", authhandlers.WithAuth(updatehandlers.CheckForUpdates))
+	mux.HandleFunc("/api/update/apply", authhandlers.WithAuth(updatehandlers.ApplyUpdate))
+	mux.HandleFunc("/api/auth/change-pin", authhandlers.WithAuth(authhandlers.ChangePIN))
+	mux.HandleFunc("/backup", authhandlers.WithAuth(handlers.BackupPage))
+	mux.HandleFunc("/api/backup/download", authhandlers.WithAuth(handlers.DownloadBackup))
+	mux.HandleFunc("/api/backup/restore", authhandlers.WithAuth(handlers.RestoreBackup))
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServerFS(staticSubFS)))
 
 	// Bind to an ephemeral port on localhost only. Listening on 127.0.0.1 ensures the

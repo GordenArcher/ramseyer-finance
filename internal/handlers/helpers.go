@@ -744,3 +744,36 @@ func sanitizeReturnTo(raw, fallback string) string {
 	}
 	return fallback
 }
+
+// queryEscape keeps feedback messages safe when handlers append them to an in-app redirect.
+// Authentication has its own package-local equivalent; this shared version serves the
+// transaction, setup, category, and backup route facades that remain in this package.
+func queryEscape(raw string) string {
+	replacer := strings.NewReplacer(
+		" ", "+",
+		"\"", "",
+		"#", "",
+		"&", "and",
+		"?", "",
+	)
+	return replacer.Replace(raw)
+}
+
+// alertTone maps server feedback to the non-alarming success or warning styles used by
+// authenticated pages. Keeping this presentation rule in the facade avoids domain packages
+// depending on one another merely to classify a redirect message.
+func alertTone(message string) string {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return "success"
+	}
+	for _, marker := range []string{
+		"incorrect", "invalid", "did not", "must", "create", "already",
+		"replace", "failed", "duplicate", "required", "no backup file",
+	} {
+		if strings.Contains(normalized, marker) {
+			return "warning"
+		}
+	}
+	return "success"
+}

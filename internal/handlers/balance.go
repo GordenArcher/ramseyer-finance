@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/handlers/viewmodels"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ type BalanceData struct {
 	PriorTotalAssets       float64
 	LongTermLiabilities    []BalanceLine
 	CurrentLiabilities     []BalanceLine
-	Chart                  ChartData
+	Chart                  viewmodels.ChartData
 	TotalLiabilities       float64
 	PriorTotalLiabilities  float64
 	AccumulatedFund        float64
@@ -201,9 +202,9 @@ func buildBalanceData(year int) (BalanceData, error) {
 	// Build a grouped bar chart comparing the five key balance sheet figures across the
 	// current and prior years. The prior year uses a muted grey colour while the current
 	// year uses the application's brand green, making the comparison visually immediate.
-	data.Chart = ChartData{
+	data.Chart = viewmodels.ChartData{
 		Labels: []string{"Assets", "Liabilities", "Equity", "Accumulated Fund", "Income Surplus"},
-		Datasets: []ChartDataset{
+		Datasets: []viewmodels.ChartDataset{
 			{
 				Label:     data.PriorYear,
 				Type:      "bar",

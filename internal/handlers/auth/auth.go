@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"crypto/rand"
@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	webhandlers "ramseyer-finance/internal/handlers"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +83,7 @@ func LoginPage(w http.ResponseWriter, r *http.Request) {
 		data.Mode = "unlock"
 	}
 
-	RenderStandaloneTemplate(w, "login", data)
+	webhandlers.RenderStandaloneTemplate(w, "login", data)
 }
 
 // SetupPIN handles the initial PIN creation POST request. It is only callable when no PIN
@@ -522,4 +524,16 @@ func alertTone(message string) string {
 	}
 
 	return "success"
+}
+
+// serverError deliberately logs diagnostic detail while returning a generic message to the
+// local webview. Authentication failures can contain storage details that should not become
+// part of the operator-facing page.
+func serverError(w http.ResponseWriter, err error) {
+	log.Printf("authentication request failed: %v", err)
+	http.Error(w, "Internal server error", http.StatusInternalServerError)
+}
+
+func badRequest(w http.ResponseWriter, message string) {
+	http.Error(w, message, http.StatusBadRequest)
 }

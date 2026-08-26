@@ -427,7 +427,6 @@ function initExportForms() {
     });
   });
 }
-
 // initRestoreForms drives the in-app backup library. It filters and sorts the server-built
 // candidate list without a round trip, keeps one selected restore source, and accepts an
 // external file only through drag-and-drop. No click handler opens an operating-system or
@@ -447,6 +446,7 @@ function initRestoreForms() {
     const resultCount = form.querySelector("[data-backup-result-count]");
     const selectedLabel = form.querySelector("[data-backup-selected-label]");
     const emptyState = form.querySelector("[data-backup-empty]");
+    const customSelectors = qsa("[data-custom-selector]", form);
     const dropZone = form.querySelector("[data-backup-drop-zone]");
     const droppedFileInput = form.querySelector("[data-restore-file-input]");
     const dropLabel = form.querySelector("[data-backup-drop-label]");
@@ -512,9 +512,9 @@ function initRestoreForms() {
 
     function applyLibraryFilters() {
       const query = searchInput?.value.trim().toLowerCase() || "";
-      const selectedKind = kindFilter?.value || "all";
-      const selectedAge = ageFilter?.value || "all";
-      const selectedExtension = extensionFilter?.value || "all";
+      const selectedKind = kindFilter?.dataset.value || "all";
+      const selectedAge = ageFilter?.dataset.value || "all";
+      const selectedExtension = extensionFilter?.dataset.value || "all";
       const nowSeconds = Math.floor(Date.now() / 1000);
       let visibleCount = 0;
 
@@ -554,7 +554,7 @@ function initRestoreForms() {
       if (!list) {
         return;
       }
-      const mode = sortControl?.value || "newest";
+      const mode = sortControl?.dataset.value || "newest";
       options
         .slice()
         .sort((left, right) => {
@@ -571,13 +571,14 @@ function initRestoreForms() {
     qsa("[data-backup-radio]", form).forEach((radio) => {
       radio.addEventListener("change", () => syncSelectedCandidate(radio));
     });
-    [searchInput, kindFilter, ageFilter, extensionFilter].forEach((control) => {
-      control?.addEventListener("input", applyLibraryFilters);
-      control?.addEventListener("change", applyLibraryFilters);
-    });
-    sortControl?.addEventListener("change", () => {
-      sortLibrary();
-      applyLibraryFilters();
+    searchInput?.addEventListener("input", applyLibraryFilters);
+    customSelectors.forEach((selector) => {
+      bindCustomSelector(selector, () => {
+        if (selector === sortControl) {
+          sortLibrary();
+        }
+        applyLibraryFilters();
+      });
     });
 
     if (dropZone && droppedFileInput) {
@@ -1122,6 +1123,9 @@ function initCategoryEditor() {
     if (reportSectionField) {
       reportSectionField.value = "";
     }
+    [typeField, parentField, reportSectionField].forEach((field) => {
+      field?.dispatchEvent(new CustomEvent("custom-select:sync"));
+    });
     if (returnField) {
       returnField.value = returnTo;
     }
@@ -1165,13 +1169,21 @@ function openModal(id) {
   modal.setAttribute("aria-hidden", "false");
   document.body.classList.add("has-modal");
 
+  // Modal forms can update their underlying select values immediately before opening. I
+  // resynchronise their custom faces here so the operator always sees the actual form value.
+  qsa("select[data-custom-select-ready]", modal).forEach((select) => {
+    select.dispatchEvent(new CustomEvent("custom-select:sync"));
+  });
+
   window.requestAnimationFrame(() => {
     modal.classList.add("is-open");
   });
 
   // I delay focus slightly so the open animation can settle first. Immediate focus was causing
   // some shells to jump-scroll before the modal finished transitioning.
-  const firstField = modal.querySelector("input, select, textarea, button");
+  const firstField = modal.querySelector(
+    'input:not([type="hidden"]):not(.custom-select-source), textarea, [data-custom-selector-trigger], button',
+  );
   if (firstField) {
     window.setTimeout(() => firstField.focus(), 160);
   }
@@ -1489,6 +1501,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initAutoDismissAlerts();
   initMoneyTooltips();
   initNavigationLoading();
+  initCustomSelects();
   initPinScreens();
   initStatementPrinting();
   initExportForms();

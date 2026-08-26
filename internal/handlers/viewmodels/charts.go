@@ -1,4 +1,4 @@
-package handlers
+package viewmodels
 
 // I keep the chart payload intentionally small and serializable because charts are rendered on the
 // frontend canvas layer, while the backend only needs to describe labels and series values.

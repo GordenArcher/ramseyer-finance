@@ -15,7 +15,7 @@ Click **+ New Entry** (or navigate to **Data Entry** from the sidebar) to open t
 - **Asset** — property, equipment, bank movements, and receivables (description required)
 - **Liability** — payables and assessment amounts owed (description required)
 
-Each tab presents the relevant category dropdown. Select a date, category, amount, and optional description, then save.
+Each tab presents the relevant searchable category selector. Select a date, category, amount, and optional description, then save.
 
 ### Review and Correct Records
 

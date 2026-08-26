@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"ramseyer-finance/internal/appmeta"
 	"ramseyer-finance/internal/db"
+	backupservice "ramseyer-finance/internal/handlers/backup"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ type SetupData struct {
 	AccountOpenings    []SavedAccountOpeningBalance
 	FixedAssetOptions  []FixedAssetOpeningOption
 	FixedAssetOpenings []SavedFixedAssetOpening
-	AutoBackup         AutoBackupConfig
+	AutoBackup         backupservice.AutoBackupConfig
 	DashboardConfig    DashboardGreetingConfig
 	Message            string
 	MessageTone        string
@@ -93,7 +94,7 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	autoBackupConfig, err := loadAutoBackupConfig()
+	autoBackupConfig, err := backupservice.LoadAutoBackupConfig()
 	if err != nil {
 		serverError(w, err)
 		return
