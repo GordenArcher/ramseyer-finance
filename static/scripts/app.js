@@ -1482,12 +1482,66 @@ function initPinScreens() {
   qsa("form[data-pin-screen]").forEach(bindPinScreen);
 }
 
-// initStatementPrinting turns each report's print control into a native print/save-PDF
-// action. Keeping the trigger in the embedded UI gives non-technical operators a complete
-// financial-statement handoff without asking them to open a browser menu or terminal.
+// showReportPDFStatus keeps the save destination visible in the report itself. Embedded
+// webviews do not have a browser download shelf, so a disappearing success message would
+// leave the operator unsure whether the document was actually created.
+function showReportPDFStatus(button, message, tone) {
+  let status = document.querySelector("[data-report-pdf-status]");
+  if (!status) {
+    status = document.createElement("div");
+    status.dataset.reportPdfStatus = "";
+    button.closest(".page-header")?.insertAdjacentElement("afterend", status);
+  }
+  status.className = `alert alert-${tone}`;
+  status.textContent = message;
+}
+
+// initStatementPrinting asks the Go server to generate the PDF and save it directly into
+// Downloads. window.print() is intentionally avoided because macOS WKWebView and Windows
+// WebView2 do not expose a consistent print dialog to this lightweight desktop shell.
 function initStatementPrinting() {
-  qsa("[data-print-page]").forEach((button) => {
-    button.addEventListener("click", () => window.print());
+  qsa("[data-report-pdf]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (button.dataset.exporting === "true") return;
+
+      button.dataset.exporting = "true";
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = "Creating PDF…";
+      startPageLoading();
+      try {
+        const query = new URLSearchParams({
+          report: button.dataset.reportPdf,
+          year: button.dataset.reportYear,
+          delivery: "native",
+        });
+        const response = await fetch(`/api/report/pdf?${query.toString()}`, {
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          throw new Error((await response.text()).trim() || "PDF creation failed.");
+        }
+        const payload = await response.json();
+        showReportPDFStatus(button, `PDF saved to ${payload.path}`, "success");
+
+        // The native bridge opens the exact server-created file in Preview or the user's
+        // default PDF viewer, where normal printing is fully supported.
+        if (typeof window.openSavedPDF === "function" && payload.path) {
+          await window.openSavedPDF(payload.path);
+        }
+      } catch (error) {
+        showReportPDFStatus(
+          button,
+          error instanceof Error ? error.message : "PDF creation failed.",
+          "danger",
+        );
+      } finally {
+        button.dataset.exporting = "false";
+        button.disabled = false;
+        button.textContent = originalLabel;
+        stopPageLoading();
+      }
+    });
   });
 }
 

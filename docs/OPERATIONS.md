@@ -117,14 +117,16 @@ The application includes the workbook-aligned statements and supporting reports 
 |--------|---------|
 | **Monthly** | Month-by-month breakdown of income, expenditure, and surplus with YTD totals |
 | **Quarterly** | Calendar quarter aggregation (Q1–Q4) with full-year totals |
-| **Financial Performance** | Income, expenditure, surplus, budget variance, and accumulated-fund roll-forward |
-| **Trial Balance** | Natural debit/credit control with an explicit unreconciled difference |
-| **Financial Position** | Year-end assets, liabilities, accumulated fund, and balance difference |
-| **Cash Flow** | Indirect operating, investing, and financing flows reconciled to Note 26 |
+| **Financial Performance** | Trial Balance note totals for income, expenditure, surplus, budget variance, and accumulated fund |
+| **Trial Balance** | The editable, year-owned source for Notes and year-end statements, with a debit/credit control difference |
+| **Financial Position** | Trial Balance assets, liabilities, accumulated fund, and balance difference |
+| **Cash Flow** | Indirect flows derived from current/prior Trial Balance notes and reconciled to Note 26 |
 | **Fixed Assets** | Note 21 cost, depreciation/amortization, and carrying-value schedule |
-| **Notes** | Comparative details for workbook Notes 3–28 |
+| **Notes** | Comparative details linked directly to each year's Trial Balance rows for workbook Notes 3–28 |
 
-All reports support year selection and include comparative prior-year figures where applicable. Statement pages include **Print / Save PDF**, and reconciliation warnings remain visible on screen until the underlying postings or openings are corrected.
+Each Trial Balance year owns its account rows, types, note mappings, and debit/credit values. Editing or adding a row in one year does not change another year. On upgrade, the first visit to a year creates a one-time snapshot from the existing transaction/opening data; after that point the saved Trial Balance is authoritative for Notes and year-end statements.
+
+All reports support year selection and include comparative prior-year figures where applicable. **Save PDF & Open** generates a real PDF in Downloads and opens it in the operating system's PDF viewer, where it can be printed normally. Reconciliation warnings remain visible until the saved Trial Balance is corrected.
 
 ## Database Notes
 

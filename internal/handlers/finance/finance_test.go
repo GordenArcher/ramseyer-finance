@@ -1044,9 +1044,88 @@ func TestExportTransactionsCSVExcelAndPDF(t *testing.T) {
 	}
 }
 
+func TestTrialBalanceEditsDriveNotesAndRemainYearSpecific(t *testing.T) {
+	setupTestDB(t)
+	offeringsID := categoryID(t, "income", "Offerings")
+	insertTransaction(t, "2026-02-01", "income", "Offerings", offeringsID, 100)
+	insertTransaction(t, "2027-02-01", "income", "Offerings", offeringsID, 125)
+
+	if _, err := buildTrialBalanceData(2026); err != nil {
+		t.Fatalf("initialize 2026 Trial Balance: %v", err)
+	}
+	if _, err := db.DB.Exec(`
+		UPDATE trial_balance_entries
+		SET credit = 450, debit = 0
+		WHERE year = 2026 AND account_type = 'income' AND account_name = 'Offerings'
+	`); err != nil {
+		t.Fatalf("edit authoritative Trial Balance row: %v", err)
+	}
+
+	notes, err := buildNotesData(2026)
+	if err != nil {
+		t.Fatalf("build notes from edited Trial Balance: %v", err)
+	}
+	if amountForNoteLine(noteSectionByNumber(t, notes.Notes, "4").Lines, "Offerings") != 450 {
+		t.Fatalf("Note 4 did not receive the edited 2026 Trial Balance amount")
+	}
+	annual, err := buildAnnualData(2026)
+	if err != nil {
+		t.Fatalf("build annual statement from edited Trial Balance: %v", err)
+	}
+	if amountForAnnualLine(annual.IncomeLines, "4") != 450 {
+		t.Fatalf("annual Note 4 amount = %v, want 450", amountForAnnualLine(annual.IncomeLines, "4"))
+	}
+
+	if _, err := buildTrialBalanceData(2027); err != nil {
+		t.Fatalf("initialize independent 2027 Trial Balance: %v", err)
+	}
+	var credit2027 float64
+	if err := db.DB.QueryRow(`
+		SELECT credit FROM trial_balance_entries
+		WHERE year = 2027 AND account_type = 'income' AND account_name = 'Offerings'
+	`).Scan(&credit2027); err != nil {
+		t.Fatalf("load 2027 offering row: %v", err)
+	}
+	if credit2027 != 125 {
+		t.Fatalf("2027 offering = %v, want its independent 125 instead of the edited 2026 value", credit2027)
+	}
+}
+
+func TestExportReportPDFReturnsARealDocument(t *testing.T) {
+	setupTestDB(t)
+	insertTransaction(t, "2026-02-01", "income", "Offerings", categoryID(t, "income", "Offerings"), 100)
+
+	for _, report := range []string{"trial-balance", "annual", "balance-sheet", "cash-flow", "fixed-assets", "notes"} {
+		t.Run(report, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/report/pdf?report="+report+"&year=2026", nil)
+			recorder := httptest.NewRecorder()
+			ExportReportPDF(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("report PDF status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if contentType := recorder.Header().Get("Content-Type"); contentType != "application/pdf" {
+				t.Fatalf("report PDF content type = %q", contentType)
+			}
+			if !strings.HasPrefix(recorder.Body.String(), "%PDF-1.4") {
+				t.Fatalf("report response is not a PDF document")
+			}
+		})
+	}
+}
+
 func amountForBalanceLine(lines []BalanceLine, name string) float64 {
 	for _, line := range lines {
 		if line.Name == name {
+			return line.Amount
+		}
+	}
+	return 0
+}
+
+func amountForAnnualLine(lines []LineRow, note string) float64 {
+	for _, line := range lines {
+		if line.Note == note {
 			return line.Amount
 		}
 	}

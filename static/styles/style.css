@@ -669,6 +669,12 @@ button {
     border-color: rgba(43, 111, 87, 0.16);
 }
 
+.alert-info {
+    color: var(--accent);
+    background: rgba(24, 78, 72, 0.08);
+    border-color: rgba(24, 78, 72, 0.18);
+}
+
 .alert-warning {
     color: var(--danger);
     background: var(--danger-soft);
@@ -677,6 +683,31 @@ button {
 
 .alert-float {
     animation: float-in 420ms ease;
+}
+
+.trial-balance-editor {
+    min-width: 1180px;
+}
+
+.trial-balance-editor th:nth-child(1),
+.trial-balance-editor td:nth-child(1) {
+    min-width: 180px;
+}
+
+.trial-balance-editor th:nth-child(2),
+.trial-balance-editor td:nth-child(2) {
+    min-width: 110px;
+}
+
+.trial-balance-editor th:nth-child(3),
+.trial-balance-editor td:nth-child(3) {
+    min-width: 360px;
+}
+
+.trial-balance-editor input,
+.trial-balance-editor select {
+    min-width: 0;
+    padding: 9px 10px;
 }
 
 .alert.is-dismissing {

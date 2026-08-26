@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"ramseyer-finance/internal/db"
 	"ramseyer-finance/internal/handlers/viewmodels"
+	"sort"
+	"strconv"
 )
 
 // MonthlyData carries the template variables for the monthly breakdown report page. It
@@ -359,13 +361,12 @@ func buildAnnualData(year int) (AnnualData, error) {
 		PriorYear: fmt.Sprintf("%d", year-1),
 		Years:     years,
 	}
-	// Reporting warnings highlight potential data quality issues (e.g., transactions
-	// with missing categories, or opening balances that haven't been configured for
-	// the year). These are shown at the top of the report so the user can address
-	// them before relying on the figures.
-	data.Warnings, err = loadReportingWarnings(year)
+	trialBalance, err := buildTrialBalanceData(year)
 	if err != nil {
-		return AnnualData{}, fmt.Errorf("load annual warnings: %w", err)
+		return AnnualData{}, fmt.Errorf("load annual Trial Balance control: %w", err)
+	}
+	if absFloat(trialBalance.Difference) > 0.005 {
+		data.Warnings = append(data.Warnings, fmt.Sprintf("The %d Trial Balance is out by GH¢ %.2f; correct it before finalising this statement.", year, absFloat(trialBalance.Difference)))
 	}
 
 	data.IncomeLines, data.TotalIncome, data.TotalPriorIncome, err = loadAnnualLines(year, "income")
@@ -463,14 +464,15 @@ func buildAnnualData(year int) (AnnualData, error) {
 
 	data.Surplus = data.TotalIncome - data.TotalExpense
 	data.PriorSurplus = data.TotalPriorIncome - data.TotalPriorExpense
-	fund, err := loadFundRollforward(year)
+	// Equity/fund rows now live in the same year-owned TB as the income and expenditure
+	// figures. Reading them here prevents Setup values from becoming a second competing
+	// source after the year has been initialized.
+	data.OpeningFund, err = loadTrialBalanceTypeTotal(year, "equity")
 	if err != nil {
-		return AnnualData{}, fmt.Errorf("load accumulated fund roll-forward: %w", err)
+		return AnnualData{}, fmt.Errorf("load accumulated fund from Trial Balance: %w", err)
 	}
-	data.FundConfigured = fund.Exists
-	data.OpeningFund = fund.OpeningBalance
-	data.PriorAdjustment = fund.PriorYearAdjustment
-	data.AdjustedFund = data.OpeningFund + data.PriorAdjustment
+	data.FundConfigured = data.OpeningFund != 0
+	data.AdjustedFund = data.OpeningFund
 	data.ClosingFund = data.AdjustedFund + data.Surplus
 	// The annual comparison chart uses paired bars for the current and prior year,
 	// grouped by the three key metrics: income, expenditure, and surplus. The prior
@@ -577,60 +579,99 @@ func loadMonthlyTotals(year int) (map[int]amountTotals, error) {
 // returns the ordered line items, the total of all current-year amounts, and the total of
 // all prior-year amounts.
 func loadAnnualLines(year int, categoryType string) ([]LineRow, float64, float64, error) {
-	// I load current year, prior year, and budget in one grouped pass so the annual rows stay
-	// aligned by top-level category instead of being stitched together from separate queries.
-	startDate, endDate := yearBounds(year)
-	priorStartDate, priorEndDate := yearBounds(year - 1)
-	rows, err := db.DB.Query(`
-		SELECT
-			top.name,
-			top.note_ref,
-			COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amount ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amount ELSE 0 END), 0),
-			COALESCE(b.amount, 0)
-		FROM categories top
-		LEFT JOIN categories leaf
-			ON leaf.type = top.type
-			AND (leaf.id = top.id OR leaf.parent_id = top.id)
-		LEFT JOIN transactions t
-			ON t.category_id = leaf.id
-			AND t.type = top.type
-			AND t.date >= ?
-			AND t.date < ?
-		LEFT JOIN budgets b
-			ON b.year = ?
-			AND b.category_id = top.id
-		WHERE top.type = ? AND top.parent_id = 0
-		GROUP BY top.id, top.name, top.note_ref, b.amount
-		ORDER BY CAST(NULLIF(top.note_ref, '') AS INTEGER), top.id
-	`, startDate, endDate, priorStartDate, priorEndDate, priorStartDate, endDate, year, categoryType)
+	if err := ensureTrialBalanceYear(year); err != nil {
+		return nil, 0, 0, err
+	}
+	if err := ensureTrialBalanceYear(year - 1); err != nil {
+		return nil, 0, 0, err
+	}
+
+	// The annual statement groups TB rows by note because the workbook's statement lines
+	// point to note totals, not directly to transaction categories. Note 5's harvest expense
+	// is the one cross-type exception and reduces income exactly as it does in the workbook.
+	type totals struct{ current, prior, budget float64 }
+	byNote := map[string]totals{}
+	for _, period := range []struct {
+		year    int
+		current bool
+	}{{year, true}, {year - 1, false}} {
+		rows, err := db.DB.Query(`
+			SELECT account_type, note_ref, debit, credit
+			FROM trial_balance_entries
+			WHERE year = ? AND note_ref <> ''
+				AND ((? = 'income' AND (account_type = 'income' OR (account_type = 'expenditure' AND note_ref = '5')))
+					OR (? = 'expenditure' AND account_type = 'expenditure' AND note_ref <> '5'))
+		`, period.year, categoryType, categoryType)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		for rows.Next() {
+			var accountType, note string
+			var debit, credit float64
+			if err := rows.Scan(&accountType, &note, &debit, &credit); err != nil {
+				rows.Close()
+				return nil, 0, 0, err
+			}
+			amount := trialBalanceAmount(accountType, debit, credit)
+			if categoryType == "income" && accountType == "expenditure" {
+				amount = -amount
+			}
+			item := byNote[note]
+			if period.current {
+				item.current += amount
+			} else {
+				item.prior += amount
+			}
+			byNote[note] = item
+		}
+		if err := rows.Close(); err != nil {
+			return nil, 0, 0, err
+		}
+	}
+
+	budgetRows, err := db.DB.Query(`
+		SELECT c.note_ref, COALESCE(SUM(b.amount), 0)
+		FROM budgets b
+		JOIN categories c ON c.id = b.category_id
+		WHERE b.year = ? AND c.type = ? AND c.note_ref <> ''
+		GROUP BY c.note_ref
+	`, year, categoryType)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	defer rows.Close()
-
-	var (
-		lines      []LineRow
-		total      float64
-		priorTotal float64
-	)
-	for rows.Next() {
-		var line LineRow
-		if err := rows.Scan(&line.Name, &line.Note, &line.Amount, &line.PriorAmount, &line.Budget); err != nil {
+	for budgetRows.Next() {
+		var note string
+		var amount float64
+		if err := budgetRows.Scan(&note, &amount); err != nil {
+			budgetRows.Close()
 			return nil, 0, 0, err
 		}
-		// Variance is computed as actual minus budget. For income categories, a positive
-		// variance is favourable (earned more than budgeted); for expenditure categories,
-		// a positive variance is unfavourable (spent more than budgeted). The template
-		// can apply colour coding based on the section type.
+		item := byNote[note]
+		item.budget = amount
+		byNote[note] = item
+	}
+	if err := budgetRows.Close(); err != nil {
+		return nil, 0, 0, err
+	}
+
+	notes := make([]int, 0, len(byNote))
+	for note := range byNote {
+		number, err := strconv.Atoi(note)
+		if err == nil {
+			notes = append(notes, number)
+		}
+	}
+	sort.Ints(notes)
+	var lines []LineRow
+	var total, priorTotal float64
+	for _, number := range notes {
+		note := strconv.Itoa(number)
+		item := byNote[note]
+		line := LineRow{Note: note, Name: noteTitle(note, "Note "+note), Amount: item.current, PriorAmount: item.prior, Budget: item.budget}
 		line.Variance = line.Amount - line.Budget
 		lines = append(lines, line)
 		total += line.Amount
 		priorTotal += line.PriorAmount
 	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, 0, err
-	}
-
 	return lines, total, priorTotal, nil
 }

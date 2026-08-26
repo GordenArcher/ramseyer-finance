@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	"sort"
+	"strconv"
 )
 
 // NotesData carries all the template variables for the notes-to-the-accounts report page.
@@ -77,6 +79,119 @@ func NotesPage(w http.ResponseWriter, r *http.Request) {
 // categories. Sections are ordered by type (income first, then expenditure) and then by
 // note_ref number, producing a conventional financial report layout.
 func buildNotesData(year int) (NotesData, error) {
+	return buildTrialBalanceNotesData(year)
+}
+
+// buildTrialBalanceNotesData mirrors the workbook's direct cell links: every visible note
+// row comes from a saved Trial Balance row for the same year. Matching by type, note and
+// account name builds comparatives without requiring 2027 to reuse 2026's row structure.
+func buildTrialBalanceNotesData(year int) (NotesData, error) {
+	if err := ensureTrialBalanceYear(year); err != nil {
+		return NotesData{}, err
+	}
+	if err := ensureTrialBalanceYear(year - 1); err != nil {
+		return NotesData{}, err
+	}
+	years, err := reportYears(year)
+	if err != nil {
+		return NotesData{}, err
+	}
+	data := NotesData{Active: "notes", Year: strconv.Itoa(year), PriorYear: strconv.Itoa(year - 1), Years: years}
+
+	type lineKey struct{ Type, Note, Account string }
+	type pairedLine struct {
+		Current float64
+		Prior   float64
+	}
+	lines := map[lineKey]pairedLine{}
+	for _, period := range []struct {
+		year    int
+		current bool
+	}{{year, true}, {year - 1, false}} {
+		rows, err := db.DB.Query(`
+			SELECT account_type, note_ref, account_name, debit, credit
+			FROM trial_balance_entries
+			WHERE year = ? AND note_ref <> ''
+			ORDER BY sort_order, id
+		`, period.year)
+		if err != nil {
+			return NotesData{}, fmt.Errorf("load %d Trial Balance note rows: %w", period.year, err)
+		}
+		for rows.Next() {
+			var key lineKey
+			var debit, credit float64
+			if err := rows.Scan(&key.Type, &key.Note, &key.Account, &debit, &credit); err != nil {
+				rows.Close()
+				return NotesData{}, err
+			}
+			amount := trialBalanceAmount(key.Type, debit, credit)
+			if key.Note == "5" && key.Type == "expenditure" {
+				amount = -amount
+			}
+			pair := lines[key]
+			if period.current {
+				pair.Current += amount
+			} else {
+				pair.Prior += amount
+			}
+			lines[key] = pair
+		}
+		if err := rows.Close(); err != nil {
+			return NotesData{}, err
+		}
+	}
+
+	sections := map[string]*NoteSection{}
+	for key, pair := range lines {
+		sectionKey := key.Note
+		if key.Note == "21" {
+			sectionKey += ":" + key.Type
+		}
+		section := sections[sectionKey]
+		if section == nil {
+			section = &NoteSection{Number: key.Note, Title: noteTitle(key.Note, key.Account), CategoryType: key.Type}
+			if key.Note == "21" && key.Type == "asset" {
+				section.Title = "Non-Current Assets Schedule"
+			}
+			sections[sectionKey] = section
+		}
+		if pair.Current != 0 || pair.Prior != 0 {
+			section.Lines = append(section.Lines, NoteLine{Name: key.Account, Amount: pair.Current, PriorAmount: pair.Prior})
+		}
+		section.Total += pair.Current
+		section.PriorTotal += pair.Prior
+	}
+
+	keys := make([]string, 0, len(sections))
+	for key := range sections {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		left, _ := strconv.Atoi(sections[keys[i]].Number)
+		right, _ := strconv.Atoi(sections[keys[j]].Number)
+		if left != right {
+			return left < right
+		}
+		return keys[i] < keys[j]
+	})
+	for _, key := range keys {
+		section := sections[key]
+		sort.SliceStable(section.Lines, func(i, j int) bool { return section.Lines[i].Name < section.Lines[j].Name })
+		data.Notes = append(data.Notes, *section)
+	}
+	currentTB, err := buildTrialBalanceData(year)
+	if err != nil {
+		return NotesData{}, err
+	}
+	if absFloat(currentTB.Difference) > 0.005 {
+		data.Warnings = append(data.Warnings, fmt.Sprintf("The %d Trial Balance is out by GH¢ %.2f; the Notes reflect the saved rows but the statements are not yet balanced.", year, absFloat(currentTB.Difference)))
+	}
+	return data, nil
+}
+
+// buildLegacyNotesData remains as the migration reference used to verify upgraded books.
+// New reports do not call it; the one-time TB initializer is now the only transaction bridge.
+func buildLegacyNotesData(year int) (NotesData, error) {
 	// I build notes from category mappings instead of hard-coded rows so the note structure stays
 	// tied to the same category tree the user is actually posting into.
 	years, err := reportYears(year)

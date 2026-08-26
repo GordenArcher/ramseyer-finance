@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"ramseyer-finance/internal/db"
 	"ramseyer-finance/internal/handlers/viewmodels"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -106,6 +108,145 @@ func BalanceSheet(w http.ResponseWriter, r *http.Request) {
 // opening cash positions—it is a different view of the same transaction data, not a
 // separate accounting ledger.
 func buildBalanceData(year int) (BalanceData, error) {
+	return buildTrialBalancePositionData(year)
+}
+
+// buildTrialBalancePositionData assembles the statement from year-owned TB rows. The
+// current and comparative account sets are unioned by note and account name, so a new row
+// in 2027 appears without mutating 2026 and a retired 2026 row still remains comparative.
+func buildTrialBalancePositionData(year int) (BalanceData, error) {
+	if err := ensureTrialBalanceYear(year); err != nil {
+		return BalanceData{}, err
+	}
+	if err := ensureTrialBalanceYear(year - 1); err != nil {
+		return BalanceData{}, err
+	}
+	years, err := reportYears(year)
+	if err != nil {
+		return BalanceData{}, err
+	}
+	data := BalanceData{Active: "balance-sheet", Year: strconv.Itoa(year), PriorYear: strconv.Itoa(year - 1), Years: years}
+	type key struct{ Type, Note, Account string }
+	type pair struct{ current, prior float64 }
+	balances := map[key]pair{}
+	var currentIncome, currentExpense, priorIncome, priorExpense float64
+	var currentOpeningEquity, priorOpeningEquity float64
+
+	for _, period := range []struct {
+		year    int
+		current bool
+	}{{year, true}, {year - 1, false}} {
+		rows, err := db.DB.Query(`
+			SELECT account_type, note_ref, account_name, debit, credit
+			FROM trial_balance_entries WHERE year = ? ORDER BY sort_order, id
+		`, period.year)
+		if err != nil {
+			return BalanceData{}, err
+		}
+		for rows.Next() {
+			var item key
+			var debit, credit float64
+			if err := rows.Scan(&item.Type, &item.Note, &item.Account, &debit, &credit); err != nil {
+				rows.Close()
+				return BalanceData{}, err
+			}
+			amount := trialBalanceAmount(item.Type, debit, credit)
+			switch item.Type {
+			case "asset", "liability":
+				// Financial-position statement rows are note totals. Rows without a note are
+				// custom standalone accounts and therefore keep their year-specific caption.
+				if item.Note != "" {
+					item.Account = noteTitle(item.Note, item.Account)
+				}
+				value := balances[item]
+				if period.current {
+					value.current += amount
+				} else {
+					value.prior += amount
+				}
+				balances[item] = value
+			case "income":
+				if period.current {
+					currentIncome += amount
+				} else {
+					priorIncome += amount
+				}
+			case "expenditure":
+				if period.current {
+					currentExpense += amount
+				} else {
+					priorExpense += amount
+				}
+			case "equity":
+				if period.current {
+					currentOpeningEquity += amount
+				} else {
+					priorOpeningEquity += amount
+				}
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return BalanceData{}, err
+		}
+	}
+
+	keys := make([]key, 0, len(balances))
+	for item := range balances {
+		keys = append(keys, item)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		left, _ := strconv.Atoi(keys[i].Note)
+		right, _ := strconv.Atoi(keys[j].Note)
+		if left != right {
+			return left < right
+		}
+		return keys[i].Account < keys[j].Account
+	})
+	for _, item := range keys {
+		value := balances[item]
+		line := BalanceLine{Name: item.Account, Amount: value.current, PriorAmount: value.prior}
+		note, _ := strconv.Atoi(item.Note)
+		if item.Type == "asset" {
+			if note >= 21 && note <= 23 {
+				data.NonCurrentAssets = append(data.NonCurrentAssets, line)
+			} else {
+				data.CurrentAssets = append(data.CurrentAssets, line)
+			}
+			data.TotalAssets += value.current
+			data.PriorTotalAssets += value.prior
+		} else {
+			if note == 27 {
+				data.LongTermLiabilities = append(data.LongTermLiabilities, line)
+			} else {
+				data.CurrentLiabilities = append(data.CurrentLiabilities, line)
+			}
+			data.TotalLiabilities += value.current
+			data.PriorTotalLiabilities += value.prior
+		}
+	}
+	data.IncomeSurplus = currentIncome - currentExpense
+	data.PriorIncomeSurplus = priorIncome - priorExpense
+	data.AccumulatedFund = currentOpeningEquity
+	data.PriorAccumulatedFund = priorOpeningEquity
+	data.TotalEquity = data.AccumulatedFund + data.IncomeSurplus
+	data.PriorTotalEquity = data.PriorAccumulatedFund + data.PriorIncomeSurplus
+	data.BalanceDifference = data.TotalAssets - data.TotalLiabilities - data.TotalEquity
+	data.PriorBalanceDifference = data.PriorTotalAssets - data.PriorTotalLiabilities - data.PriorTotalEquity
+	data.FundConfigured = currentOpeningEquity != 0
+	data.PriorFundConfigured = priorOpeningEquity != 0
+	data.Chart = viewmodels.ChartData{
+		Labels: []string{"Assets", "Liabilities", "Equity", "Accumulated Fund", "Income Surplus"},
+		Datasets: []viewmodels.ChartDataset{
+			{Label: data.PriorYear, Type: "bar", Color: "#5a6475", SoftColor: "rgba(90, 100, 117, 0.14)", Values: []float64{data.PriorTotalAssets, data.PriorTotalLiabilities, data.PriorTotalEquity, data.PriorAccumulatedFund, data.PriorIncomeSurplus}},
+			{Label: data.Year, Type: "bar", Color: "#184e48", SoftColor: "rgba(24, 78, 72, 0.16)", Values: []float64{data.TotalAssets, data.TotalLiabilities, data.TotalEquity, data.AccumulatedFund, data.IncomeSurplus}},
+		},
+	}
+	return data, nil
+}
+
+// buildLegacyBalanceData is retained for migration verification only. New statement pages
+// use buildTrialBalancePositionData so transaction edits cannot rewrite a saved year.
+func buildLegacyBalanceData(year int) (BalanceData, error) {
 	// I build current and prior snapshots through the same helper so the comparative columns are
 	// produced by identical rules instead of two drifting implementations.
 	years, err := reportYears(year)

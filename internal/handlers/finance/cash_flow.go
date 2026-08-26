@@ -54,6 +54,117 @@ func CashFlowStatement(w http.ResponseWriter, r *http.Request) {
 // deliberately not forced to zero: it is the control that reveals missing cash-account or
 // balance-sheet movements.
 func buildCashFlowData(year int) (CashFlowData, error) {
+	if err := ensureTrialBalanceYear(year); err != nil {
+		return CashFlowData{}, err
+	}
+	if err := ensureTrialBalanceYear(year - 1); err != nil {
+		return CashFlowData{}, err
+	}
+	years, err := reportYears(year)
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data := CashFlowData{Active: "cash-flow", Year: fmt.Sprintf("%d", year), PriorYear: fmt.Sprintf("%d", year-1), Years: years}
+
+	currentIncome, err := loadTrialBalanceTypeTotal(year, "income")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentExpense, err := loadTrialBalanceTypeTotal(year, "expenditure")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.Surplus = currentIncome - currentExpense
+	data.DepreciationAmortization, err = loadTrialBalanceNoteTotal(year, "expenditure", "21")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+
+	priorInventory, err := loadTrialBalanceOpeningNoteTotal(year, "asset", "24")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentInventory, err := loadTrialBalanceNoteTotal(year, "asset", "24")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	priorReceivables, err := loadTrialBalanceOpeningNoteTotal(year, "asset", "25")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentReceivables, err := loadTrialBalanceNoteTotal(year, "asset", "25")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	priorPayables, err := loadTrialBalanceOpeningNoteTotal(year, "liability", "28")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentPayables, err := loadTrialBalanceNoteTotal(year, "liability", "28")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.InventoryMovement = priorInventory - currentInventory
+	data.ReceivablesMovement = priorReceivables - currentReceivables
+	data.PayablesMovement = currentPayables - priorPayables
+	data.NetOperatingCash = data.Surplus + data.DepreciationAmortization + data.InventoryMovement + data.ReceivablesMovement + data.PayablesMovement
+
+	priorPPE, err := loadTrialBalanceNoteTotal(year-1, "asset", "21")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentPPE, err := loadTrialBalanceNoteTotal(year, "asset", "21")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.PPEAcquisitions = maxFloat(currentPPE-priorPPE+data.DepreciationAmortization, 0)
+	priorInvestment, err := loadTrialBalanceNoteTotal(year-1, "asset", "22")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentInvestment, err := loadTrialBalanceNoteTotal(year, "asset", "22")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.InvestmentAcquisitions = maxFloat(currentInvestment-priorInvestment, 0)
+	priorIntangible, err := loadTrialBalanceNoteTotal(year-1, "asset", "23")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentIntangible, err := loadTrialBalanceNoteTotal(year, "asset", "23")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.IntangibleAcquisitions = maxFloat(currentIntangible-priorIntangible, 0)
+	data.NetInvestingCash = -data.PPEAcquisitions - data.InvestmentAcquisitions - data.IntangibleAcquisitions
+
+	priorLoan, err := loadTrialBalanceNoteTotal(year-1, "liability", "27")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	currentLoan, err := loadTrialBalanceNoteTotal(year, "liability", "27")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.LongTermLoanMovement = currentLoan - priorLoan
+	data.NetFinancingCash = data.LongTermLoanMovement
+	data.NetCashChange = data.NetOperatingCash + data.NetInvestingCash + data.NetFinancingCash
+	data.OpeningCash, err = loadTrialBalanceOpeningNoteTotal(year, "asset", "26")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.ReportedClosingCash, err = loadTrialBalanceNoteTotal(year, "asset", "26")
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.ExpectedClosingCash = data.OpeningCash + data.NetCashChange
+	data.ReconciliationDifference = data.ReportedClosingCash - data.ExpectedClosingCash
+	return data, nil
+}
+
+// buildLegacyCashFlowData is retained as a migration reference. The active cash-flow page
+// uses closing TB balances and their prior-year comparatives, matching the workbook links.
+func buildLegacyCashFlowData(year int) (CashFlowData, error) {
 	years, err := reportYears(year)
 	if err != nil {
 		return CashFlowData{}, fmt.Errorf("load cash-flow years: %w", err)
@@ -154,6 +265,75 @@ func buildCashFlowData(year int) (CashFlowData, error) {
 	data.ExpectedClosingCash = data.OpeningCash + data.NetCashChange
 	data.ReconciliationDifference = data.ReportedClosingCash - data.ExpectedClosingCash
 	return data, nil
+}
+
+func loadTrialBalanceTypeTotal(year int, accountType string) (float64, error) {
+	rows, err := db.DB.Query("SELECT debit, credit FROM trial_balance_entries WHERE year = ? AND account_type = ?", year, accountType)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var total float64
+	for rows.Next() {
+		var debit, credit float64
+		if err := rows.Scan(&debit, &credit); err != nil {
+			return 0, err
+		}
+		total += trialBalanceAmount(accountType, debit, credit)
+	}
+	return total, rows.Err()
+}
+
+func loadTrialBalanceNoteTotal(year int, accountType, noteRef string) (float64, error) {
+	rows, err := db.DB.Query("SELECT debit, credit FROM trial_balance_entries WHERE year = ? AND account_type = ? AND note_ref = ?", year, accountType, noteRef)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var total float64
+	for rows.Next() {
+		var debit, credit float64
+		if err := rows.Scan(&debit, &credit); err != nil {
+			return 0, err
+		}
+		total += trialBalanceAmount(accountType, debit, credit)
+	}
+	return total, rows.Err()
+}
+
+// loadTrialBalanceOpeningNoteTotal honours an explicitly configured opening for the
+// selected year, which preserves first-year and upgraded books that have no prior TB. When
+// no opening was entered, the prior year's saved closing note becomes the opening balance.
+func loadTrialBalanceOpeningNoteTotal(year int, accountType, noteRef string) (float64, error) {
+	var amount float64
+	var count int
+	if err := db.DB.QueryRow(`
+		SELECT COALESCE(SUM(opening.amount), 0), COUNT(*)
+		FROM account_opening_balances opening
+		JOIN categories c ON c.id = opening.category_id
+		WHERE opening.year = ? AND c.type = ? AND c.note_ref = ?
+	`, year, accountType, noteRef).Scan(&amount, &count); err != nil {
+		return 0, err
+	}
+	if count > 0 {
+		return amount, nil
+	}
+	if accountType == "asset" && noteRef == "26" {
+		if err := db.DB.QueryRow("SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM opening_balances WHERE year = ?", year).Scan(&amount, &count); err != nil {
+			return 0, err
+		}
+		if count > 0 {
+			return amount, nil
+		}
+	}
+	return loadTrialBalanceNoteTotal(year-1, accountType, noteRef)
+}
+
+func maxFloat(left, right float64) float64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func loadNoteBalance(categoryType, noteRef, endDate string) (float64, error) {

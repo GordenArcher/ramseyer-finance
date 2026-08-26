@@ -114,6 +114,9 @@ func main() {
 	if err := w.Bind("openExternalURL", desktop.OpenExternalURL); err != nil {
 		log.Fatalf("Failed to bind external URL opener: %v", err)
 	}
+	if err := w.Bind("openSavedPDF", desktop.OpenLocalPDF); err != nil {
+		log.Fatalf("Failed to bind saved PDF opener: %v", err)
+	}
 	if err := w.Bind("quitApp", func() {
 		w.Terminate()
 	}); err != nil {

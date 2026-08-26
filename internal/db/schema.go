@@ -70,6 +70,28 @@ CREATE TABLE IF NOT EXISTS fixed_asset_openings (
     FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 
+CREATE TABLE IF NOT EXISTS trial_balance_years (
+    year INTEGER PRIMARY KEY,
+    initialized_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS trial_balance_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    year INTEGER NOT NULL,
+    account_type TEXT NOT NULL CHECK(account_type IN ('income','expenditure','asset','liability','equity')),
+    note_ref TEXT NOT NULL DEFAULT '',
+    account_name TEXT NOT NULL,
+    debit REAL NOT NULL DEFAULT 0 CHECK(debit >= 0),
+    credit REAL NOT NULL DEFAULT 0 CHECK(credit >= 0),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    source_category_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (year) REFERENCES trial_balance_years(year) ON DELETE CASCADE,
+    FOREIGN KEY (source_category_id) REFERENCES categories(id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
@@ -109,4 +131,6 @@ CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(cat
 CREATE INDEX IF NOT EXISTS idx_dashboard_greetings_active_sort ON dashboard_greetings(is_active, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_transaction_audit_log_transaction_id ON transaction_audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_backup_events_created_at ON backup_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_trial_balance_entries_year_sort ON trial_balance_entries(year, sort_order, id);
+CREATE INDEX IF NOT EXISTS idx_trial_balance_entries_year_note ON trial_balance_entries(year, note_ref, account_type);
 `

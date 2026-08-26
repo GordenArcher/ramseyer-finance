@@ -259,6 +259,8 @@ func loadKnownYears() ([]int, error) {
 			SELECT year FROM account_opening_balances
 			UNION
 			SELECT year FROM fixed_asset_openings
+			UNION
+			SELECT year FROM trial_balance_years
 		)
 		WHERE year IS NOT NULL
 		ORDER BY year

@@ -9,7 +9,7 @@
         <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
         {{end}}
     </div>
-    <button type="button" class="btn btn-secondary" data-print-page>Print / Save PDF</button>
+    <button type="button" class="btn btn-secondary" data-report-pdf="annual" data-report-year="{{.Year}}">Save PDF &amp; Open</button>
 </div>
 
 {{if .Warnings}}
