@@ -4,7 +4,7 @@
 from pathlib import Path
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw
 except ImportError as error:
     # Icon generation is a release-maintenance task, not an application runtime
     # dependency. A focused message here prevents a maintainer from adding Pillow to the
@@ -16,17 +16,67 @@ except ImportError as error:
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 MASTER_ICON = ROOT_DIR / "static" / "app-icon.png"
+MASTER_SIZE = 1024
+ICON_BODY_SIZE = 824
+ICON_CORNER_RADIUS = 185
+
+
+def prepare_master(source: Image.Image) -> Image.Image:
+    """Return a native-looking macOS icon with transparent exterior corners."""
+
+    icon = source.convert("RGBA")
+    corners = (
+        icon.getpixel((0, 0))[3],
+        icon.getpixel((icon.width - 1, 0))[3],
+        icon.getpixel((0, icon.height - 1))[3],
+        icon.getpixel((icon.width - 1, icon.height - 1))[3],
+    )
+    if icon.size == (MASTER_SIZE, MASTER_SIZE) and corners == (0, 0, 0, 0):
+        return icon
+
+    # A macOS application icon is artwork inside a rounded-square body, not a square
+    # photograph whose corners happen to be hidden by CSS. The transparent 100px safe
+    # area keeps the body at the same visual scale as native Dock icons and lets macOS
+    # render the silhouette cleanly in the Dock, Finder, Spotlight, and the app switcher.
+    crop_size = min(icon.size) * 0.86
+    left = (icon.width - crop_size) / 2
+    top = (icon.height - crop_size) / 2
+    artwork = icon.crop((left, top, left + crop_size, top + crop_size)).resize(
+        (ICON_BODY_SIZE, ICON_BODY_SIZE), Image.Resampling.LANCZOS
+    )
+
+    # Drawing the mask at 4x resolution and reducing it produces a smooth antialiased
+    # edge without the pale halo that appears when opaque source corners are merely
+    # recoloured. The pixels outside this mask are genuine alpha transparency.
+    mask_scale = 4
+    mask = Image.new(
+        "L", (ICON_BODY_SIZE * mask_scale, ICON_BODY_SIZE * mask_scale), 0
+    )
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, mask.width - 1, mask.height - 1),
+        radius=ICON_CORNER_RADIUS * mask_scale,
+        fill=255,
+    )
+    mask = mask.resize((ICON_BODY_SIZE, ICON_BODY_SIZE), Image.Resampling.LANCZOS)
+    artwork.putalpha(mask)
+
+    canvas = Image.new("RGBA", (MASTER_SIZE, MASTER_SIZE), (0, 0, 0, 0))
+    offset = (MASTER_SIZE - ICON_BODY_SIZE) // 2
+    canvas.alpha_composite(artwork, (offset, offset))
+    return canvas
 
 
 def main() -> None:
     if not MASTER_ICON.is_file():
         raise SystemExit(f"Missing master icon: {MASTER_ICON}")
 
-    # I normalize to RGBA before writing platform formats because generated source images
-    # may be RGB today and transparent tomorrow. Keeping one conversion path prevents an
-    # innocuous source-mode change from producing a generic icon in only one package.
     with Image.open(MASTER_ICON) as source:
-        icon = source.convert("RGBA")
+        icon = prepare_master(source)
+
+        # Keep the checked-in master identical to the input used for every platform. This
+        # also makes the conversion idempotent: once the transparent corners exist, later
+        # rebuilds validate and reuse them instead of repeatedly shrinking the artwork.
+        icon.save(MASTER_ICON, format="PNG")
 
         # Pillow writes the complete multi-resolution ICNS family, including Retina sizes.
         # A single 1024px-only image can appear blurred in Finder's small list views, so the
