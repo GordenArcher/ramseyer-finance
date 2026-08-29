@@ -252,6 +252,34 @@ button {
     transform: translateY(-50%);
 }
 
+.sidebar-footer {
+    flex: 0 0 auto;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-logout {
+    width: 100%;
+    min-height: 44px;
+    padding: 11px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.86);
+    font-weight: 800;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.sidebar-logout:hover,
+.sidebar-logout:focus-visible {
+    border-color: rgba(246, 214, 144, 0.46);
+    background: rgba(180, 68, 50, 0.2);
+    color: #fff;
+    outline: none;
+}
+
 .content {
     display: flex;
     flex-direction: column;
@@ -1371,7 +1399,12 @@ button {
 .modal-panel {
     position: relative;
     width: min(860px, 100%);
+    max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px);
     padding: 26px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
     border-radius: 34px;
     background: rgba(255, 254, 250, 0.98);
     box-shadow: var(--shadow-strong);
@@ -1413,6 +1446,41 @@ button {
 
 .modal-panel-assets {
     border: 1px solid rgba(24, 78, 72, 0.18);
+}
+
+/* The transaction form is taller than most dialogs because all four entry types share one
+   modal. I keep the title and type tabs stationary, then give only the active form region the
+   remaining viewport height. Without this internal scroll boundary, body scroll locking leaves
+   the save controls below the window with no way for the operator to reach them. */
+.modal-panel-transaction {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.modal-panel-transaction .modal-tabs {
+    justify-self: start;
+}
+
+.modal-panel-transaction .tab-panels {
+    min-height: 0;
+    padding-right: 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.modal-panel-transaction .tab-panels::-webkit-scrollbar,
+.modal-panel::-webkit-scrollbar {
+    width: 9px;
+}
+
+.modal-panel-transaction .tab-panels::-webkit-scrollbar-thumb,
+.modal-panel::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(29, 36, 51, 0.22);
+    background-clip: padding-box;
 }
 
 .modal-header {
@@ -2151,6 +2219,11 @@ button {
 
     .modal-shell {
         padding: 14px;
+    }
+
+    .modal-panel {
+        max-height: calc(100vh - 28px);
+        max-height: calc(100dvh - 28px);
     }
 
     .pin-display {

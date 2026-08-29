@@ -34,6 +34,28 @@ func TestTrialBalanceRendersAsReadOnlyCalculatedLookup(t *testing.T) {
 	}
 }
 
+func TestDataEntryRendersScrollableTransactionModalAndGlobalLogout(t *testing.T) {
+	setupTestDB(t)
+
+	recorder := httptest.NewRecorder()
+	DataEntryPage(recorder, httptest.NewRequest(http.MethodGet, "/data-entry", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`class="modal-panel modal-panel-assets modal-panel-transaction"`,
+		`data-auto-open-modal="transaction-entry"`,
+		`action="/api/auth/logout"`,
+		`class="sidebar-logout"`,
+		"Sign Out",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("data-entry page is missing %q", expected)
+		}
+	}
+}
+
 func TestTrialBalanceFlagsHistoricalEntryWithoutCorrespondingAccount(t *testing.T) {
 	setupTestDB(t)
 	offeringID := categoryID(t, "income", "Adult Service Offertory")

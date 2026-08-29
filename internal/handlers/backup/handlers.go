@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/startupstate"
 	"ramseyer-finance/internal/webui"
 	"strings"
 	"time"
@@ -120,6 +121,14 @@ func RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	// because SQLite WAL mode needs a controlled restore path, not a blind overwrite.
 	if err := db.RestoreFromReader(restoreReader); err != nil {
 		_ = RecordBackupEvent("restore", "failed", restoreLabel, err.Error())
+		serverError(w, err)
+		return
+	}
+	// A restore replaces the settings table as well as financial records. Recovery snapshots
+	// made during the first-run choice can therefore contain a pending marker; normalizing it
+	// here prevents a successful restore from bringing the one-time prompt back on the next login.
+	if err := startupstate.MarkComplete(); err != nil {
+		_ = RecordBackupEvent("restore", "failed", restoreLabel, "Backup restored but startup completion could not be saved: "+err.Error())
 		serverError(w, err)
 		return
 	}

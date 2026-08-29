@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/startupstate"
 	"ramseyer-finance/internal/webui"
 	"strings"
 	"sync"
@@ -91,7 +92,7 @@ func LoginPage(w http.ResponseWriter, r *http.Request) {
 // authenticated ChangePIN handler. The function validates the PIN format, generates a
 // fresh salt, hashes the PIN with iterative stretching, persists all three settings
 // (hash, salt, version), creates a session so the user doesn't need to log in immediately
-// after setup, and redirects to the dashboard.
+// after setup, and redirects to the one-time financial-record choice.
 func SetupPIN(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -120,6 +121,13 @@ func SetupPIN(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	// PIN creation is the fresh-install boundary. Marking the record choice pending here means
+	// only a genuinely new installation sees the prompt; upgraded databases without this marker
+	// continue normally instead of being treated as new.
+	if err := startupstate.MarkPending(); err != nil {
+		serverError(w, err)
+		return
+	}
 
 	// Automatically log the user in after initial PIN creation so they don't land on the
 	// dashboard only to be prompted for the PIN they just created.
@@ -127,7 +135,7 @@ func SetupPIN(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/?msg=PIN+created", http.StatusSeeOther)
+	http.Redirect(w, r, "/startup", http.StatusSeeOther)
 }
 
 // Unlock handles the PIN entry POST request for returning users. It validates the provided
@@ -162,11 +170,20 @@ func Unlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	decisionRequired, err := startupstate.DecisionRequired()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 	if err := createSession(w); err != nil {
 		serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/startup", http.StatusSeeOther)
+	if decisionRequired {
+		http.Redirect(w, r, "/startup", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // Logout destroys the current session by removing it from the in-memory store and clearing

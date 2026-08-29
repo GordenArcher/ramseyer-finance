@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"ramseyer-finance/internal/db"
 	backuphandlers "ramseyer-finance/internal/handlers/backup"
+	"ramseyer-finance/internal/startupstate"
 	"ramseyer-finance/internal/webui"
 	"strings"
 	"time"
@@ -34,6 +35,21 @@ func Page(w http.ResponseWriter, r *http.Request) {
 	step := strings.TrimSpace(r.URL.Query().Get("step"))
 	if step != "backup" && step != "complete" {
 		step = "choice"
+	}
+	// The completion receipt remains reachable immediately after a successful reset because it
+	// may contain the only direct restore link to the three-day safety backup. Every other startup
+	// step is protected by the pending marker so typing /startup later cannot reopen a destructive
+	// first-install flow that the operator has already resolved.
+	if step != "complete" {
+		decisionRequired, err := startupstate.DecisionRequired()
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !decisionRequired {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 	}
 
 	data := PageData{
@@ -66,6 +82,10 @@ func Page(w http.ResponseWriter, r *http.Request) {
 func Continue(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := startupstate.MarkComplete(); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -106,6 +126,11 @@ func FreshStart(w http.ResponseWriter, r *http.Request) {
 	if err := db.ResetFinancialRecords(); err != nil {
 		_ = backuphandlers.RecordBackupEvent("fresh-start-reset", "failed", backupPath, err.Error())
 		redirectWithMessage(w, r, "The fresh financial record could not be started: "+err.Error())
+		return
+	}
+	if err := startupstate.MarkComplete(); err != nil {
+		_ = backuphandlers.RecordBackupEvent("fresh-start-reset", "failed", backupPath, "Financial records cleared but startup completion could not be saved: "+err.Error())
+		http.Error(w, "The fresh record was created, but startup completion could not be saved", http.StatusInternalServerError)
 		return
 	}
 	_ = backuphandlers.RecordBackupEvent("fresh-start-reset", "success", backupPath, "Financial records cleared; PIN, settings, and chart of accounts preserved")

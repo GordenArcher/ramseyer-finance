@@ -27,6 +27,7 @@ func TestRegisterOwnsEveryApplicationRoute(t *testing.T) {
 		"/setup",
 		"/backup",
 		"/api/transaction/add",
+		"/api/auth/logout",
 		"/api/startup/fresh",
 		"/api/transactions/export",
 		"/api/category/save",

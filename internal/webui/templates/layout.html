@@ -45,6 +45,11 @@
                 <li><a href="/setup" data-nav-loading class="nav-item {{if eq .Active "setup"}}active{{end}}">Setup</a></li>
                 <li><a href="/backup" data-nav-loading class="nav-item {{if eq .Active "backup"}}active{{end}}">Backup</a></li>
             </ul>
+            <div class="sidebar-footer">
+                <form method="POST" action="/api/auth/logout" data-loading-form>
+                    <button type="submit" class="sidebar-logout">Sign Out</button>
+                </form>
+            </div>
         </nav>
         <main class="content">
             {{template "content" .}}

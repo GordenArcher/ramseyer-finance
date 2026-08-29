@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
+	"ramseyer-finance/internal/startupstate"
 	"strings"
 	"testing"
 )
@@ -15,6 +16,9 @@ func TestFreshStartWithoutBackupClearsFinancialRecords(t *testing.T) {
 		t.Fatalf("initialize database: %v", err)
 	}
 	defer db.Close()
+	if err := startupstate.MarkPending(); err != nil {
+		t.Fatalf("mark startup choice pending: %v", err)
+	}
 	if _, err := db.DB.Exec(`
 		INSERT INTO transactions (date, type, category, amount)
 		VALUES ('2026-01-01', 'income', 'Test income', 100)
@@ -49,5 +53,58 @@ func TestFreshStartWithoutBackupClearsFinancialRecords(t *testing.T) {
 	}
 	if recoveryCount != 0 {
 		t.Fatalf("no-backup choice created %d recovery events, want 0", recoveryCount)
+	}
+	required, err := startupstate.DecisionRequired()
+	if err != nil {
+		t.Fatalf("load startup choice state: %v", err)
+	}
+	if required {
+		t.Fatalf("fresh-start decision remained pending after reset")
+	}
+}
+
+func TestContinueCompletesOneTimeStartupChoice(t *testing.T) {
+	if err := db.Initialize(filepath.Join(t.TempDir(), "startup.db")); err != nil {
+		t.Fatalf("initialize database: %v", err)
+	}
+	defer db.Close()
+	if err := startupstate.MarkPending(); err != nil {
+		t.Fatalf("mark startup choice pending: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/startup/continue", nil)
+	recorder := httptest.NewRecorder()
+	Continue(recorder, request)
+
+	if location := recorder.Header().Get("Location"); location != "/" {
+		t.Fatalf("continue redirect = %q, want dashboard", location)
+	}
+	required, err := startupstate.DecisionRequired()
+	if err != nil {
+		t.Fatalf("load startup choice state: %v", err)
+	}
+	if required {
+		t.Fatalf("continue decision remained pending")
+	}
+}
+
+func TestStartupPageDoesNotReopenAfterDecision(t *testing.T) {
+	if err := db.Initialize(filepath.Join(t.TempDir(), "startup.db")); err != nil {
+		t.Fatalf("initialize database: %v", err)
+	}
+	defer db.Close()
+	if err := startupstate.MarkComplete(); err != nil {
+		t.Fatalf("mark startup choice complete: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/startup", nil)
+	recorder := httptest.NewRecorder()
+	Page(recorder, request)
+
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("completed startup page status = %d, want redirect", recorder.Code)
+	}
+	if location := recorder.Header().Get("Location"); location != "/" {
+		t.Fatalf("completed startup page redirect = %q, want dashboard", location)
 	}
 }
