@@ -59,16 +59,16 @@ type TransactionsData struct {
 // code for category-based reporting. All text fields are COALESCE'd to empty strings at
 // query time so the template never receives NULL values.
 type TransactionRow struct {
-	ID             int64
-	Date           string
-	Type           string
-	TopCategory    string
-	Category       string
-	CounterAccount string
-	NoteRef        string
-	Description    string
-	Amount         float64
-	DisplayLabel   string
+	ID            int64
+	Date          string
+	Type          string
+	TopCategory   string
+	Category      string
+	PaymentMethod string
+	NoteRef       string
+	Description   string
+	Amount        float64
+	DisplayLabel  string
 }
 
 // EditableTransaction holds the current values of a transaction being edited, loaded from
@@ -78,14 +78,14 @@ type TransactionRow struct {
 // values without category metadata resolution—the edit form's category dropdown is
 // populated separately via the CategoryChoices list.
 type EditableTransaction struct {
-	Loaded            bool
-	ID                int64
-	Date              string
-	Type              string
-	CategoryID        int64
-	CounterCategoryID int64
-	Description       string
-	Amount            float64
+	Loaded        bool
+	ID            int64
+	Date          string
+	Type          string
+	CategoryID    int64
+	PaymentMethod string
+	Description   string
+	Amount        float64
 }
 
 // PageLink describes a single numbered page button in the pagination control. Number is
@@ -262,9 +262,9 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "Invalid category")
 		return
 	}
-	counterCategoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("counter_category_id")), 10, 64)
-	if err != nil || counterCategoryID <= 0 || counterCategoryID == categoryID {
-		badRequest(w, "Choose a different corresponding account")
+	paymentMethod, err := normalizePaymentMethod(r.FormValue("payment_method"))
+	if err != nil {
+		badRequest(w, "Invalid payment method")
 		return
 	}
 
@@ -289,11 +289,8 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if _, err := lookupActiveCategoryMeta(counterCategoryID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			badRequest(w, "The corresponding account is no longer available")
-			return
-		}
+	counterCategoryID, err := resolvePaymentAccount(categoryID, paymentMethod)
+	if err != nil {
 		serverError(w, err)
 		return
 	}
@@ -316,9 +313,9 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	// enables the backfill/sync maintenance operations.
 	result, err := db.DB.Exec(`
 		UPDATE transactions
-		SET date = ?, type = ?, category = ?, category_id = ?, counter_category_id = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
+		SET date = ?, type = ?, category = ?, category_id = ?, counter_category_id = ?, payment_method = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
 		WHERE id = ?
-	`, transactionDate, transactionType, categoryMeta.Name, categoryID, counterCategoryID, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
+	`, transactionDate, transactionType, categoryMeta.Name, categoryID, counterCategoryID, paymentMethod, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -413,17 +410,15 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 		where.WriteString(` AND t.type = ?`)
 		whereArgs = append(whereArgs, filterType)
 	}
-	// The search query covers both sides of the accounting entry as well as its
-	// description. This matters now that the corresponding account is part of the
-	// operator's audit trail: searching for "Bank" must find income received into Bank
-	// even when the primary category is Offerings.
+	// Search includes the visible money-movement flag so operators can quickly isolate all
+	// Cash, Momo, Cheque, or Bank transactions without understanding internal accounts.
 	if search != "" {
 		pattern := "%" + strings.ToLower(search) + "%"
 		where.WriteString(`
 			AND (
 				LOWER(COALESCE(category.name, t.category)) LIKE ?
 				OR LOWER(COALESCE(parent.name, '')) LIKE ?
-				OR LOWER(COALESCE(counter.name, '')) LIKE ?
+				OR LOWER(COALESCE(t.payment_method, 'cash')) LIKE ?
 				OR LOWER(COALESCE(t.description, '')) LIKE ?
 			)
 		`)
@@ -435,7 +430,6 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 		FROM transactions t
 		LEFT JOIN categories category ON category.id = t.category_id
 		LEFT JOIN categories parent ON parent.id = category.parent_id
-		LEFT JOIN categories counter ON counter.id = t.counter_category_id
 	` + where.String()
 
 	var totalCount int
@@ -457,13 +451,12 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 			COALESCE(parent.name, category.name, t.category) AS top_category,
 			COALESCE(category.name, t.category) AS category_name,
 			COALESCE(category.note_ref, t.note_ref, '') AS note_ref,
-			COALESCE(counter.name, '') AS counter_account,
+			COALESCE(NULLIF(t.payment_method, ''), 'cash') AS payment_method,
 			COALESCE(t.description, ''),
 			t.amount
 		FROM transactions t
 		LEFT JOIN categories category ON category.id = t.category_id
 		LEFT JOIN categories parent ON parent.id = category.parent_id
-		LEFT JOIN categories counter ON counter.id = t.counter_category_id
 	` + where.String() + `
 		ORDER BY t.date DESC, t.id DESC
 		LIMIT ? OFFSET ?
@@ -485,7 +478,7 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 			&row.TopCategory,
 			&row.Category,
 			&row.NoteRef,
-			&row.CounterAccount,
+			&row.PaymentMethod,
 			&row.Description,
 			&row.Amount,
 		); err != nil {
@@ -498,6 +491,7 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 		if row.TopCategory != "" && row.TopCategory != row.Category {
 			row.DisplayLabel = row.TopCategory + " / " + row.Category
 		}
+		row.PaymentMethod = paymentMethodLabel(row.PaymentMethod)
 		transactions = append(transactions, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -515,10 +509,10 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 func loadEditableTransaction(id int64) (EditableTransaction, error) {
 	var record EditableTransaction
 	err := db.DB.QueryRow(`
-		SELECT id, date, type, COALESCE(category_id, 0), COALESCE(counter_category_id, 0), COALESCE(description, ''), amount
+		SELECT id, date, type, COALESCE(category_id, 0), COALESCE(NULLIF(payment_method, ''), 'cash'), COALESCE(description, ''), amount
 		FROM transactions
 		WHERE id = ?
-	`, id).Scan(&record.ID, &record.Date, &record.Type, &record.CategoryID, &record.CounterCategoryID, &record.Description, &record.Amount)
+	`, id).Scan(&record.ID, &record.Date, &record.Type, &record.CategoryID, &record.PaymentMethod, &record.Description, &record.Amount)
 	if err != nil {
 		return EditableTransaction{}, err
 	}

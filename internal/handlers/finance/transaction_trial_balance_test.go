@@ -17,13 +17,12 @@ func TestTransactionLifecycleRecalculatesBalancedTrialBalance(t *testing.T) {
 	cashID := categoryID(t, "asset", "Cash on hand")
 
 	addValues := url.Values{
-		"date":                {"2026-04-05"},
-		"type":                {"income"},
-		"category_id":         {strconv.FormatInt(offeringID, 10)},
-		"counter_category_id": {strconv.FormatInt(cashID, 10)},
-		"description":         {"Sunday service"},
-		"amount":              {"125.50"},
-		"return_to":           {"/data-entry"},
+		"date":        {"2026-04-05"},
+		"type":        {"income"},
+		"category_id": {strconv.FormatInt(offeringID, 10)},
+		"description": {"Sunday service"},
+		"amount":      {"125.50"},
+		"return_to":   {"/data-entry"},
 	}
 	addRequest := httptest.NewRequest(http.MethodPost, "/api/transaction/add", strings.NewReader(addValues.Encode()))
 	addRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -37,19 +36,23 @@ func TestTransactionLifecycleRecalculatesBalancedTrialBalance(t *testing.T) {
 	assertCalculatedTrialBalanceBalanced(t, 2026)
 
 	var transactionID int64
-	if err := db.DB.QueryRow("SELECT id FROM transactions WHERE category_id = ?", offeringID).Scan(&transactionID); err != nil {
+	var paymentMethod string
+	if err := db.DB.QueryRow("SELECT id, payment_method FROM transactions WHERE category_id = ?", offeringID).Scan(&transactionID, &paymentMethod); err != nil {
 		t.Fatalf("load created transaction: %v", err)
+	}
+	if paymentMethod != "cash" {
+		t.Fatalf("default payment method = %q, want cash", paymentMethod)
 	}
 	printingID := categoryID(t, "expenditure", "Printing & Stationery")
 	updateValues := url.Values{
-		"id":                  {strconv.FormatInt(transactionID, 10)},
-		"date":                {"2027-02-10"},
-		"type":                {"expenditure"},
-		"category_id":         {strconv.FormatInt(printingID, 10)},
-		"counter_category_id": {strconv.FormatInt(cashID, 10)},
-		"description":         {"Annual stationery"},
-		"amount":              {"40"},
-		"return_to":           {"/transactions?year=2027"},
+		"id":             {strconv.FormatInt(transactionID, 10)},
+		"date":           {"2027-02-10"},
+		"type":           {"expenditure"},
+		"category_id":    {strconv.FormatInt(printingID, 10)},
+		"payment_method": {"cash"},
+		"description":    {"Annual stationery"},
+		"amount":         {"40"},
+		"return_to":      {"/transactions?year=2027"},
 	}
 	updateRequest := httptest.NewRequest(http.MethodPost, "/api/transaction/update", strings.NewReader(updateValues.Encode()))
 	updateRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -73,6 +76,71 @@ func TestTransactionLifecycleRecalculatesBalancedTrialBalance(t *testing.T) {
 	}
 	assertCalculatedTrialBalanceAmount(t, 2027, printingID, 0)
 	assertCalculatedTrialBalanceAmount(t, 2027, cashID, 0)
+}
+
+func TestTransactionPaymentMethodsAreOptionalVisibleFlags(t *testing.T) {
+	setupTestDB(t)
+	offeringID := categoryID(t, "income", "Adult Service Offertory")
+
+	scenarios := []struct {
+		method         string
+		wantStored     string
+		wantAccount    string
+		transactionDay string
+	}{
+		{method: "", wantStored: "cash", wantAccount: "Cash on hand", transactionDay: "2026-05-03"},
+		{method: "momo", wantStored: "momo", wantAccount: "Momo", transactionDay: "2026-05-10"},
+		{method: "cheque", wantStored: "cheque", wantAccount: "Bank", transactionDay: "2026-05-17"},
+		{method: "bank", wantStored: "bank", wantAccount: "Bank", transactionDay: "2026-05-24"},
+	}
+
+	for _, scenario := range scenarios {
+		values := url.Values{
+			"date":           {scenario.transactionDay},
+			"type":           {"income"},
+			"category_id":    {strconv.FormatInt(offeringID, 10)},
+			"payment_method": {scenario.method},
+			"description":    {"Sunday service " + scenario.transactionDay},
+			"amount":         {"10"},
+			"return_to":      {"/data-entry"},
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/transaction/add", strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		recorder := httptest.NewRecorder()
+		AddTransaction(recorder, request)
+		if recorder.Code != http.StatusSeeOther {
+			t.Fatalf("add %q payment method status = %d, want 303: %s", scenario.method, recorder.Code, recorder.Body.String())
+		}
+
+		var storedMethod, accountName string
+		if err := db.DB.QueryRow(`
+			SELECT t.payment_method, counter.name
+			FROM transactions t
+			JOIN categories counter ON counter.id = t.counter_category_id
+			WHERE t.date = ?
+		`, scenario.transactionDay).Scan(&storedMethod, &accountName); err != nil {
+			t.Fatalf("load %q payment classification: %v", scenario.method, err)
+		}
+		if storedMethod != scenario.wantStored || accountName != scenario.wantAccount {
+			t.Fatalf("payment %q stored as method=%q account=%q, want method=%q account=%q", scenario.method, storedMethod, accountName, scenario.wantStored, scenario.wantAccount)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/data-entry", nil)
+	recorder := httptest.NewRecorder()
+	DataEntryPage(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("data entry status = %d, want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "counter_category_id") || strings.Contains(body, "Corresponding account") {
+		t.Fatalf("data entry still exposes an internal corresponding-account field")
+	}
+	for _, label := range []string{"Cash", "Momo", "Cheque", "Bank"} {
+		if !strings.Contains(body, ">"+label+"</option>") {
+			t.Fatalf("data entry omitted %s payment method", label)
+		}
+	}
 }
 
 func TestCalculatedTrialBalanceCarriesPriorNetAssetsAsOpeningFund(t *testing.T) {

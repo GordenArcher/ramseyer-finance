@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestInitializeAddsCounterAccountBeforeCreatingItsIndex(t *testing.T) {
+func TestInitializeAddsTransactionClassificationColumnsBeforeCreatingIndexes(t *testing.T) {
 	Close()
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	legacyDB, err := sql.Open("sqlite", path)
@@ -14,9 +14,8 @@ func TestInitializeAddsCounterAccountBeforeCreatingItsIndex(t *testing.T) {
 		t.Fatalf("open legacy database: %v", err)
 	}
 	// This table mirrors the immediately preceding application schema: category_id and
-	// updated_at already exist, but corresponding accounts have not been introduced yet.
-	// Initialize must therefore avoid referencing counter_category_id until its guarded
-	// migration has added the column.
+	// updated_at already exists, but the internal account and visible payment classification
+	// have not been introduced yet. Initialize must add both safely before normal use.
 	if _, err := legacyDB.Exec(`
 		CREATE TABLE transactions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,6 +49,13 @@ func TestInitializeAddsCounterAccountBeforeCreatingItsIndex(t *testing.T) {
 	}
 	if !exists {
 		t.Fatalf("counter_category_id was not added")
+	}
+	paymentMethodExists, err := columnExists("transactions", "payment_method")
+	if err != nil {
+		t.Fatalf("inspect payment_method column: %v", err)
+	}
+	if !paymentMethodExists {
+		t.Fatalf("payment_method was not added")
 	}
 	var indexCount int
 	if err := DB.QueryRow(`

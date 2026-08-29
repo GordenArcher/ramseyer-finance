@@ -47,7 +47,6 @@ type DashboardData struct {
 	ExpenseCats       []CatOption
 	AssetCats         []CatOption
 	LiabilityCats     []CatOption
-	AccountChoices    []CategoryChoice
 	DailyTransactions []RecentTx
 	Chart             viewmodels.ChartData
 }
@@ -59,11 +58,12 @@ type DashboardData struct {
 // this struct omits fields like ID, category_id, updated_at, and note_ref because the
 // dashboard feed is read-only and designed for quick glancing rather than editing.
 type RecentTx struct {
-	Date        string
-	Type        string
-	Category    string
-	Description string
-	Amount      float64
+	Date          string
+	Type          string
+	Category      string
+	PaymentMethod string
+	Description   string
+	Amount        float64
 }
 
 // Dashboard serves the main application home screen. It delegates entirely to
@@ -110,11 +110,6 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	if err != nil {
 		return DashboardData{}, fmt.Errorf("load liability categories: %w", err)
 	}
-	accountChoices, err := loadAllCategoryChoices()
-	if err != nil {
-		return DashboardData{}, fmt.Errorf("load transaction counterpart accounts: %w", err)
-	}
-
 	data := DashboardData{
 		Active:          active,
 		Message:         message,
@@ -127,7 +122,6 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 		ExpenseCats:     expenseCats,
 		AssetCats:       assetCats,
 		LiabilityCats:   liabilityCats,
-		AccountChoices:  accountChoices,
 	}
 
 	greetingConfig, err := loadDashboardGreetingState(now)
@@ -218,7 +212,7 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	// Ordering by ID ascending makes the list read like a build-up of the day's activity instead
 	// of a reverse-chronological log that is better suited to the full register.
 	recentRows, err := db.DB.Query(`
-		SELECT date, type, category, description, amount
+		SELECT date, type, category, COALESCE(NULLIF(payment_method, ''), 'cash'), description, amount
 		FROM transactions
 		WHERE date >= ? AND date < ?
 		ORDER BY date ASC, id ASC
@@ -234,11 +228,13 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 			&transaction.Date,
 			&transaction.Type,
 			&transaction.Category,
+			&transaction.PaymentMethod,
 			&transaction.Description,
 			&transaction.Amount,
 		); err != nil {
 			return DashboardData{}, fmt.Errorf("scan daily transaction: %w", err)
 		}
+		transaction.PaymentMethod = paymentMethodLabel(transaction.PaymentMethod)
 		data.DailyTransactions = append(data.DailyTransactions, transaction)
 	}
 	if err := recentRows.Err(); err != nil {

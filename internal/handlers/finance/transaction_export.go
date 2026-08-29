@@ -22,16 +22,16 @@ import (
 // purposes, and the Amount is carried as a float64 for straightforward numeric formatting
 // in the export builders.
 type ExportTransactionRow struct {
-	ID             int64
-	Date           string
-	Type           string
-	TopCategory    string
-	Category       string
-	CounterAccount string
-	NoteRef        string
-	Description    string
-	Amount         float64
-	CreatedAt      string
+	ID            int64
+	Date          string
+	Type          string
+	TopCategory   string
+	Category      string
+	PaymentMethod string
+	NoteRef       string
+	Description   string
+	Amount        float64
+	CreatedAt     string
 }
 
 // pdfObject represents a single indirect object in a hand-crafted PDF document. Each
@@ -186,7 +186,7 @@ func loadExportTransactions(startDate, endExclusive, filterType string) ([]Expor
 			t.type,
 			COALESCE(parent.name, category.name, t.category),
 			COALESCE(category.name, t.category),
-			COALESCE(counter.name, ''),
+			COALESCE(NULLIF(t.payment_method, ''), 'cash'),
 			COALESCE(category.note_ref, t.note_ref, ''),
 			COALESCE(t.description, ''),
 			t.amount,
@@ -194,7 +194,6 @@ func loadExportTransactions(startDate, endExclusive, filterType string) ([]Expor
 		FROM transactions t
 		LEFT JOIN categories category ON category.id = t.category_id
 		LEFT JOIN categories parent ON parent.id = category.parent_id
-		LEFT JOIN categories counter ON counter.id = t.counter_category_id
 		WHERE t.date >= ? AND t.date < ?
 	`)
 	// Append the type filter only when one is specified. Using a parameterised query
@@ -221,7 +220,7 @@ func loadExportTransactions(startDate, endExclusive, filterType string) ([]Expor
 			&row.Type,
 			&row.TopCategory,
 			&row.Category,
-			&row.CounterAccount,
+			&row.PaymentMethod,
 			&row.NoteRef,
 			&row.Description,
 			&row.Amount,
@@ -229,6 +228,7 @@ func loadExportTransactions(startDate, endExclusive, filterType string) ([]Expor
 		); err != nil {
 			return nil, fmt.Errorf("scan export transaction: %w", err)
 		}
+		row.PaymentMethod = paymentMethodLabel(row.PaymentMethod)
 		transactions = append(transactions, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -248,7 +248,7 @@ func buildTransactionsCSV(rows []ExportTransactionRow) ([]byte, error) {
 	// I keep CSV strictly tabular and plain because its main job is interoperability, not layout.
 	var buffer bytes.Buffer
 	writer := csv.NewWriter(&buffer)
-	_ = writer.Write([]string{"ID", "Date", "Type", "Top Category", "Category", "Corresponding Account", "Note", "Description", "Amount", "Created At"})
+	_ = writer.Write([]string{"ID", "Date", "Type", "Top Category", "Category", "Payment Method", "Note", "Description", "Amount", "Created At"})
 	for _, row := range rows {
 		_ = writer.Write([]string{
 			strconv.FormatInt(row.ID, 10),
@@ -256,7 +256,7 @@ func buildTransactionsCSV(rows []ExportTransactionRow) ([]byte, error) {
 			row.Type,
 			row.TopCategory,
 			row.Category,
-			row.CounterAccount,
+			row.PaymentMethod,
 			row.NoteRef,
 			row.Description,
 			fmt.Sprintf("%.2f", row.Amount),
@@ -300,7 +300,7 @@ func buildTransactionsExcel(rows []ExportTransactionRow, startDate, endDate, fil
 		"Type Filter", exportFilterLabel(filterType),
 	})
 	appendExcelRow(&buffer, []string{})
-	appendExcelRow(&buffer, []string{"ID", "Date", "Type", "Top Category", "Category", "Corresponding Account", "Note", "Description", "Amount", "Created At"})
+	appendExcelRow(&buffer, []string{"ID", "Date", "Type", "Top Category", "Category", "Payment Method", "Note", "Description", "Amount", "Created At"})
 
 	for _, row := range rows {
 		appendExcelRow(&buffer, []string{
@@ -309,7 +309,7 @@ func buildTransactionsExcel(rows []ExportTransactionRow, startDate, endDate, fil
 			row.Type,
 			row.TopCategory,
 			row.Category,
-			row.CounterAccount,
+			row.PaymentMethod,
 			row.NoteRef,
 			row.Description,
 			fmt.Sprintf("%.2f", row.Amount),
@@ -365,7 +365,7 @@ func buildTransactionsPDF(rows []ExportTransactionRow, startDate, endDate, filte
 		fmt.Sprintf("Date Range: %s to %s", startDate, endDate),
 		fmt.Sprintf("Type Filter: %s", exportFilterLabel(filterType)),
 		"",
-		"Date       Type       Category                Corresponding Account    Note Description              Amount",
+		"Date       Type       Category                Method     Note Description              Amount",
 		"----------------------------------------------------------------------------------------------------",
 	}
 
@@ -381,11 +381,11 @@ func buildTransactionsPDF(rows []ExportTransactionRow, startDate, endDate, filte
 			category = row.TopCategory + "/" + row.Category
 		}
 		lines = append(lines, fmt.Sprintf(
-			"%-10s %-10s %-23s %-24s %-4s %-24s %12.2f",
+			"%-10s %-10s %-23s %-10s %-4s %-24s %12.2f",
 			row.Date,
 			truncateForPDF(row.Type, 10),
 			truncateForPDF(category, 23),
-			truncateForPDF(row.CounterAccount, 24),
+			truncateForPDF(row.PaymentMethod, 10),
 			truncateForPDF(row.NoteRef, 4),
 			truncateForPDF(row.Description, 24),
 			row.Amount,

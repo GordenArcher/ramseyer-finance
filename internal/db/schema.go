@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     category TEXT NOT NULL,
     category_id INTEGER,
     counter_category_id INTEGER,
+    payment_method TEXT NOT NULL DEFAULT 'cash',
     subcategory TEXT DEFAULT '',
     description TEXT DEFAULT '',
     amount REAL NOT NULL,

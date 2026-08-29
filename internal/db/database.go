@@ -157,13 +157,32 @@ func migrateTransactions() error {
 		return err
 	}
 	if !counterCategoryExists {
-		// The counterpart is deliberately nullable during migration. Historical rows did not ask
-		// which cash, bank, asset, or liability account completed the entry, and inventing that
-		// answer would make old statements look balanced without being truthful. New writes require
-		// it; old rows remain visibly unpaired until the operator corrects them in the register.
+		// This column is an internal reporting detail. Operators classify how money moved with the
+		// simpler payment_method field; the write path resolves the matching liquid account.
 		if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN counter_category_id INTEGER"); err != nil {
 			return fmt.Errorf("add counter_category_id column: %w", err)
 		}
+	}
+
+	paymentMethodExists, err := columnExists("transactions", "payment_method")
+	if err != nil {
+		return err
+	}
+	if !paymentMethodExists {
+		if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'"); err != nil {
+			return fmt.Errorf("add payment_method column: %w", err)
+		}
+	}
+	if _, err := DB.Exec(`
+		UPDATE transactions
+		SET payment_method = CASE LOWER(TRIM(COALESCE(payment_method, '')))
+			WHEN 'momo' THEN 'momo'
+			WHEN 'cheque' THEN 'cheque'
+			WHEN 'bank' THEN 'bank'
+			ELSE 'cash'
+		END
+	`); err != nil {
+		return fmt.Errorf("normalize transaction payment methods: %w", err)
 	}
 
 	updatedAtExists, err := columnExists("transactions", "updated_at")

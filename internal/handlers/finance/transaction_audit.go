@@ -37,17 +37,16 @@ type TransactionAuditEntry struct {
 // the current state of the transactions or categories tables. The JSON tags use snake_case
 // for readability in the stored payload.
 type transactionSnapshot struct {
-	ID                int64   `json:"id"`
-	Date              string  `json:"date"`
-	Type              string  `json:"type"`
-	Category          string  `json:"category"`
-	CategoryID        int64   `json:"category_id"`
-	CounterCategoryID int64   `json:"counter_category_id"`
-	CounterAccount    string  `json:"counter_account"`
-	NoteRef           string  `json:"note_ref"`
-	Description       string  `json:"description"`
-	Amount            float64 `json:"amount"`
-	UpdatedAt         string  `json:"updated_at"`
+	ID            int64   `json:"id"`
+	Date          string  `json:"date"`
+	Type          string  `json:"type"`
+	Category      string  `json:"category"`
+	CategoryID    int64   `json:"category_id"`
+	PaymentMethod string  `json:"payment_method"`
+	NoteRef       string  `json:"note_ref"`
+	Description   string  `json:"description"`
+	Amount        float64 `json:"amount"`
+	UpdatedAt     string  `json:"updated_at"`
 }
 
 // loadTransactionSnapshot retrieves the current state of a single transaction from the
@@ -64,11 +63,10 @@ func loadTransactionSnapshot(transactionID int64) (transactionSnapshot, error) {
 	var snapshot transactionSnapshot
 	err := db.DB.QueryRow(`
 		SELECT t.id, t.date, t.type, t.category, COALESCE(t.category_id, 0),
-			COALESCE(t.counter_category_id, 0), COALESCE(counter.name, ''),
+			COALESCE(NULLIF(t.payment_method, ''), 'cash'),
 			COALESCE(t.note_ref, ''), COALESCE(t.description, ''), t.amount,
 			COALESCE(t.updated_at, t.created_at, '')
 		FROM transactions t
-		LEFT JOIN categories counter ON counter.id = t.counter_category_id
 		WHERE t.id = ?
 	`, transactionID).Scan(
 		&snapshot.ID,
@@ -76,8 +74,7 @@ func loadTransactionSnapshot(transactionID int64) (transactionSnapshot, error) {
 		&snapshot.Type,
 		&snapshot.Category,
 		&snapshot.CategoryID,
-		&snapshot.CounterCategoryID,
-		&snapshot.CounterAccount,
+		&snapshot.PaymentMethod,
 		&snapshot.NoteRef,
 		&snapshot.Description,
 		&snapshot.Amount,

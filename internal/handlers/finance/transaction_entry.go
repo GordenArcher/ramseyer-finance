@@ -90,9 +90,9 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "Invalid category")
 		return
 	}
-	counterCategoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("counter_category_id")), 10, 64)
-	if err != nil || counterCategoryID <= 0 || counterCategoryID == categoryID {
-		badRequest(w, "Choose a different account for where the money came from or went")
+	paymentMethod, err := normalizePaymentMethod(r.FormValue("payment_method"))
+	if err != nil {
+		badRequest(w, "Invalid payment method")
 		return
 	}
 
@@ -125,11 +125,8 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if _, err := lookupActiveCategoryMeta(counterCategoryID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			badRequest(w, "The corresponding account is no longer available")
-			return
-		}
+	counterCategoryID, err := resolvePaymentAccount(categoryID, paymentMethod)
+	if err != nil {
 		serverError(w, err)
 		return
 	}
@@ -151,17 +148,17 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	// and note_ref from the resolved metadata. The updated_at timestamp is set to the
 	// current local time so that brand-new transactions have a meaningful value in that
 	// column from the start, not just after their first edit.
-	// The primary category and corresponding account live on one dated, auditable row. Reports
-	// expand that row through financial_postings at read time, which removes the need for a
-	// separately editable Trial Balance and guarantees every view is recalculated from entries.
+	// The visible payment method is stored on the dated transaction. Its internally resolved
+	// liquid account lets reports recalculate without exposing double-entry bookkeeping in the UI.
 	result, err := db.DB.Exec(
-		`INSERT INTO transactions (date, type, category, category_id, counter_category_id, description, amount, note_ref, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
+		`INSERT INTO transactions (date, type, category, category_id, counter_category_id, payment_method, description, amount, note_ref, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
 		transactionDate,
 		transactionType,
 		categoryMeta.Name,
 		categoryID,
 		counterCategoryID,
+		paymentMethod,
 		description,
 		amount,
 		categoryMeta.NoteRef,

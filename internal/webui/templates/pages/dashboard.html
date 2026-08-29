@@ -156,6 +156,7 @@
                             <th>Date</th>
                             <th>Type</th>
                             <th>Category</th>
+                            <th>Method</th>
                             <th>Description</th>
                             <th class="text-right">Amount</th>
                         </tr>
@@ -166,13 +167,14 @@
                             <td>{{.Date}}</td>
                             <td><span class="type-pill type-pill-{{.Type}}">{{.Type}}</span></td>
                             <td>{{.Category}}</td>
+                            <td>{{.PaymentMethod}}</td>
                             <td>{{if .Description}}{{.Description}}{{else}}-{{end}}</td>
                             <td class="text-right">{{formatMoney .Amount}}</td>
                         </tr>
                         {{end}}
                         {{if not .DailyTransactions}}
                         <tr>
-                            <td colspan="5" class="text-center">No transactions posted yet for today</td>
+                            <td colspan="6" class="text-center">No transactions posted yet for today</td>
                         </tr>
                         {{end}}
                     </tbody>

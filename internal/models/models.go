@@ -8,15 +8,16 @@ package models
 // categories table. All fields use JSON tags for consistent serialisation, and the ID and
 // Amount fields use float64/int64 to match the database types directly.
 type Transaction struct {
-	ID          int64   `json:"id"`
-	Date        string  `json:"date"`
-	Type        string  `json:"type"`
-	Category    string  `json:"category"`
-	Subcategory string  `json:"subcategory"`
-	Description string  `json:"description"`
-	Amount      float64 `json:"amount"`
-	NoteRef     string  `json:"note_ref"`
-	CreatedAt   string  `json:"created_at"`
+	ID            int64   `json:"id"`
+	Date          string  `json:"date"`
+	Type          string  `json:"type"`
+	Category      string  `json:"category"`
+	Subcategory   string  `json:"subcategory"`
+	PaymentMethod string  `json:"payment_method"`
+	Description   string  `json:"description"`
+	Amount        float64 `json:"amount"`
+	NoteRef       string  `json:"note_ref"`
+	CreatedAt     string  `json:"created_at"`
 }
 
 // Category represents a single row from the categories table. It includes the category's

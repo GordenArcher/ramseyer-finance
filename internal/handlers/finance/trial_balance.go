@@ -124,7 +124,9 @@ func buildTrialBalanceData(year int) (TrialBalanceData, error) {
 
 	if err := db.DB.QueryRow(`
 		SELECT COUNT(*) FROM transactions
-		WHERE date >= ? AND date < ? AND COALESCE(counter_category_id, 0) = 0
+		WHERE date >= ? AND date < ?
+			AND type IN ('income', 'expenditure')
+			AND COALESCE(counter_category_id, 0) = 0
 	`, startDate, endDate).Scan(&data.UnpairedCount); err != nil {
 		return TrialBalanceData{}, fmt.Errorf("count incomplete financial entries: %w", err)
 	}

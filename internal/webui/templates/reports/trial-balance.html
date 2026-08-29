@@ -25,8 +25,8 @@
     <div><strong>Notes and statements</strong><span>All fetch the same calculated amounts</span></div>
 </div>
 
-{{if gt .UnpairedCount 0}}<div class="alert alert-warning">{{.UnpairedCount}} older entr{{if eq .UnpairedCount 1}}y has{{else}}ies have{{end}} no corresponding account. Edit {{if eq .UnpairedCount 1}}it{{else}}them{{end}} in the Transaction Register so the Balance Sheet can be complete.</div>{{end}}
-{{if ne .Difference 0.0}}<div class="alert alert-warning">The calculated Trial Balance differs by GH¢ {{formatMoney (abs .Difference)}} because one or more entries are incomplete. No value can be edited on this page.</div>{{end}}
+{{if gt .UnpairedCount 0}}<div class="alert alert-warning">{{.UnpairedCount}} older entr{{if eq .UnpairedCount 1}}y could{{else}}ies could{{end}} not be assigned a payment method automatically. Edit {{if eq .UnpairedCount 1}}it{{else}}them{{end}} in the Transaction Register.</div>{{end}}
+{{if ne .Difference 0.0}}<div class="alert alert-warning">The calculated Trial Balance differs by GH¢ {{formatMoney (abs .Difference)}}. Review the dated source entries in the Transaction Register; no value can be edited on this page.</div>{{end}}
 
 <div class="trial-balance-groups reveal">
     {{range .Groups}}

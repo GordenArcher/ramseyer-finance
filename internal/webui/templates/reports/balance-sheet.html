@@ -32,7 +32,7 @@
 
 <div class="alert alert-info">This statement is calculated from dated Transaction Entries. Use the Transaction Register to correct a source entry; no balance is editable here.</div>
 {{if ne .BalanceDifference 0.0}}
-<div class="alert alert-warning">The statement is out of balance by GH¢ {{formatMoney (abs .BalanceDifference)}}. Open the Transaction Register and assign the missing corresponding account to any incomplete entry.</div>
+<div class="alert alert-warning">The statement is out of balance by GH¢ {{formatMoney (abs .BalanceDifference)}}. Review the dated source entries and their payment methods in the Transaction Register.</div>
 {{end}}
 
 <div class="card chart-card reveal">

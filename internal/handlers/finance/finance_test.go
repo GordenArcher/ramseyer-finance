@@ -888,14 +888,14 @@ func TestUpdateAndDeleteTransactionHandlers(t *testing.T) {
 	insertTransaction(t, "2026-01-15", "income", "Offerings", categoryID(t, "income", "Offerings"), 25)
 
 	updateForm := url.Values{
-		"id":                  {"1"},
-		"date":                {"2026-01-20"},
-		"type":                {"expenditure"},
-		"category_id":         {strconv.FormatInt(categoryID(t, "expenditure", "Printing & Stationery"), 10)},
-		"counter_category_id": {strconv.FormatInt(categoryID(t, "asset", "Cash on hand"), 10)},
-		"description":         {"Reclassified stationery"},
-		"amount":              {"55.50"},
-		"return_to":           {"/transactions?year=2026"},
+		"id":             {"1"},
+		"date":           {"2026-01-20"},
+		"type":           {"expenditure"},
+		"category_id":    {strconv.FormatInt(categoryID(t, "expenditure", "Printing & Stationery"), 10)},
+		"payment_method": {"cash"},
+		"description":    {"Reclassified stationery"},
+		"amount":         {"55.50"},
+		"return_to":      {"/transactions?year=2026"},
 	}
 	updateReq := httptest.NewRequest(http.MethodPost, "/api/transaction/update", strings.NewReader(updateForm.Encode()))
 	updateReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1021,13 +1021,13 @@ func TestExportTransactionsCSVExcelAndPDF(t *testing.T) {
 		if !strings.HasPrefix(recorder.Body.String(), scenario.bodyPrefix) {
 			t.Fatalf("%s body prefix mismatch: %q", scenario.format, recorder.Body.String())
 		}
-		if !strings.Contains(recorder.Body.String(), "Cash on hand") {
-			t.Fatalf("%s export omitted the corresponding account", scenario.format)
+		if !strings.Contains(recorder.Body.String(), "Cash") {
+			t.Fatalf("%s export omitted the payment method", scenario.format)
 		}
 	}
 }
 
-func TestTransactionRegisterSearchIncludesCorrespondingAccount(t *testing.T) {
+func TestTransactionRegisterSearchIncludesPaymentMethod(t *testing.T) {
 	setupTestDB(t)
 
 	insertPairedTransaction(
@@ -1038,12 +1038,15 @@ func TestTransactionRegisterSearchIncludesCorrespondingAccount(t *testing.T) {
 		categoryID(t, "asset", "Cash on hand"),
 		25,
 	)
-	rows, total, err := loadTransactionRows(2026, "", "cash on hand", 1, transactionsPageSize)
+	if _, err := db.DB.Exec(`UPDATE transactions SET payment_method = 'momo'`); err != nil {
+		t.Fatalf("set transaction payment method: %v", err)
+	}
+	rows, total, err := loadTransactionRows(2026, "", "momo", 1, transactionsPageSize)
 	if err != nil {
-		t.Fatalf("search transactions by corresponding account: %v", err)
+		t.Fatalf("search transactions by payment method: %v", err)
 	}
 	if total != 1 || len(rows) != 1 {
-		t.Fatalf("corresponding-account search returned total=%d rows=%d, want one", total, len(rows))
+		t.Fatalf("payment-method search returned total=%d rows=%d, want one", total, len(rows))
 	}
 }
 
