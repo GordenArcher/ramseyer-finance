@@ -1,9 +1,67 @@
 package db
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
+
+func TestInitializeAddsCounterAccountBeforeCreatingItsIndex(t *testing.T) {
+	Close()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	legacyDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open legacy database: %v", err)
+	}
+	// This table mirrors the immediately preceding application schema: category_id and
+	// updated_at already exist, but corresponding accounts have not been introduced yet.
+	// Initialize must therefore avoid referencing counter_category_id until its guarded
+	// migration has added the column.
+	if _, err := legacyDB.Exec(`
+		CREATE TABLE transactions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			date TEXT NOT NULL,
+			type TEXT NOT NULL,
+			category TEXT NOT NULL,
+			category_id INTEGER,
+			subcategory TEXT DEFAULT '',
+			description TEXT DEFAULT '',
+			amount REAL NOT NULL,
+			note_ref TEXT DEFAULT '',
+			created_at TEXT,
+			updated_at TEXT
+		)
+	`); err != nil {
+		legacyDB.Close()
+		t.Fatalf("create legacy transaction table: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy database: %v", err)
+	}
+
+	if err := Initialize(path); err != nil {
+		t.Fatalf("initialize legacy database: %v", err)
+	}
+	t.Cleanup(Close)
+
+	exists, err := columnExists("transactions", "counter_category_id")
+	if err != nil {
+		t.Fatalf("inspect migrated transaction columns: %v", err)
+	}
+	if !exists {
+		t.Fatalf("counter_category_id was not added")
+	}
+	var indexCount int
+	if err := DB.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'idx_transactions_counter_category_id_date'
+	`).Scan(&indexCount); err != nil {
+		t.Fatalf("inspect counterpart index: %v", err)
+	}
+	if indexCount != 1 {
+		t.Fatalf("counterpart index count = %d, want 1", indexCount)
+	}
+}
 
 func TestInitializeBackfillsLegacyTransactionCategoryIDs(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
