@@ -52,6 +52,14 @@
     <script type="application/json" id="balance-chart-data">{{toJSON .Chart}}</script>
 </div>
 
+<div data-page-tabs>
+<div class="page-tabs reveal" role="tablist" aria-label="Balance sheet sections">
+    <button type="button" class="page-tab active" role="tab" aria-selected="true" data-page-tab-target="balance-assets-panel">Assets</button>
+    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="balance-liabilities-panel">Liabilities</button>
+    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="balance-financing-panel">Financed By</button>
+</div>
+
+<section id="balance-assets-panel" class="page-tab-panel active" role="tabpanel" data-page-tab-panel>
 <div class="card table-card reveal" data-table-stage>
     <h3>Non-Current Assets</h3>
     <table class="data-table">
@@ -105,7 +113,9 @@
         </tbody>
     </table>
 </div>
+</section>
 
+<section id="balance-liabilities-panel" class="page-tab-panel" role="tabpanel" data-page-tab-panel hidden>
 <div class="card table-card reveal" data-table-stage>
     <h3>Long-Term Borrowings</h3>
     <table class="data-table">
@@ -149,7 +159,9 @@
         </tbody>
     </table>
 </div>
+</section>
 
+<section id="balance-financing-panel" class="page-tab-panel" role="tabpanel" data-page-tab-panel hidden>
 <div class="card table-card reveal" data-table-stage>
     <h3>Financed By</h3>
     <table class="data-table">
@@ -183,5 +195,7 @@
         </tr>
         </tbody>
     </table>
+</div>
+</section>
 </div>
 {{end}}

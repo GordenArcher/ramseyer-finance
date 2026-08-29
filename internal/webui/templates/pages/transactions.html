@@ -5,17 +5,20 @@
         <h2>Transaction Register</h2>
         <p class="period">Review, trace, edit, and delete postings for the selected year.</p>
     </div>
-    <div class="year-selector">
-        {{range .Years}}
-        <a href="?year={{.}}{{if $.FilterType}}&type={{$.FilterType}}{{end}}{{if $.Search}}&q={{$.Search}}{{end}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $.Year}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
-        {{end}}
-    </div>
+    <button type="button" class="btn btn-secondary" data-open-modal="export-register-modal">Export Register</button>
 </div>
 
 {{if .Message}}
 <div class="alert alert-{{.MessageTone}} alert-float" data-auto-dismiss-alert>{{.Message}}</div>
 {{end}}
 
+<div data-page-tabs>
+<div class="page-tabs reveal" role="tablist" aria-label="Transaction register views">
+    <button type="button" class="page-tab active" role="tab" aria-selected="true" data-page-tab-target="register-entries-panel">Register Entries</button>
+    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="register-activity-panel">Recent Activity</button>
+</div>
+
+<section id="register-entries-panel" class="page-tab-panel active" role="tabpanel" data-page-tab-panel>
 <div class="card reveal">
     <h3>Filters</h3>
     <form method="GET" action="/transactions">
@@ -50,44 +53,6 @@
     </form>
 </div>
 
-<div class="card reveal">
-    <h3>Export Register</h3>
-    <p class="section-copy">Download the selected date range as CSV, Excel, or PDF.</p>
-    <form method="GET" action="/api/transactions/export" data-export-form>
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Start Date</label>
-                <input type="date" name="start_date" value="{{.ExportStartDate}}" required />
-            </div>
-            <div class="form-group">
-                <label>End Date</label>
-                <input type="date" name="end_date" value="{{.ExportEndDate}}" required />
-            </div>
-            <div class="form-group">
-                <label>Type</label>
-                <select name="type">
-                    <option value="">All Types</option>
-                    <option value="income" {{if eq .FilterType "income"}}selected{{end}}>Income</option>
-                    <option value="expenditure" {{if eq .FilterType "expenditure"}}selected{{end}}>Expenditure</option>
-                    <option value="asset" {{if eq .FilterType "asset"}}selected{{end}}>Asset</option>
-                    <option value="liability" {{if eq .FilterType "liability"}}selected{{end}}>Liability</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Format</label>
-                <select name="format" required>
-                    <option value="csv">CSV</option>
-                    <option value="excel">Excel</option>
-                    <option value="pdf">PDF</option>
-                </select>
-            </div>
-        </div>
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Download Export</button>
-        </div>
-    </form>
-</div>
-
 <div class="card table-card reveal" data-table-stage>
     <div class="card-header">
         <div>
@@ -118,14 +83,14 @@
                 <td>{{if .NoteRef}}{{.NoteRef}}{{else}}-{{end}}</td>
                 <td>{{if .Description}}{{.Description}}{{else}}-{{end}}</td>
                 <td class="text-right">{{formatMoney .Amount}}</td>
-                <td class="text-right">
+                <td class="text-right register-actions-cell"><span class="row-actions">
                     <a href="{{$.ReturnTo}}&edit={{.ID}}" data-nav-loading class="btn btn-sm btn-secondary">Edit</a>
-                    <form method="POST" action="/api/transaction/delete" data-loading-form data-confirm-submit data-confirm-title="Confirm Deletion" data-confirm-action-label="Delete" data-confirm-message="Delete this transaction? This action cannot be undone." style="display:inline-flex;">
+                    <form method="POST" action="/api/transaction/delete" data-loading-form data-confirm-submit data-confirm-title="Confirm Deletion" data-confirm-action-label="Delete" data-confirm-message="Delete this transaction? This action cannot be undone.">
                         <input type="hidden" name="id" value="{{.ID}}" />
                         <input type="hidden" name="return_to" value="{{$.ReturnTo}}" />
                         <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                     </form>
-                </td>
+                </span></td>
             </tr>
             {{end}}
             {{if not .Transactions}}
@@ -149,6 +114,7 @@
     </div>
     {{end}}
 </div>
+</section>
 
 {{if .EditForm.Loaded}}
 <div class="modal-shell" id="edit-transaction-modal" aria-hidden="true">
@@ -224,6 +190,7 @@
 <div class="auto-open-flag" data-auto-open-modal="edit-transaction-modal"></div>
 {{end}}
 
+<section id="register-activity-panel" class="page-tab-panel" role="tabpanel" data-page-tab-panel hidden>
 <div class="card table-card reveal" data-table-stage>
     <div class="card-header">
         <div>
@@ -260,5 +227,55 @@
             {{end}}
         </tbody>
     </table>
+</div>
+</section>
+</div>
+
+<div class="modal-shell" id="export-register-modal" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel modal-panel-income">
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Transaction Register</p>
+                <h3>Export Register</h3>
+                <p class="section-copy">Download a selected date range as CSV, Excel, or PDF.</p>
+            </div>
+            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+        </div>
+        <form method="GET" action="/api/transactions/export" data-export-form>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Start Date</label>
+                    <input type="date" name="start_date" value="{{.ExportStartDate}}" required />
+                </div>
+                <div class="form-group">
+                    <label>End Date</label>
+                    <input type="date" name="end_date" value="{{.ExportEndDate}}" required />
+                </div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <select name="type">
+                        <option value="">All Types</option>
+                        <option value="income" {{if eq .FilterType "income"}}selected{{end}}>Income</option>
+                        <option value="expenditure" {{if eq .FilterType "expenditure"}}selected{{end}}>Expenditure</option>
+                        <option value="asset" {{if eq .FilterType "asset"}}selected{{end}}>Asset</option>
+                        <option value="liability" {{if eq .FilterType "liability"}}selected{{end}}>Liability</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Format</label>
+                    <select name="format" required>
+                        <option value="csv">CSV</option>
+                        <option value="excel">Excel</option>
+                        <option value="pdf">PDF</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Download Export</button>
+                <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+            </div>
+        </form>
+    </div>
 </div>
 {{end}}

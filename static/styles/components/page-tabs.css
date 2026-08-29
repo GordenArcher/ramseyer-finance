@@ -1,0 +1,51 @@
+.page-tabs {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin: 0 0 18px;
+    padding: 6px;
+    border: 1px solid rgba(27, 42, 64, 0.08);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.66);
+    scrollbar-width: thin;
+}
+
+.page-tab {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 9px 15px;
+    border-radius: 999px;
+    color: var(--ink-soft);
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.page-tab:hover,
+.page-tab:focus-visible {
+    color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.page-tab.active {
+    color: #fffaf3;
+    background: var(--accent);
+}
+
+.page-tab-panel {
+    display: none;
+}
+
+.page-tab-panel.active {
+    display: block;
+    animation: panel-in 240ms ease;
+}
+
+.page-tab-panel[hidden] {
+    display: none;
+}
+
+.register-actions-cell {
+    white-space: nowrap;
+}

@@ -600,13 +600,14 @@ func TestWorkbookStatementPagesRender(t *testing.T) {
 		path    string
 		handler http.HandlerFunc
 		heading string
+		marker  string
 	}{
-		{name: "financial performance", path: "/annual?year=2026", handler: AnnualReport, heading: "Statement of Financial Performance"},
-		{name: "financial position", path: "/balance-sheet?year=2026", handler: BalanceSheet, heading: "Statement of Financial Position"},
-		{name: "trial balance", path: "/trial-balance?year=2026", handler: TrialBalance, heading: "Trial Balance"},
+		{name: "financial performance", path: "/annual?year=2026", handler: AnnualReport, heading: "Statement of Financial Performance", marker: `data-page-tab-target="annual-expenditure-panel"`},
+		{name: "financial position", path: "/balance-sheet?year=2026", handler: BalanceSheet, heading: "Statement of Financial Position", marker: `data-page-tab-target="balance-liabilities-panel"`},
+		{name: "trial balance", path: "/trial-balance?year=2026", handler: TrialBalance, heading: "Trial Balance", marker: "Debit and credit are internal control sides"},
 		{name: "cash flow", path: "/cash-flow?year=2026", handler: CashFlowStatement, heading: "Statement of Cash Flows"},
 		{name: "fixed assets", path: "/fixed-assets?year=2026", handler: FixedAssetSchedule, heading: "Non-Current Assets Schedule"},
-		{name: "notes", path: "/notes?year=2026", handler: NotesPage, heading: "Notes to the Financial Statements"},
+		{name: "notes", path: "/notes?year=2026", handler: NotesPage, heading: "Notes to the Financial Statements", marker: `aria-label="Financial statement notes"`},
 	}
 
 	for _, statement := range statements {
@@ -619,7 +620,42 @@ func TestWorkbookStatementPagesRender(t *testing.T) {
 			if !strings.Contains(recorder.Body.String(), statement.heading) {
 				t.Fatalf("heading %q missing from body", statement.heading)
 			}
+			if statement.marker != "" && !strings.Contains(recorder.Body.String(), statement.marker) {
+				t.Fatalf("UI marker %q missing from %s", statement.marker, statement.name)
+			}
 		})
+	}
+}
+
+func TestSetupAndRegisterUseTheFocusedOperationalLayout(t *testing.T) {
+	setupTestDB(t)
+
+	setupRecorder := httptest.NewRecorder()
+	SetupPage(setupRecorder, httptest.NewRequest(http.MethodGet, "/setup", nil))
+	if setupRecorder.Code != http.StatusOK {
+		t.Fatalf("setup status = %d, want 200", setupRecorder.Code)
+	}
+	if strings.Contains(setupRecorder.Body.String(), "Financial Figures") {
+		t.Fatalf("obsolete Financial Figures card remained on Setup")
+	}
+
+	insertTransaction(t, "2026-01-15", "income", "Offerings", categoryID(t, "income", "Offerings"), 25)
+	registerRecorder := httptest.NewRecorder()
+	TransactionsPage(registerRecorder, httptest.NewRequest(http.MethodGet, "/transactions?year=2026", nil))
+	if registerRecorder.Code != http.StatusOK {
+		t.Fatalf("register status = %d, want 200", registerRecorder.Code)
+	}
+	body := registerRecorder.Body.String()
+	for _, marker := range []string{
+		`data-open-modal="export-register-modal"`,
+		`id="export-register-modal"`,
+		`data-page-tab-target="register-entries-panel"`,
+		`data-page-tab-target="register-activity-panel"`,
+		`class="row-actions"`,
+	} {
+		if !strings.Contains(body, marker) {
+			t.Fatalf("register layout marker %q is missing", marker)
+		}
 	}
 }
 
@@ -652,6 +688,37 @@ func TestFixedAssetScheduleUsesWorkbookRatesAndDatedEntries(t *testing.T) {
 	}
 	if trialBalance.Difference != 0 {
 		t.Fatalf("fixed-asset trial-balance difference = %v, want 0", trialBalance.Difference)
+	}
+}
+
+func TestNote21UsesTheSelectedYearsFixedAssetSchedule(t *testing.T) {
+	setupTestDB(t)
+
+	buildingID := categoryID(t, "asset", "Buildings - Chapel")
+	insertPairedTransaction(t, "2026-02-01", "asset", buildingID, categoryID(t, "asset", "Bank"), 500)
+
+	notes2026, err := buildNotesData(2026)
+	if err != nil {
+		t.Fatalf("build 2026 notes: %v", err)
+	}
+	assets2026 := noteSectionByNumberAndType(t, notes2026.Notes, "21", "asset")
+	if amount := amountForNoteLine(assets2026.Lines, "Buildings - Chapel"); amount != 490 {
+		t.Fatalf("2026 Note 21 building carrying amount = %.2f, want 490", amount)
+	}
+	if prior := priorAmountForNoteLine(assets2026.Lines, "Buildings - Chapel"); prior != 0 {
+		t.Fatalf("2026 Note 21 prior building amount = %.2f, want 0", prior)
+	}
+
+	notes2027, err := buildNotesData(2027)
+	if err != nil {
+		t.Fatalf("build 2027 notes: %v", err)
+	}
+	assets2027 := noteSectionByNumberAndType(t, notes2027.Notes, "21", "asset")
+	if amount := amountForNoteLine(assets2027.Lines, "Buildings - Chapel"); amount != 480 {
+		t.Fatalf("2027 Note 21 building carrying amount = %.2f, want 480", amount)
+	}
+	if prior := priorAmountForNoteLine(assets2027.Lines, "Buildings - Chapel"); prior != 490 {
+		t.Fatalf("2027 Note 21 prior building amount = %.2f, want 490", prior)
 	}
 }
 
@@ -1140,6 +1207,18 @@ func noteSectionByNumber(t *testing.T, sections []NoteSection, number string) No
 		}
 	}
 	t.Fatalf("note section %s not found", number)
+	return NoteSection{}
+}
+
+func noteSectionByNumberAndType(t *testing.T, sections []NoteSection, number, categoryType string) NoteSection {
+	t.Helper()
+
+	for _, section := range sections {
+		if section.Number == number && section.CategoryType == categoryType {
+			return section
+		}
+	}
+	t.Fatalf("note section %s (%s) not found", number, categoryType)
 	return NoteSection{}
 }
 

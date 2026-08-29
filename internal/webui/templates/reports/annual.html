@@ -73,6 +73,14 @@
     <script type="application/json" id="annual-chart-data">{{toJSON .Chart}}</script>
 </div>
 
+<div data-page-tabs>
+<div class="page-tabs reveal" role="tablist" aria-label="Annual financial performance sections">
+    <button type="button" class="page-tab active" role="tab" aria-selected="true" data-page-tab-target="annual-income-panel">Income</button>
+    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="annual-expenditure-panel">Expenditure</button>
+    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="annual-summary-panel">Summary</button>
+</div>
+
+<section id="annual-income-panel" class="page-tab-panel active" role="tabpanel" data-page-tab-panel>
 <div class="card table-card reveal" data-table-stage>
     <h3>Income</h3>
     <table class="data-table">
@@ -100,7 +108,9 @@
         </tbody>
     </table>
 </div>
+</section>
 
+<section id="annual-expenditure-panel" class="page-tab-panel" role="tabpanel" data-page-tab-panel hidden>
 <div class="card table-card reveal" data-table-stage>
     <h3>Expenditure</h3>
     <table class="data-table">
@@ -128,7 +138,9 @@
         </tbody>
     </table>
 </div>
+</section>
 
+<section id="annual-summary-panel" class="page-tab-panel" role="tabpanel" data-page-tab-panel hidden>
 <div class="card reveal">
     <h3>Summary</h3>
     <table class="data-table">
@@ -145,5 +157,7 @@
             <tr class="total-row"><td>Surplus / (Deficit)</td><td class="text-right {{if lt .PriorSurplus 0.0}}negative{{end}}">{{formatMoney .PriorSurplus}}</td><td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td></tr>
         </tbody>
     </table>
+</div>
+</section>
 </div>
 {{end}}

@@ -19,9 +19,18 @@
 </div>
 {{end}}
 
-{{range .Notes}}
+{{if .Notes}}
+<div data-page-tabs>
+<div class="page-tabs reveal" role="tablist" aria-label="Financial statement notes">
+    {{range $index, $note := .Notes}}
+    <button type="button" class="page-tab {{if eq $index 0}}active{{end}}" role="tab" aria-selected="{{if eq $index 0}}true{{else}}false{{end}}" {{if ne $index 0}}tabindex="-1"{{end}} data-page-tab-target="notes-panel-{{$index}}">Note {{$note.Number}}{{if eq $note.Number "21"}} — {{if eq $note.CategoryType "asset"}}Assets{{else}}Expense{{end}}{{end}}</button>
+    {{end}}
+</div>
+
+{{range $index, $note := .Notes}}
+<section id="notes-panel-{{$index}}" class="page-tab-panel {{if eq $index 0}}active{{end}}" role="tabpanel" data-page-tab-panel {{if ne $index 0}}hidden{{end}}>
 <div class="card table-card reveal" data-table-stage>
-    <h3>Note {{.Number}}: {{.Title}}</h3>
+    <h3>Note {{$note.Number}}: {{$note.Title}}</h3>
     <table class="data-table">
         <thead>
             <tr>
@@ -31,7 +40,7 @@
             </tr>
         </thead>
         <tbody>
-            {{range .Lines}}
+            {{range $note.Lines}}
             <tr>
                 <td>{{.Name}}</td>
                 <td class="text-right">{{formatMoney .PriorAmount}}</td>
@@ -39,15 +48,21 @@
             </tr>
             {{end}}
         </tbody>
-        {{if or .Total .PriorTotal}}
+        {{if or $note.Total $note.PriorTotal}}
         <tfoot>
             <tr class="total-row">
                 <td>Total</td>
-                <td class="text-right">{{formatMoney .PriorTotal}}</td>
-                <td class="text-right">{{formatMoney .Total}}</td>
+                <td class="text-right">{{formatMoney $note.PriorTotal}}</td>
+                <td class="text-right">{{formatMoney $note.Total}}</td>
             </tr>
         </tfoot>
         {{end}}
     </table>
 </div>
-{{end}} {{end}}
+</section>
+{{end}}
+</div>
+{{else}}
+<div class="card reveal"><p class="text-center">No note activity is available for this year.</p></div>
+{{end}}
+{{end}}

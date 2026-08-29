@@ -279,6 +279,9 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 			section.PriorTotal += child.PriorAmount * amountSign
 		}
 	}
+	if err := applyFixedAssetSchedulesToNotes(year, sections); err != nil {
+		return NotesData{}, fmt.Errorf("apply dated fixed-asset schedules to notes: %w", err)
+	}
 
 	// Transfer the ordered sections into the data struct. Using sectionOrder ensures
 	// the report displays sections in the intended sequence (income note_refs 1–9,

@@ -17,6 +17,7 @@ import (
 type FixedAssetLine struct {
 	CategoryID            int64
 	Name                  string
+	Parent                string
 	Rate                  float64
 	OpeningCost           float64
 	Additions             float64
@@ -141,7 +142,7 @@ func buildFixedAssetData(year int) (FixedAssetData, error) {
 	}
 
 	for _, class := range classes {
-		line := FixedAssetLine{CategoryID: class.ID, Name: class.Name, Rate: depreciationRate(class.Name, class.Parent)}
+		line := FixedAssetLine{CategoryID: class.ID, Name: class.Name, Parent: class.Parent, Rate: depreciationRate(class.Name, class.Parent)}
 		yearMovements := movements[class.ID]
 		movementYears := make([]int, 0, len(yearMovements))
 		for movementYear := range yearMovements {
@@ -192,6 +193,82 @@ func buildFixedAssetData(year int) (FixedAssetData, error) {
 		}
 	}
 	return data, nil
+}
+
+// applyFixedAssetSchedulesToNotes replaces Note 21 and Note 23's generic cumulative posting
+// totals with the selected year's actual asset roll-forward. Without this bridge, the Notes
+// page shows the same gross purchase amount in every later year and ignores the depreciation
+// charge that makes each year-end carrying amount different.
+func applyFixedAssetSchedulesToNotes(year int, sections map[string]*NoteSection) error {
+	current, err := buildFixedAssetData(year)
+	if err != nil {
+		return fmt.Errorf("build current fixed-asset note schedule: %w", err)
+	}
+	prior, err := buildFixedAssetData(year - 1)
+	if err != nil {
+		return fmt.Errorf("build prior fixed-asset note schedule: %w", err)
+	}
+
+	replaceAssetSection := func(key, parent string, currentTotal, priorTotal float64) {
+		section, exists := sections[key]
+		if !exists {
+			return
+		}
+
+		currentByCategory := make(map[int64]FixedAssetLine, len(current.Lines))
+		for _, line := range current.Lines {
+			if line.Parent == parent {
+				currentByCategory[line.CategoryID] = line
+			}
+		}
+		priorByCategory := make(map[int64]FixedAssetLine, len(prior.Lines))
+		for _, line := range prior.Lines {
+			if line.Parent == parent {
+				priorByCategory[line.CategoryID] = line
+			}
+		}
+
+		lines := make([]NoteLine, 0, len(currentByCategory)+len(priorByCategory))
+		seen := map[int64]bool{}
+		for _, source := range current.Lines {
+			if source.Parent != parent {
+				continue
+			}
+			priorLine := priorByCategory[source.CategoryID]
+			if source.CarryingAmount != 0 || priorLine.CarryingAmount != 0 {
+				lines = append(lines, NoteLine{Name: source.Name, Amount: source.CarryingAmount, PriorAmount: priorLine.CarryingAmount})
+			}
+			seen[source.CategoryID] = true
+		}
+		for _, source := range prior.Lines {
+			if source.Parent != parent || seen[source.CategoryID] || source.CarryingAmount == 0 {
+				continue
+			}
+			lines = append(lines, NoteLine{Name: source.Name, PriorAmount: source.CarryingAmount})
+		}
+
+		// A zero schedule means the operator used a legacy top-level account that has no asset
+		// class or depreciation rate. In that case the generic dated position is more truthful
+		// than replacing it with an empty table.
+		if len(lines) == 0 && currentTotal == 0 && priorTotal == 0 {
+			return
+		}
+		section.Lines = lines
+		section.Total = currentTotal
+		section.PriorTotal = priorTotal
+	}
+
+	replaceAssetSection("21:asset", "Property, Plant & Equipment", current.PPECarryingAmount, prior.PPECarryingAmount)
+	replaceAssetSection("23", "Intangible Assets", current.IntangibleCarryingAmount, prior.IntangibleCarryingAmount)
+
+	// If no depreciation expense was posted manually, the same calculated charge used by
+	// the fixed-asset schedule and Balance Sheet becomes Note 21's expense disclosure.
+	if section, exists := sections["21:expenditure"]; exists && section.Total == 0 && section.PriorTotal == 0 && (current.TotalCharge != 0 || prior.TotalCharge != 0) {
+		section.Lines = []NoteLine{{Name: "Calculated depreciation & amortization charge", Amount: current.TotalCharge, PriorAmount: prior.TotalCharge}}
+		section.Total = current.TotalCharge
+		section.PriorTotal = prior.TotalCharge
+	}
+	return nil
 }
 
 func depreciationRate(name, parent string) float64 {
