@@ -36,7 +36,7 @@ How to start:
 The application is built as a native Windows GUI program. It does not open Command Prompt or require a terminal.
 
 Important:
-- The app stores its SQLite database under %%AppData%%\ramseyer-finance by default.
+- The app stores its SQLite database under %%AppData%%\ramseyer-financial-manager by default.
 - Backups and exports are saved under the user's Downloads folder by default.
 - See docs\INSTALLATION.md and docs\WINDOWS.md for more details.
 "@ | Set-Content -Encoding ASCII $ReadmePath

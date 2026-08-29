@@ -44,6 +44,21 @@ type CategoriesPageData struct {
 	ManagedCategories []ManagedCategory
 	CategoryParents   []CategoryParentOption
 	CategoryForm      CategoryFormData
+	Search            string
+	FilterType        string
+	FilterStatus      string
+	FilterNote        string
+	FilterSection     string
+	HasFilters        bool
+	NoteFilterOptions []int
+}
+
+type categoryFilters struct {
+	Search  string
+	Type    string
+	Status  string
+	Note    string
+	Section string
 }
 
 type CategoryParentOption struct {
@@ -86,7 +101,8 @@ func CategoriesPage(w http.ResponseWriter, r *http.Request) {
 	// I keep category management on its own page because the category register grows over time and
 	// competes visually with budgets and backup settings when everything is forced into Setup.
 	page := parsePageNumber(r.URL.Query().Get("page"))
-	managedCategories, totalCount, page, err := loadManagedCategories(page, categoryPageSize)
+	filters := parseCategoryFilters(r)
+	managedCategories, totalCount, page, err := loadManagedCategories(page, categoryPageSize, filters)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -103,7 +119,7 @@ func CategoriesPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalPages := totalPagesForCount(totalCount, categoryPageSize)
-	returnTo := buildCategoriesURL(page)
+	returnTo := buildCategoriesURL(page, filters)
 	data := CategoriesPageData{
 		Active:            "categories",
 		Message:           r.URL.Query().Get("msg"),
@@ -113,20 +129,35 @@ func CategoriesPage(w http.ResponseWriter, r *http.Request) {
 		TotalCount:        totalCount,
 		HasPrev:           page > 1,
 		HasNext:           page < totalPages,
-		PageLinks:         buildCategoryPageLinks(page, totalPages),
+		PageLinks:         buildCategoryPageLinks(page, totalPages, filters),
 		ReturnTo:          returnTo,
 		ManagedCategories: managedCategories,
 		CategoryParents:   categoryParents,
 		CategoryForm:      categoryForm,
+		Search:            filters.Search,
+		FilterType:        filters.Type,
+		FilterStatus:      filters.Status,
+		FilterNote:        filters.Note,
+		FilterSection:     filters.Section,
+		HasFilters:        filters != (categoryFilters{}),
+		NoteFilterOptions: trialBalanceNoteNumbers(),
 	}
 	if data.HasPrev {
-		data.PrevPageURL = buildCategoriesURL(page - 1)
+		data.PrevPageURL = buildCategoriesURL(page-1, filters)
 	}
 	if data.HasNext {
-		data.NextPageURL = buildCategoriesURL(page + 1)
+		data.NextPageURL = buildCategoriesURL(page+1, filters)
 	}
 
 	RenderTemplate(w, "categories", data)
+}
+
+func trialBalanceNoteNumbers() []int {
+	notes := make([]int, 0, 26)
+	for note := 3; note <= 28; note++ {
+		notes = append(notes, note)
+	}
+	return notes
 }
 
 func SaveCategory(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +172,7 @@ func SaveCategory(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "Invalid form submission")
 		return
 	}
-	returnTo := sanitizeReturnTo(r.FormValue("return_to"), buildCategoriesURL(1))
+	returnTo := sanitizeReturnTo(r.FormValue("return_to"), buildCategoriesURL(1, categoryFilters{}))
 
 	categoryID, err := parseOptionalInt64(r.FormValue("id"))
 	if err != nil || categoryID < 0 {
@@ -336,7 +367,7 @@ func ToggleCategoryStatus(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "Invalid form submission")
 		return
 	}
-	returnTo := sanitizeReturnTo(r.FormValue("return_to"), buildCategoriesURL(1))
+	returnTo := sanitizeReturnTo(r.FormValue("return_to"), buildCategoriesURL(1, categoryFilters{}))
 
 	categoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
 	if err != nil || categoryID <= 0 {
@@ -409,12 +440,14 @@ func ToggleCategoryStatus(w http.ResponseWriter, r *http.Request) {
 	redirectWithMessage(w, r, returnTo, message)
 }
 
-func loadManagedCategories(page, pageSize int) ([]ManagedCategory, int, int, error) {
+func loadManagedCategories(page, pageSize int, filters categoryFilters) ([]ManagedCategory, int, int, error) {
 	// I return transaction and budget counts with each category because those usage signals are
 	// what make archive decisions safe for the operator. A category with history should not feel
 	// like a disposable label.
+	where, args := categoryFilterSQL(filters)
 	var totalCount int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM categories`).Scan(&totalCount); err != nil {
+	countQuery := `SELECT COUNT(*) FROM categories c LEFT JOIN categories parent ON parent.id = c.parent_id ` + where
+	if err := db.DB.QueryRow(countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, 0, 1, fmt.Errorf("count managed categories: %w", err)
 	}
 
@@ -424,7 +457,7 @@ func loadManagedCategories(page, pageSize int) ([]ManagedCategory, int, int, err
 	}
 	offset := (page - 1) * pageSize
 
-	rows, err := db.DB.Query(`
+	query := `
 		SELECT
 			c.id,
 			c.type,
@@ -438,6 +471,7 @@ func loadManagedCategories(page, pageSize int) ([]ManagedCategory, int, int, err
 			(SELECT COUNT(*) FROM budgets b WHERE b.category_id = c.id)
 		FROM categories c
 		LEFT JOIN categories parent ON parent.id = c.parent_id
+		` + where + `
 		ORDER BY
 			CASE c.type
 				WHEN 'income' THEN 0
@@ -450,7 +484,9 @@ func loadManagedCategories(page, pageSize int) ([]ManagedCategory, int, int, err
 			c.parent_id,
 			c.id
 		LIMIT ? OFFSET ?
-	`, pageSize, offset)
+	`
+	queryArgs := append(append([]any{}, args...), pageSize, offset)
+	rows, err := db.DB.Query(query, queryArgs...)
 	if err != nil {
 		return nil, 0, page, fmt.Errorf("query managed categories: %w", err)
 	}
@@ -669,16 +705,31 @@ func pluralSuffix(count int) string {
 
 // buildCategoriesURL preserves the paginated register location so archive, edit, and save
 // flows can always return the operator to the same slice of the chart-of-accounts register.
-func buildCategoriesURL(page int) string {
+func buildCategoriesURL(page int, filters categoryFilters) string {
 	values := url.Values{}
 	values.Set("page", strconv.Itoa(page))
+	if filters.Search != "" {
+		values.Set("q", filters.Search)
+	}
+	if filters.Type != "" {
+		values.Set("type", filters.Type)
+	}
+	if filters.Status != "" {
+		values.Set("status", filters.Status)
+	}
+	if filters.Note != "" {
+		values.Set("note", filters.Note)
+	}
+	if filters.Section != "" {
+		values.Set("section", filters.Section)
+	}
 	return "/categories?" + values.Encode()
 }
 
 // buildCategoryPageLinks mirrors the transaction register pagination window so both long
 // operational tables behave the same way instead of teaching users two different paging
 // patterns for two different registers.
-func buildCategoryPageLinks(page, totalPages int) []PageLink {
+func buildCategoryPageLinks(page, totalPages int, filters categoryFilters) []PageLink {
 	if totalPages <= 1 {
 		return nil
 	}
@@ -702,11 +753,51 @@ func buildCategoryPageLinks(page, totalPages int) []PageLink {
 	for number := start; number <= end; number++ {
 		links = append(links, PageLink{
 			Number: number,
-			URL:    buildCategoriesURL(number),
+			URL:    buildCategoriesURL(number, filters),
 			Active: number == page,
 		})
 	}
 	return links
+}
+
+// parseCategoryFilters accepts only the filter vocabulary rendered by the categories page.
+// Normalising here keeps pagination URLs stable and prevents arbitrary values from producing
+// confusing empty registers that cannot be reproduced through the visible controls.
+func parseCategoryFilters(r *http.Request) categoryFilters {
+	filters := categoryFilters{Search: strings.TrimSpace(r.URL.Query().Get("q"))}
+	if value := strings.TrimSpace(r.URL.Query().Get("type")); value == "income" || value == "expenditure" || value == "asset" || value == "liability" {
+		filters.Type = value
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("status")); value == "active" || value == "archived" {
+		filters.Status = value
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("note")); value != "" {
+		if note, err := strconv.Atoi(value); err == nil && note >= 3 && note <= 28 {
+			filters.Note = value
+		}
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("section")); value == "current_asset" || value == "non_current_asset" || value == "current_liability" || value == "long_term_liability" {
+		filters.Section = value
+	}
+	return filters
+}
+
+func categoryFilterSQL(filters categoryFilters) (string, []any) {
+	searchPattern := "%" + strings.ToLower(filters.Search) + "%"
+	where := `WHERE
+		(? = '' OR lower(c.name) LIKE ? OR lower(COALESCE(parent.name, '')) LIKE ? OR c.note_ref LIKE ?)
+		AND (? = '' OR c.type = ?)
+		AND (? = '' OR (? = 'active' AND COALESCE(c.is_active, 1) = 1) OR (? = 'archived' AND COALESCE(c.is_active, 1) = 0))
+		AND (? = '' OR c.note_ref = ?)
+		AND (? = '' OR c.report_section = ?)`
+	args := []any{
+		filters.Search, searchPattern, searchPattern, searchPattern,
+		filters.Type, filters.Type,
+		filters.Status, filters.Status, filters.Status,
+		filters.Note, filters.Note,
+		filters.Section, filters.Section,
+	}
+	return where, args
 }
 
 func syncTransactionMetadataForCategoryTree(categoryID int64) error {

@@ -57,6 +57,7 @@
                             <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="manual">Manual</button>
                             <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="automatic">Automatic</button>
                             <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="safety">Safety</button>
+                            <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="fresh-start">Fresh-start recovery</button>
                             <button type="button" class="custom-selector-option" role="option" aria-selected="false" data-value="history">History</button>
                         </div>
                         <small class="custom-selector-empty" data-custom-selector-empty hidden>No source matches.</small>
@@ -122,19 +123,22 @@
 
             <div class="backup-library-list" data-backup-list>
                 {{range .RestoreCandidates}}
-                <label class="backup-library-item"
+                <div class="backup-library-item"
                     data-backup-option
                     data-backup-kind="{{.Kind}}"
                     data-backup-extension="{{.Extension}}"
                     data-backup-modified="{{.ModifiedUnix}}">
-                    <input type="radio" name="backup_path" value="{{.Path}}" data-backup-radio />
-                    <span class="backup-library-marker" aria-hidden="true"></span>
-                    <span class="backup-library-details">
-                        <strong>{{.Name}}</strong>
-                        <span>{{.KindLabel}} · {{.ModifiedLabel}} · {{.SizeLabel}} · .{{.Extension}}</span>
-                        <small>{{.Path}}</small>
-                    </span>
-                </label>
+                    <label class="backup-library-choice">
+                        <input type="radio" name="backup_path" value="{{.Path}}" data-backup-radio />
+                        <span class="backup-library-marker" aria-hidden="true"></span>
+                        <span class="backup-library-details">
+                            <strong>{{.Name}}</strong>
+                            <span>{{.KindLabel}} · {{.ModifiedLabel}} · {{.SizeLabel}} · .{{.Extension}}</span>
+                            <small>{{.Path}}</small>
+                        </span>
+                    </label>
+                    <button type="button" class="btn btn-sm btn-secondary backup-restore-now" data-restore-candidate>Restore this backup now</button>
+                </div>
                 {{end}}
                 <p class="backup-library-empty" data-backup-empty {{if .RestoreCandidates}}hidden{{end}}>
                     No backups match the current search and filters.
@@ -150,7 +154,7 @@
         </div>
 
         <button type="submit" class="btn btn-danger">
-            Restore from Backup
+            Restore selected backup
         </button>
     </form>
 </div>

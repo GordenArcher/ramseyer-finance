@@ -4,7 +4,7 @@ const (
 	// CurrentVersion is the version embedded into the running binary. I keep it in one shared
 	// package so the dashboard, setup page, updater checks, packaging scripts, and any future
 	// diagnostics all speak the same version string instead of drifting into separate copies.
-	CurrentVersion = "v1.2.0"
+	CurrentVersion = "v2.0.0"
 
 	// GitHubOwner and GitHubRepo define the release source that the in-app updater checks.
 	// This is intentionally explicit instead of inferred from git remotes because production

@@ -158,6 +158,7 @@ The macOS bundle script lives in `scripts/build_macos_app.sh`.
 
 ## Operational Notes
 
+- This release starts from a clean application-data location. The previous installation's database is left untouched instead of being upgraded in place.
 - The first launch asks the operator to create a PIN.
 - The app uses SQLite on disk, not in-memory storage.
 - Automatic backups are configured from the Setup screen.

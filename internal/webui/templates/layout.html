@@ -27,14 +27,15 @@
                 <span class="sidebar-tag">Workbook flow restored</span>
             </div>
             <ul class="nav-links">
-                <li><a href="/" data-nav-loading class="nav-item {{if eq .Active "dashboard"}}active{{end}}">Interface</a></li>
-                <li><a href="/data-entry" data-nav-loading class="nav-item {{if eq .Active "data-entry"}}active{{end}}">Data Entry</a></li>
-                <li><a href="/transactions" data-nav-loading class="nav-item {{if eq .Active "transactions"}}active{{end}}">Register</a></li>
-                <li class="nav-section">Reports</li>
+                <li><a href="/trial-balance" data-nav-loading class="nav-item nav-item-primary {{if eq .Active "trial-balance"}}active{{end}}">Trial Balance</a></li>
+                <li><a href="/" data-nav-loading class="nav-item {{if eq .Active "dashboard"}}active{{end}}">Dashboard</a></li>
+                <li class="nav-section">Supporting records</li>
+                <li><a href="/data-entry" data-nav-loading class="nav-item {{if eq .Active "data-entry"}}active{{end}}">Transaction Entry</a></li>
+                <li><a href="/transactions" data-nav-loading class="nav-item {{if eq .Active "transactions"}}active{{end}}">Transaction Register</a></li>
+                <li class="nav-section">Financial statements</li>
                 <li><a href="/monthly" data-nav-loading class="nav-item {{if eq .Active "monthly"}}active{{end}}">Monthly I&amp;E</a></li>
                 <li><a href="/quarterly" data-nav-loading class="nav-item {{if eq .Active "quarterly"}}active{{end}}">Quarterly I&amp;E</a></li>
                 <li><a href="/annual" data-nav-loading class="nav-item {{if eq .Active "annual"}}active{{end}}">Annual I&amp;E</a></li>
-                <li><a href="/trial-balance" data-nav-loading class="nav-item {{if eq .Active "trial-balance"}}active{{end}}">Trial Balance</a></li>
                 <li><a href="/balance-sheet" data-nav-loading class="nav-item {{if eq .Active "balance-sheet"}}active{{end}}">Balance Sheet</a></li>
                 <li><a href="/cash-flow" data-nav-loading class="nav-item {{if eq .Active "cash-flow"}}active{{end}}">Cash Flow</a></li>
                 <li><a href="/fixed-assets" data-nav-loading class="nav-item {{if eq .Active "fixed-assets"}}active{{end}}">Fixed Assets</a></li>

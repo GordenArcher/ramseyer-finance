@@ -2,6 +2,7 @@ package finance
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"ramseyer-finance/internal/db"
 	"strconv"
@@ -19,6 +20,21 @@ type TrialBalanceLine struct {
 	Account     string
 	Debit       float64
 	Credit      float64
+	Amount      float64
+	NormalSide  string
+	IsCustom    bool
+}
+
+// TrialBalanceGroup is the digital equivalent of a workbook note section. The operator
+// sees the accounting destination once above a group instead of choosing the same type and
+// note on every row, which both clarifies the flow and keeps the large entry page responsive.
+type TrialBalanceGroup struct {
+	Key         string
+	AccountType string
+	TypeLabel   string
+	Note        string
+	Title       string
+	Lines       []TrialBalanceLine
 }
 
 type TrialBalanceData struct {
@@ -26,6 +42,7 @@ type TrialBalanceData struct {
 	Year        string
 	Years       []int
 	Lines       []TrialBalanceLine
+	Groups      []TrialBalanceGroup
 	TotalDebit  float64
 	TotalCredit float64
 	Difference  float64
@@ -49,9 +66,11 @@ func TrialBalance(w http.ResponseWriter, r *http.Request) {
 	RenderTemplate(w, "trial-balance", data)
 }
 
-// SaveTrialBalance replaces the editable values for every visible row in one database
-// transaction. A bulk save keeps the screen spreadsheet-like while the year predicate on
-// every UPDATE prevents a forged row ID from modifying another year's independent book.
+// SaveTrialBalance stores one signed, natural balance for every visible account. Assets and
+// expenditure normally post to debit while income, liabilities, and funds normally post to
+// credit; a negative value intentionally creates a contra balance. Keeping that accounting
+// rule on the server lets the entry page match the workbook's single-amount workflow without
+// weakening the debit/credit controls used by reports and balancing checks.
 func SaveTrialBalance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -77,26 +96,49 @@ func SaveTrialBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	accountTypes := make(map[int64]string)
+	rows, err := tx.Query("SELECT id, account_type FROM trial_balance_entries WHERE year = ?", year)
+	if err != nil {
+		serverError(w, fmt.Errorf("load Trial Balance row types: %w", err))
+		return
+	}
+	for rows.Next() {
+		var id int64
+		var accountType string
+		if err := rows.Scan(&id, &accountType); err != nil {
+			rows.Close()
+			serverError(w, fmt.Errorf("scan Trial Balance row type: %w", err))
+			return
+		}
+		accountTypes[id] = accountType
+	}
+	if err := rows.Close(); err != nil {
+		serverError(w, fmt.Errorf("close Trial Balance row types: %w", err))
+		return
+	}
 	for _, rawID := range r.Form["entry_id"] {
 		id, err := strconv.ParseInt(rawID, 10, 64)
 		if err != nil || id <= 0 {
 			badRequest(w, "Invalid Trial Balance row")
 			return
 		}
-		accountType := strings.TrimSpace(r.FormValue(fmt.Sprintf("account_type_%d", id)))
-		accountName := strings.TrimSpace(r.FormValue(fmt.Sprintf("account_name_%d", id)))
-		noteRef := strings.TrimSpace(r.FormValue(fmt.Sprintf("note_ref_%d", id)))
-		debit, debitErr := parseNonNegativeMoney(r.FormValue(fmt.Sprintf("debit_%d", id)))
-		credit, creditErr := parseNonNegativeMoney(r.FormValue(fmt.Sprintf("credit_%d", id)))
-		if !validTrialBalanceType(accountType) || accountName == "" || !validTrialBalanceNote(noteRef) || debitErr != nil || creditErr != nil || (debit > 0 && credit > 0) {
-			badRequest(w, "Each row needs a valid account, type and note, with an amount on only one side")
+		accountType, exists := accountTypes[id]
+		if !exists || !validTrialBalanceType(accountType) {
+			badRequest(w, "A Trial Balance row no longer exists for this year")
 			return
 		}
+		amount, amountErr := parseSignedMoney(r.FormValue(fmt.Sprintf("amount_%d", id)))
+		if amountErr != nil {
+			badRequest(w, "Every Trial Balance amount must be a valid number")
+			return
+		}
+		line := TrialBalanceLine{AccountType: accountType}
+		assignNaturalBalance(&line, amount)
 		result, err := tx.Exec(`
 			UPDATE trial_balance_entries
-			SET account_type = ?, note_ref = ?, account_name = ?, debit = ?, credit = ?, updated_at = datetime('now','localtime')
+			SET debit = ?, credit = ?, updated_at = datetime('now','localtime')
 			WHERE id = ? AND year = ?
-		`, accountType, noteRef, accountName, debit, credit, id, year)
+		`, line.Debit, line.Credit, id, year)
 		if err != nil {
 			serverError(w, fmt.Errorf("save Trial Balance row: %w", err))
 			return
@@ -190,10 +232,13 @@ func buildTrialBalanceData(year int) (TrialBalanceData, error) {
 	}
 	data := TrialBalanceData{Active: "trial-balance", Year: strconv.Itoa(year), Years: years}
 	rows, err := db.DB.Query(`
-		SELECT id, account_type, note_ref, account_name, debit, credit
+		SELECT id, account_type, note_ref, account_name, debit, credit,
+			CASE WHEN source_category_id IS NULL THEN 1 ELSE 0 END
 		FROM trial_balance_entries
 		WHERE year = ?
-		ORDER BY sort_order, id
+		ORDER BY CAST(NULLIF(note_ref, '') AS INTEGER),
+			CASE account_type WHEN 'income' THEN 0 WHEN 'expenditure' THEN 1 WHEN 'asset' THEN 2 WHEN 'liability' THEN 3 ELSE 4 END,
+			sort_order, id
 	`, year)
 	if err != nil {
 		return TrialBalanceData{}, fmt.Errorf("query Trial Balance rows: %w", err)
@@ -201,12 +246,27 @@ func buildTrialBalanceData(year int) (TrialBalanceData, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var line TrialBalanceLine
-		if err := rows.Scan(&line.ID, &line.AccountType, &line.Note, &line.Account, &line.Debit, &line.Credit); err != nil {
+		if err := rows.Scan(&line.ID, &line.AccountType, &line.Note, &line.Account, &line.Debit, &line.Credit, &line.IsCustom); err != nil {
 			return TrialBalanceData{}, fmt.Errorf("scan Trial Balance row: %w", err)
 		}
+		line.Amount = trialBalanceAmount(line.AccountType, line.Debit, line.Credit)
+		line.NormalSide = trialBalanceNormalSide(line.AccountType)
 		data.Lines = append(data.Lines, line)
 		data.TotalDebit += line.Debit
 		data.TotalCredit += line.Credit
+
+		groupKey := line.Note + ":" + line.AccountType
+		if len(data.Groups) == 0 || data.Groups[len(data.Groups)-1].Key != groupKey {
+			data.Groups = append(data.Groups, TrialBalanceGroup{
+				Key:         groupKey,
+				AccountType: line.AccountType,
+				TypeLabel:   trialBalanceTypeLabel(line.AccountType),
+				Note:        line.Note,
+				Title:       noteTitle(line.Note, "Unmapped accounts"),
+			})
+		}
+		lastGroup := &data.Groups[len(data.Groups)-1]
+		lastGroup.Lines = append(lastGroup.Lines, line)
 	}
 	if err := rows.Err(); err != nil {
 		return TrialBalanceData{}, err
@@ -225,6 +285,42 @@ func parseNonNegativeMoney(raw string) (float64, error) {
 		return 0, fmt.Errorf("invalid amount")
 	}
 	return value, nil
+}
+
+func parseSignedMoney(raw string) (float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseFloat(strings.ReplaceAll(raw, ",", ""), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("invalid amount")
+	}
+	return value, nil
+}
+
+func trialBalanceNormalSide(accountType string) string {
+	if accountType == "asset" || accountType == "expenditure" {
+		return "Debit"
+	}
+	return "Credit"
+}
+
+func trialBalanceTypeLabel(accountType string) string {
+	switch accountType {
+	case "income":
+		return "Income"
+	case "expenditure":
+		return "Expenditure"
+	case "asset":
+		return "Asset"
+	case "liability":
+		return "Liability"
+	case "equity":
+		return "Equity / Fund"
+	default:
+		return accountType
+	}
 }
 
 func validTrialBalanceType(value string) bool {

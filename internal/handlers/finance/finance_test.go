@@ -822,6 +822,8 @@ func TestBackupPageUsesSearchableInAppRestoreLibrary(t *testing.T) {
 		"data-backup-extension-filter",
 		"data-backup-sort",
 		"data-backup-drop-zone",
+		"Fresh-start recovery",
+		"Restore this backup now",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("custom restore control %q missing from backup page", marker)

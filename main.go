@@ -170,11 +170,15 @@ func resolveDatabasePath() (string, error) {
 	// %AppData%. The application creates its own subdirectory within this location.
 	configDir, err := os.UserConfigDir()
 	if err == nil && strings.TrimSpace(configDir) != "" {
-		appDir := filepath.Join(configDir, "ramseyer-finance")
+		// This release is intentionally a clean product baseline rather than an in-place
+		// database upgrade. A new application-data directory keeps any earlier installation
+		// untouched and recoverable while ensuring the installed build starts with the chart,
+		// schema, and workflow it was designed for.
+		appDir := filepath.Join(configDir, "ramseyer-financial-manager")
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
 			return "", fmt.Errorf("create app config directory: %w", err)
 		}
-		return filepath.Join(appDir, "ramseyer-finance.db"), nil
+		return filepath.Join(appDir, "financial-records.db"), nil
 	}
 
 	// I keep the working directory fallback only as a last resort so the app still starts even
@@ -186,5 +190,5 @@ func resolveDatabasePath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve working directory fallback: %w", err)
 	}
-	return filepath.Join(workingDir, "ramseyer-finance.db"), nil
+	return filepath.Join(workingDir, "financial-records.db"), nil
 }

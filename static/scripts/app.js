@@ -571,6 +571,22 @@ function initRestoreForms() {
     qsa("[data-backup-radio]", form).forEach((radio) => {
       radio.addEventListener("change", () => syncSelectedCandidate(radio));
     });
+    qsa("[data-restore-candidate]", form).forEach((button) => {
+      button.addEventListener("click", () => {
+        const option = button.closest("[data-backup-option]");
+        const radio = option?.querySelector("[data-backup-radio]");
+        if (!radio || option.hidden) {
+          return;
+        }
+
+        // The row-level action selects the exact managed path before entering the shared
+        // confirmation flow. This makes a fresh-start recovery directly restorable from the
+        // Backup screen without bypassing the safety snapshot created by the server handler.
+        radio.checked = true;
+        syncSelectedCandidate(radio);
+        form.requestSubmit();
+      });
+    });
     searchInput?.addEventListener("input", applyLibraryFilters);
     customSelectors.forEach((selector) => {
       bindCustomSelector(selector, () => {
