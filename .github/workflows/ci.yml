@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+
+# CI only needs to read the checked-out source. Keeping the token read-only prevents a
+# validation job from modifying releases or repository contents if a dependency is compromised.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run obsolete. Cancelling that older run keeps
+# feedback focused on the commit developers can still act on and avoids wasting hosted minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Format, vet, and test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      # The desktop entry point uses webview_go, so the full package graph needs Linux GTK and
+      # WebKit headers even though the finance tests themselves run without opening a window.
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: Download Go modules
+        run: go mod download
+
+      # gofmt reports filenames instead of returning a failure status. This explicit check turns
+      # any reported file into a clear CI failure while printing exactly what needs formatting.
+      - name: Verify Go formatting
+        shell: bash
+        run: |
+          unformatted_files="$(gofmt -l $(git ls-files '*.go'))"
+          if [[ -n "$unformatted_files" ]]; then
+            echo "The following Go files need formatting:"
+            echo "$unformatted_files"
+            exit 1
+          fi
+
+      - name: Vet Go packages
+        run: go vet ./...
+
+      - name: Run Go tests
+        run: go test ./...
