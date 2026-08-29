@@ -128,14 +128,6 @@ button {
     gap: 12px;
 }
 
-.sidebar-brand-icon {
-    width: 58px;
-    height: 58px;
-    flex: 0 0 auto;
-    border-radius: 16px;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-}
-
 .sidebar-header h1,
 .page-header h2,
 .hero-copy h2,
