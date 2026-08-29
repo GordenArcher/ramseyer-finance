@@ -3,12 +3,12 @@
 {{$selected := .Year}}
 <div class="page-header trial-balance-header reveal">
     <div>
-        <p class="eyebrow">Primary financial entry</p>
+        <p class="eyebrow">Calculated financial lookup</p>
         <h2>Trial Balance</h2>
-        <p class="period">For the year ended 31 December {{.Year}}</p>
+        <p class="period">January to 31 December {{.Year}}, calculated from dated Transaction Entries</p>
     </div>
     <div class="page-header-actions">
-        <button type="button" class="btn btn-primary" data-open-modal="trial-balance-add-row">Add row</button>
+        <a href="/data-entry" class="btn btn-primary" data-nav-loading>Record Transaction</a>
         <button type="button" class="btn btn-secondary" data-report-pdf="trial-balance" data-report-year="{{.Year}}">Save PDF &amp; Open</button>
     </div>
 </div>
@@ -18,85 +18,52 @@
 </div>
 
 <div class="trial-balance-flow reveal" aria-label="Financial statement flow">
-    <div><strong>Enter balances here</strong><span>One amount for each account</span></div>
+    <div><strong>Transaction Entry</strong><span>Dated Sunday figures and other postings</span></div>
     <span class="flow-arrow" aria-hidden="true">→</span>
-    <div><strong>Notes update</strong><span>Grouped by Notes 3–28</span></div>
+    <div><strong>Calculated Trial Balance</strong><span>Read-only totals for quick lookup</span></div>
     <span class="flow-arrow" aria-hidden="true">→</span>
-    <div><strong>Statements update</strong><span>Performance, position and cash flow</span></div>
+    <div><strong>Notes and statements</strong><span>All fetch the same calculated amounts</span></div>
 </div>
 
-{{if .Saved}}<div class="alert alert-success" data-auto-dismiss-alert>Trial Balance saved. The Notes and financial statements now use these {{.Year}} balances.</div>{{end}}
-{{if .Added}}<div class="alert alert-success" data-auto-dismiss-alert>New account row added to {{.Year}}.</div>{{end}}
-{{if ne .Difference 0.0}}<div class="alert alert-warning">The Trial Balance is out by GH¢ {{formatMoney (abs .Difference)}}. Review the account amounts before finalising the statements.</div>{{end}}
+{{if gt .UnpairedCount 0}}<div class="alert alert-warning">{{.UnpairedCount}} older entr{{if eq .UnpairedCount 1}}y has{{else}}ies have{{end}} no corresponding account. Edit {{if eq .UnpairedCount 1}}it{{else}}them{{end}} in the Transaction Register so the Balance Sheet can be complete.</div>{{end}}
+{{if ne .Difference 0.0}}<div class="alert alert-warning">The calculated Trial Balance differs by GH¢ {{formatMoney (abs .Difference)}} because one or more entries are incomplete. No value can be edited on this page.</div>{{end}}
 
-<form action="/api/trial-balance/save" method="post" data-loading-form>
-    <input type="hidden" name="year" value="{{.Year}}">
-    <div class="trial-balance-groups reveal">
-        {{range .Groups}}
-        <section class="card trial-balance-section">
-            <div class="trial-balance-section-header">
-                <div>
-                    <div class="trial-balance-section-meta">
-                        {{if .Note}}<span class="note-chip">Note {{.Note}}</span>{{else}}<span class="note-chip">Direct</span>{{end}}
-                        <span class="type-pill type-pill-{{.AccountType}}">{{.TypeLabel}}</span>
-                    </div>
-                    <h3>{{.Title}}</h3>
-                </div>
-                <p>{{if or (eq .AccountType "asset") (eq .AccountType "expenditure")}}Positive amounts are debits.{{else}}Positive amounts are credits.{{end}}</p>
-            </div>
-            <div class="table-scroll">
-                <table class="data-table trial-balance-entry-table">
-                    <thead><tr><th>Account</th><th>Normal side</th><th class="text-right">Amount (GH¢)</th><th class="row-action"></th></tr></thead>
-                    <tbody>
-                        {{range .Lines}}
-                        <tr>
-                            <td>
-                                <input type="hidden" name="entry_id" value="{{.ID}}">
-                                <strong>{{.Account}}</strong>
-                                {{if .IsCustom}}<small class="row-caption">Custom row</small>{{end}}
-                            </td>
-                            <td><span class="balance-side">{{.NormalSide}}</span></td>
-                            <td><input class="trial-balance-amount text-right" type="number" step="0.01" name="amount_{{.ID}}" value="{{formatMoneyRaw .Amount}}" aria-label="Amount for {{.Account}}"></td>
-                            <td class="row-action">{{if .IsCustom}}<button class="btn btn-sm btn-danger" type="submit" form="delete-trial-balance-{{.ID}}">Delete</button>{{end}}</td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
-        </section>
-        {{end}}
-    </div>
-
-    <div class="card trial-balance-control reveal">
-        <div><span>Total debits</span><strong>GH¢ {{formatMoney .TotalDebit}}</strong></div>
-        <div><span>Total credits</span><strong>GH¢ {{formatMoney .TotalCredit}}</strong></div>
-        <div class="{{if ne .Difference 0.0}}is-unbalanced{{else}}is-balanced{{end}}"><span>Difference</span><strong>GH¢ {{formatMoney (abs .Difference)}}</strong></div>
-        <button type="submit" class="btn btn-primary">Save {{.Year}} Trial Balance</button>
-    </div>
-</form>
-
-{{range .Lines}}{{if .IsCustom}}<form id="delete-trial-balance-{{.ID}}" action="/api/trial-balance/delete" method="post" data-confirm-submit data-confirm-title="Delete Trial Balance row" data-confirm-message="Delete {{.Account}} from {{$selected}} only?"><input type="hidden" name="year" value="{{$selected}}"><input type="hidden" name="id" value="{{.ID}}"></form>{{end}}{{end}}
-
-<div class="modal-shell" id="trial-balance-add-row" aria-hidden="true">
-    <div class="modal-backdrop" data-close-modal></div>
-    <div class="modal-panel modal-panel-income">
-        <div class="modal-header">
+<div class="trial-balance-groups reveal">
+    {{range .Groups}}
+    <section class="card trial-balance-section">
+        <div class="trial-balance-section-header">
             <div>
-                <p class="eyebrow">{{.Year}} Trial Balance</p>
-                <h3>Add an account row</h3>
-                <p class="section-copy">Use this only when the standard chart does not already contain the account.</p>
+                <div class="trial-balance-section-meta">
+                    {{if .Note}}<span class="note-chip">Note {{.Note}}</span>{{else}}<span class="note-chip">Direct</span>{{end}}
+                    <span class="type-pill type-pill-{{.AccountType}}">{{.TypeLabel}}</span>
+                </div>
+                <h3>{{.Title}}</h3>
             </div>
-            <button type="button" class="icon-btn" data-close-modal aria-label="Close">×</button>
+            <p>Calculated from saved entries for this period.</p>
         </div>
-        <form action="/api/trial-balance/add" method="post" class="form-grid" data-loading-form>
-            <input type="hidden" name="year" value="{{.Year}}">
-            <div class="form-group"><label for="trial-balance-account-type">Account type</label><select id="trial-balance-account-type" name="account_type" required><option value="income">Income</option><option value="expenditure">Expenditure</option><option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity / Fund</option></select></div>
-            <div class="form-group"><label for="trial-balance-note">Financial statement note</label><select id="trial-balance-note" name="note_ref"><option value="">No note</option>{{template "trial-balance-note-options" .}}</select></div>
-            <div class="form-group form-group-span"><label for="trial-balance-account-name">Account name</label><input id="trial-balance-account-name" type="text" name="account_name" required placeholder="Enter the account exactly as it should appear in the Notes"></div>
-            <div class="form-actions form-group-span"><button type="button" class="btn btn-secondary" data-close-modal>Cancel</button><button type="submit" class="btn btn-primary">Add row</button></div>
-        </form>
-    </div>
+        <div class="table-scroll">
+            <table class="data-table trial-balance-entry-table">
+                <thead><tr><th>Account</th><th>Normal side</th><th class="text-right">Debit (GH¢)</th><th class="text-right">Credit (GH¢)</th></tr></thead>
+                <tbody>
+                    {{range .Lines}}
+                    <tr>
+                        <td><strong>{{.Account}}</strong></td>
+                        <td><span class="balance-side">{{.NormalSide}}</span></td>
+                        <td class="text-right">{{if ne .Debit 0.0}}{{formatMoney .Debit}}{{else}}-{{end}}</td>
+                        <td class="text-right">{{if ne .Credit 0.0}}{{formatMoney .Credit}}{{else}}-{{end}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {{end}}
+</div>
+
+<div class="card trial-balance-control reveal">
+    <div><span>Total debits</span><strong>GH¢ {{formatMoney .TotalDebit}}</strong></div>
+    <div><span>Total credits</span><strong>GH¢ {{formatMoney .TotalCredit}}</strong></div>
+    <div class="{{if ne .Difference 0.0}}is-unbalanced{{else}}is-balanced{{end}}"><span>Difference</span><strong>GH¢ {{formatMoney (abs .Difference)}}</strong></div>
+    <a href="/transactions?year={{.Year}}" class="btn btn-secondary" data-nav-loading>Review Source Entries</a>
 </div>
 {{end}}
-
-{{define "trial-balance-note-options"}}<option value="3">Note 3 — Tithes</option><option value="4">Note 4 — Offerings</option><option value="5">Note 5 — Harvest Proceeds</option><option value="6">Note 6 — Donations Received</option><option value="7">Note 7 — Investment Income</option><option value="8">Note 8 — Other Income</option><option value="9">Note 9 — Contributions Paid</option><option value="10">Note 10 — Agents' Expenses</option><option value="11">Note 11 — Staff Cost</option><option value="12">Note 12 — Other Allowances</option><option value="13">Note 13 — Evangelism Expenses</option><option value="14">Note 14 — Group &amp; Committee Expenses</option><option value="15">Note 15 — Meetings and Conferences</option><option value="16">Note 16 — Training, Seminars, Workshops &amp; Retreats</option><option value="17">Note 17 — Social Services</option><option value="18">Note 18 — Levies Paid</option><option value="19">Note 19 — Property Upkeep</option><option value="20">Note 20 — General Administration Expenses</option><option value="21">Note 21 — Non-Current Assets / Depreciation</option><option value="22">Note 22 — Long Term Investment</option><option value="23">Note 23 — Intangible Assets</option><option value="24">Note 24 — Inventories</option><option value="25">Note 25 — Receivables &amp; Prepayments</option><option value="26">Note 26 — Cash &amp; Cash Equivalents</option><option value="27">Note 27 — Long Term Loan</option><option value="28">Note 28 — Payables &amp; Accruals</option>{{end}}

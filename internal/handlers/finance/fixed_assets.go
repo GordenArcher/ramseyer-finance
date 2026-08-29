@@ -108,42 +108,16 @@ func buildFixedAssetData(year int) (FixedAssetData, error) {
 	}
 
 	movements := map[int64]map[int]assetYearMovement{}
-	type assetOpening struct {
-		Cost           float64
-		AccumulatedDep float64
-	}
-	openings := map[int64]assetOpening{}
-	openingRows, err := db.DB.Query(`
-		SELECT category_id, opening_cost, opening_accumulated_depreciation
-		FROM fixed_asset_openings
-		WHERE year = ?
-	`, year)
-	if err != nil {
-		return FixedAssetData{}, fmt.Errorf("query fixed-asset openings: %w", err)
-	}
-	for openingRows.Next() {
-		var categoryID int64
-		var opening assetOpening
-		if err := openingRows.Scan(&categoryID, &opening.Cost, &opening.AccumulatedDep); err != nil {
-			openingRows.Close()
-			return FixedAssetData{}, fmt.Errorf("scan fixed-asset opening: %w", err)
-		}
-		openings[categoryID] = opening
-	}
-	if err := openingRows.Close(); err != nil {
-		return FixedAssetData{}, fmt.Errorf("close fixed-asset openings: %w", err)
-	}
-
 	rows, err = db.DB.Query(`
-		SELECT c.id, CAST(strftime('%Y', t.date) AS INTEGER),
-			COALESCE(SUM(t.amount), 0),
-			COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0)
+		SELECT c.id, CAST(strftime('%Y', posting.date) AS INTEGER),
+			COALESCE(SUM(posting.amount), 0),
+			COALESCE(SUM(CASE WHEN posting.amount > 0 THEN posting.amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN posting.amount < 0 THEN -posting.amount ELSE 0 END), 0)
 		FROM categories c
 		JOIN categories parent ON parent.id = c.parent_id
-		JOIN transactions t ON t.category_id = c.id AND t.type = 'asset'
+		JOIN financial_postings posting ON posting.category_id = c.id AND posting.account_type = 'asset'
 		WHERE parent.name IN ('Property, Plant & Equipment', 'Intangible Assets')
-		GROUP BY c.id, CAST(strftime('%Y', t.date) AS INTEGER)
+		GROUP BY c.id, CAST(strftime('%Y', posting.date) AS INTEGER)
 		ORDER BY c.id
 	`)
 	if err != nil {
@@ -180,11 +154,6 @@ func buildFixedAssetData(year int) (FixedAssetData, error) {
 		}
 
 		var cost, accumulatedDep float64
-		if opening, configured := openings[class.ID]; configured {
-			cost = opening.Cost
-			accumulatedDep = math.Min(opening.AccumulatedDep, opening.Cost)
-			firstYear = year
-		}
 		for calculationYear := firstYear; calculationYear <= year; calculationYear++ {
 			movement := yearMovements[calculationYear]
 			if calculationYear == year {

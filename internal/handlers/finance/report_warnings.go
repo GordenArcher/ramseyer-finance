@@ -14,9 +14,9 @@ func loadReportingWarnings(year int) ([]string, error) {
 	rows, err := db.DB.Query(`
 		SELECT c.name, c.type, COALESCE(SUM(t.amount), 0)
 		FROM categories c
-		LEFT JOIN transactions t
+		LEFT JOIN financial_postings t
 			ON t.category_id = c.id
-			AND t.type = c.type
+			AND t.account_type = c.type
 			AND t.date >= ?
 			AND t.date < ?
 		WHERE c.type IN ('income', 'expenditure')

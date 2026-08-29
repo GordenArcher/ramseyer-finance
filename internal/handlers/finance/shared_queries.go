@@ -182,7 +182,7 @@ func monthBounds(now time.Time) (string, string) {
 
 // reportYears builds the list of years available in the report page year-picker dropdown.
 // It merges three sources: the currently selected year (always included, even if it has no
-// data), the years that actually contain transactions or budgets or opening balances
+// data), the years that actually contain transactions or budgets
 // (loaded from the database), and a window of ±2 years around the selected year. This
 // approach ensures the picker includes both historical data years and near-future years
 // for planning, while never being completely empty even on a fresh database.
@@ -211,7 +211,7 @@ func reportYears(selected int) ([]int, error) {
 // setupYears builds the list of years available in the setup page year-picker dropdown.
 // Unlike reportYears, which centres on the selected year, this function centres on the
 // current year and extends further into the future (up to +5 years) because the setup page
-// is where users configure budgets and opening balances for upcoming periods. Known data
+// is where users configure budgets for upcoming periods. Known data
 // years from the database are merged in so historical setup data remains accessible.
 func setupYears() ([]int, error) {
 	currentYear := time.Now().Year()
@@ -234,15 +234,14 @@ func setupYears() ([]int, error) {
 	return sortYears(yearSet), nil
 }
 
-// loadKnownYears queries the database for all distinct years that appear across the three
-// year-bearing data sources: transactions (extracted from the date column), budgets, and
-// opening balances. The UNION query ensures each year appears only once in the result set,
+// loadKnownYears queries the database for all distinct years that appear in dated
+// transactions or annual budgets. The UNION query ensures each year appears only once,
 // and the IS NOT NULL filter excludes transactions with empty date strings. The results
 // are returned in ascending order and used by both the report and setup year pickers to
 // ensure data-backed years are always selectable.
 func loadKnownYears() ([]int, error) {
-	// I treat transactions, budgets, and opening balances as year-bearing sources because the UI
-	// needs one shared year vocabulary across setup and reporting.
+	// Dated entries determine reporting years. Budgets remain included because they are planning
+	// data for a selectable future year, not a competing source of actual financial figures.
 	rows, err := db.DB.Query(`
 		SELECT DISTINCT year
 		FROM (
@@ -251,16 +250,6 @@ func loadKnownYears() ([]int, error) {
 			WHERE date <> ''
 			UNION
 			SELECT year FROM budgets
-			UNION
-			SELECT year FROM opening_balances
-			UNION
-			SELECT year FROM fund_rollforwards
-			UNION
-			SELECT year FROM account_opening_balances
-			UNION
-			SELECT year FROM fixed_asset_openings
-			UNION
-			SELECT year FROM trial_balance_years
 		)
 		WHERE year IS NOT NULL
 		ORDER BY year
@@ -520,6 +509,32 @@ func lookupTransactionCategoryMeta(categoryID int64, transactionType string) (Tr
 	return meta, nil
 }
 
+// lookupActiveCategoryMeta resolves the other account selected for a transaction without
+// constraining it to the primary transaction type. A valid accounting entry may pair income
+// with cash, expenditure with bank, an asset purchase with a liability, or two accounts on
+// the same natural side. The posting view handles the sign; this lookup guarantees the chosen
+// account exists and is still active before the entry is saved.
+func lookupActiveCategoryMeta(categoryID int64) (TransactionCategoryMeta, error) {
+	var meta TransactionCategoryMeta
+	err := db.DB.QueryRow(`
+		SELECT c.id, c.type, c.name, c.parent_id, COALESCE(parent.name, ''), c.note_ref
+		FROM categories c
+		LEFT JOIN categories parent ON parent.id = c.parent_id
+		WHERE c.id = ? AND COALESCE(c.is_active, 1) = 1
+	`, categoryID).Scan(
+		&meta.ID,
+		&meta.Type,
+		&meta.Name,
+		&meta.ParentID,
+		&meta.ParentName,
+		&meta.NoteRef,
+	)
+	if err != nil {
+		return TransactionCategoryMeta{}, err
+	}
+	return meta, nil
+}
+
 // loadAllCategoryChoices retrieves every category from the database and formats each one
 // as a CategoryChoice with a pre-computed display label. Subcategories are labelled as
 // "ParentName / CategoryName" (e.g., "Offering / Children Service"), while top-level
@@ -535,6 +550,7 @@ func loadAllCategoryChoices() ([]CategoryChoice, error) {
 		SELECT c.id, c.type, c.name, COALESCE(parent.name, '')
 		FROM categories c
 		LEFT JOIN categories parent ON parent.id = c.parent_id
+		WHERE COALESCE(c.is_active, 1) = 1
 		ORDER BY
 			CASE c.type
 				WHEN 'income' THEN 0

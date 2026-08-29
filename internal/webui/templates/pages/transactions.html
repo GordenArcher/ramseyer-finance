@@ -40,7 +40,7 @@
             </div>
             <div class="form-group form-group-span">
                 <label>Search</label>
-                <input type="text" name="q" value="{{.Search}}" placeholder="Search category or description" />
+                <input type="text" name="q" value="{{.Search}}" placeholder="Search category, corresponding account, or description" />
             </div>
         </div>
         <div class="form-actions">
@@ -101,6 +101,7 @@
                 <th>Date</th>
                 <th>Type</th>
                 <th>Category</th>
+                <th>Corresponding account</th>
                 <th>Note</th>
                 <th>Description</th>
                 <th class="text-right">Amount (GHC)</th>
@@ -113,6 +114,7 @@
                 <td>{{.Date}}</td>
                 <td><span class="type-pill type-pill-{{.Type}}">{{.Type}}</span></td>
                 <td>{{.DisplayLabel}}</td>
+                <td>{{if .CounterAccount}}{{.CounterAccount}}{{else}}<span class="text-warning">Not assigned</span>{{end}}</td>
                 <td>{{if .NoteRef}}{{.NoteRef}}{{else}}-{{end}}</td>
                 <td>{{if .Description}}{{.Description}}{{else}}-{{end}}</td>
                 <td class="text-right">{{formatMoney .Amount}}</td>
@@ -128,7 +130,7 @@
             {{end}}
             {{if not .Transactions}}
             <tr>
-                <td colspan="7" class="text-center">No transactions found for this filter</td>
+                <td colspan="8" class="text-center">No transactions found for this filter</td>
             </tr>
             {{end}}
         </tbody>
@@ -182,6 +184,17 @@
                         <option value="">Select category</option>
                         {{range .CategoryChoices}}
                         <option value="{{.ID}}" {{if eq .ID $.EditForm.CategoryID}}selected{{end}}>
+                            {{if eq .Type "income"}}Income{{else if eq .Type "expenditure"}}Expenditure{{else if eq .Type "asset"}}Asset{{else}}Liability{{end}}: {{.Label}}
+                        </option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="form-group form-group-span">
+                    <label>Corresponding account</label>
+                    <select name="counter_category_id" required>
+                        <option value="">Select the other side of this entry</option>
+                        {{range .CategoryChoices}}
+                        <option value="{{.ID}}" {{if eq .ID $.EditForm.CounterCategoryID}}selected{{end}}>
                             {{if eq .Type "income"}}Income{{else if eq .Type "expenditure"}}Expenditure{{else if eq .Type "asset"}}Asset{{else}}Liability{{end}}: {{.Label}}
                         </option>
                         {{end}}

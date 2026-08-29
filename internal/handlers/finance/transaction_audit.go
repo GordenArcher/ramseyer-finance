@@ -37,15 +37,17 @@ type TransactionAuditEntry struct {
 // the current state of the transactions or categories tables. The JSON tags use snake_case
 // for readability in the stored payload.
 type transactionSnapshot struct {
-	ID          int64   `json:"id"`
-	Date        string  `json:"date"`
-	Type        string  `json:"type"`
-	Category    string  `json:"category"`
-	CategoryID  int64   `json:"category_id"`
-	NoteRef     string  `json:"note_ref"`
-	Description string  `json:"description"`
-	Amount      float64 `json:"amount"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID                int64   `json:"id"`
+	Date              string  `json:"date"`
+	Type              string  `json:"type"`
+	Category          string  `json:"category"`
+	CategoryID        int64   `json:"category_id"`
+	CounterCategoryID int64   `json:"counter_category_id"`
+	CounterAccount    string  `json:"counter_account"`
+	NoteRef           string  `json:"note_ref"`
+	Description       string  `json:"description"`
+	Amount            float64 `json:"amount"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 // loadTransactionSnapshot retrieves the current state of a single transaction from the
@@ -61,15 +63,21 @@ func loadTransactionSnapshot(transactionID int64) (transactionSnapshot, error) {
 	// exactly what the transaction looked like at that moment, including note mapping metadata.
 	var snapshot transactionSnapshot
 	err := db.DB.QueryRow(`
-		SELECT id, date, type, category, COALESCE(category_id, 0), COALESCE(note_ref, ''), COALESCE(description, ''), amount, COALESCE(updated_at, created_at, '')
-		FROM transactions
-		WHERE id = ?
+		SELECT t.id, t.date, t.type, t.category, COALESCE(t.category_id, 0),
+			COALESCE(t.counter_category_id, 0), COALESCE(counter.name, ''),
+			COALESCE(t.note_ref, ''), COALESCE(t.description, ''), t.amount,
+			COALESCE(t.updated_at, t.created_at, '')
+		FROM transactions t
+		LEFT JOIN categories counter ON counter.id = t.counter_category_id
+		WHERE t.id = ?
 	`, transactionID).Scan(
 		&snapshot.ID,
 		&snapshot.Date,
 		&snapshot.Type,
 		&snapshot.Category,
 		&snapshot.CategoryID,
+		&snapshot.CounterCategoryID,
+		&snapshot.CounterAccount,
 		&snapshot.NoteRef,
 		&snapshot.Description,
 		&snapshot.Amount,

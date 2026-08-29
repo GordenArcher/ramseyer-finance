@@ -30,11 +30,9 @@
     </div>
 </section>
 
-{{if not .FundConfigured}}
-<div class="alert alert-info">No opening accumulated fund has been entered for {{.Year}}. Add the amount brought forward from earlier years under <strong>Trial Balance → Opening funds and equity</strong>. A genuine first-year zero balance needs no action.</div>
-{{end}}
+<div class="alert alert-info">This statement is calculated from dated Transaction Entries. Use the Transaction Register to correct a source entry; no balance is editable here.</div>
 {{if ne .BalanceDifference 0.0}}
-<div class="alert alert-warning">The statement is out of balance by GH¢ {{formatMoney .BalanceDifference}}. Reconcile the asset, liability, and accumulated-fund entries.</div>
+<div class="alert alert-warning">The statement is out of balance by GH¢ {{formatMoney (abs .BalanceDifference)}}. Open the Transaction Register and assign the missing corresponding account to any incomplete entry.</div>
 {{end}}
 
 <div class="card chart-card reveal">

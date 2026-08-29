@@ -113,6 +113,10 @@ func openLocked() error {
 		Close()
 		return fmt.Errorf("failed to sync transaction metadata: %w", err)
 	}
+	if err := createFinancialPostingsView(); err != nil {
+		Close()
+		return fmt.Errorf("failed to create financial postings view: %w", err)
+	}
 
 	return nil
 }
@@ -145,6 +149,20 @@ func migrateTransactions() error {
 	if !exists {
 		if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN category_id INTEGER"); err != nil {
 			return fmt.Errorf("add category_id column: %w", err)
+		}
+	}
+
+	counterCategoryExists, err := columnExists("transactions", "counter_category_id")
+	if err != nil {
+		return err
+	}
+	if !counterCategoryExists {
+		// The counterpart is deliberately nullable during migration. Historical rows did not ask
+		// which cash, bank, asset, or liability account completed the entry, and inventing that
+		// answer would make old statements look balanced without being truthful. New writes require
+		// it; old rows remain visibly unpaired until the operator corrects them in the register.
+		if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN counter_category_id INTEGER"); err != nil {
+			return fmt.Errorf("add counter_category_id column: %w", err)
 		}
 	}
 
@@ -181,6 +199,7 @@ func migrateTransactions() error {
 		"CREATE INDEX IF NOT EXISTS idx_transactions_type_date ON transactions(type, date)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(category_id, date)",
+		"CREATE INDEX IF NOT EXISTS idx_transactions_counter_category_id_date ON transactions(counter_category_id, date)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_updated_at ON transactions(updated_at)",
 	}
 	for _, stmt := range indexes {
@@ -189,6 +208,57 @@ func migrateTransactions() error {
 		}
 	}
 
+	return nil
+}
+
+// createFinancialPostingsView turns each dated entry into the two natural-balance movements
+// used by Trial Balance and every downstream statement. The transaction row remains the one
+// auditable record the operator created; the view supplies its accounting counterpart without
+// duplicating editable rows in the register.
+//
+// Amounts in this view use each account's natural sign: positive increases an account and
+// negative decreases it. When both accounts share the same natural side, the counterpart
+// reverses the entered amount. When their natural sides differ, the same signed amount balances
+// the debit and credit. Recreating the view on startup keeps the definition deterministic across
+// upgrades while preserving all transaction data.
+func createFinancialPostingsView() error {
+	if _, err := DB.Exec("DROP VIEW IF EXISTS financial_postings"); err != nil {
+		return fmt.Errorf("drop previous financial postings view: %w", err)
+	}
+	_, err := DB.Exec(`
+		CREATE VIEW financial_postings AS
+		SELECT
+			t.id AS transaction_id,
+			t.date,
+			primary_account.type AS account_type,
+			primary_account.id AS category_id,
+			t.amount AS amount,
+			'primary' AS posting_role
+		FROM transactions t
+		JOIN categories primary_account ON primary_account.id = t.category_id
+
+		UNION ALL
+
+		SELECT
+			t.id AS transaction_id,
+			t.date,
+			counter_account.type AS account_type,
+			counter_account.id AS category_id,
+			CASE
+				WHEN primary_account.type IN ('asset', 'expenditure')
+					AND counter_account.type IN ('asset', 'expenditure') THEN -t.amount
+				WHEN primary_account.type IN ('income', 'liability')
+					AND counter_account.type IN ('income', 'liability') THEN -t.amount
+				ELSE t.amount
+			END AS amount,
+			'counter' AS posting_role
+		FROM transactions t
+		JOIN categories primary_account ON primary_account.id = t.category_id
+		JOIN categories counter_account ON counter_account.id = t.counter_category_id
+	`)
+	if err != nil {
+		return fmt.Errorf("create financial postings view: %w", err)
+	}
 	return nil
 }
 

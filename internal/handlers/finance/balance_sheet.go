@@ -111,16 +111,10 @@ func buildBalanceData(year int) (BalanceData, error) {
 	return buildTrialBalancePositionData(year)
 }
 
-// buildTrialBalancePositionData assembles the statement from year-owned TB rows. The
-// current and comparative account sets are unioned by note and account name, so a new row
-// in 2027 appears without mutating 2026 and a retired 2026 row still remains comparative.
+// buildTrialBalancePositionData assembles the statement from the same calculated Trial
+// Balance shown on screen. It does not read the retired saved-balance tables, so changing a
+// dated entry immediately changes the position statement and its comparative column.
 func buildTrialBalancePositionData(year int) (BalanceData, error) {
-	if err := ensureTrialBalanceYear(year); err != nil {
-		return BalanceData{}, err
-	}
-	if err := ensureTrialBalanceYear(year - 1); err != nil {
-		return BalanceData{}, err
-	}
 	years, err := reportYears(year)
 	if err != nil {
 		return BalanceData{}, err
@@ -136,21 +130,13 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 		year    int
 		current bool
 	}{{year, true}, {year - 1, false}} {
-		rows, err := db.DB.Query(`
-			SELECT account_type, note_ref, account_name, debit, credit
-			FROM trial_balance_entries WHERE year = ? ORDER BY sort_order, id
-		`, period.year)
+		trialBalance, err := buildTrialBalanceData(period.year)
 		if err != nil {
 			return BalanceData{}, err
 		}
-		for rows.Next() {
-			var item key
-			var debit, credit float64
-			if err := rows.Scan(&item.Type, &item.Note, &item.Account, &debit, &credit); err != nil {
-				rows.Close()
-				return BalanceData{}, err
-			}
-			amount := trialBalanceAmount(item.Type, debit, credit)
+		for _, line := range trialBalance.Lines {
+			item := key{Type: line.AccountType, Note: line.Note, Account: line.Account}
+			amount := line.Amount
 			switch item.Type {
 			case "asset", "liability":
 				// Financial-position statement rows are note totals. Rows without a note are
@@ -184,9 +170,6 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 					priorOpeningEquity += amount
 				}
 			}
-		}
-		if err := rows.Close(); err != nil {
-			return BalanceData{}, err
 		}
 	}
 
@@ -244,9 +227,8 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 	return data, nil
 }
 
-// buildLegacyBalanceData is retained for migration verification only. New statement pages
-// use buildTrialBalancePositionData so every transaction and direct adjustment reaches the
-// same saved year-owned source.
+// buildLegacyBalanceData is retained only as a migration reference for databases created by
+// older application builds. The active statement always uses buildTrialBalancePositionData.
 func buildLegacyBalanceData(year int) (BalanceData, error) {
 	// I build current and prior snapshots through the same helper so the comparative columns are
 	// produced by identical rules instead of two drifting implementations.

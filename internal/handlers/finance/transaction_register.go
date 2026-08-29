@@ -59,15 +59,16 @@ type TransactionsData struct {
 // code for category-based reporting. All text fields are COALESCE'd to empty strings at
 // query time so the template never receives NULL values.
 type TransactionRow struct {
-	ID           int64
-	Date         string
-	Type         string
-	TopCategory  string
-	Category     string
-	NoteRef      string
-	Description  string
-	Amount       float64
-	DisplayLabel string
+	ID             int64
+	Date           string
+	Type           string
+	TopCategory    string
+	Category       string
+	CounterAccount string
+	NoteRef        string
+	Description    string
+	Amount         float64
+	DisplayLabel   string
 }
 
 // EditableTransaction holds the current values of a transaction being edited, loaded from
@@ -77,13 +78,14 @@ type TransactionRow struct {
 // values without category metadata resolution—the edit form's category dropdown is
 // populated separately via the CategoryChoices list.
 type EditableTransaction struct {
-	Loaded      bool
-	ID          int64
-	Date        string
-	Type        string
-	CategoryID  int64
-	Description string
-	Amount      float64
+	Loaded            bool
+	ID                int64
+	Date              string
+	Type              string
+	CategoryID        int64
+	CounterCategoryID int64
+	Description       string
+	Amount            float64
 }
 
 // PageLink describes a single numbered page button in the pagination control. Number is
@@ -260,6 +262,11 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "Invalid category")
 		return
 	}
+	counterCategoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("counter_category_id")), 10, 64)
+	if err != nil || counterCategoryID <= 0 || counterCategoryID == categoryID {
+		badRequest(w, "Choose a different corresponding account")
+		return
+	}
 
 	amount, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("amount")), 64)
 	if err != nil || amount == 0 || ((transactionType == "income" || transactionType == "expenditure") && amount < 0) {
@@ -282,13 +289,20 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if _, err := lookupActiveCategoryMeta(counterCategoryID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			badRequest(w, "The corresponding account is no longer available")
+			return
+		}
+		serverError(w, err)
+		return
+	}
 
 	if err := validateTransactionBusinessRules(transactionID, transactionDate, transactionType, categoryID, strings.TrimSpace(r.FormValue("description")), amount, allowDuplicate); err != nil {
 		redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), err.Error())
 		return
 	}
-	existing, err := lookupExistingTransaction(transactionID)
-	if err != nil {
+	if _, err := lookupExistingTransaction(transactionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction not found")
 			return
@@ -296,34 +310,15 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	oldYear := transactionYear(existing.Date)
-	newYear := transactionYear(transactionDate)
-	if err := ensureTrialBalanceYear(oldYear); err != nil {
-		serverError(w, err)
-		return
-	}
-	if newYear != oldYear {
-		if err := ensureTrialBalanceYear(newYear); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-
 	// Update both the foreign key (category_id) and the denormalised columns (category,
 	// note_ref) in one statement. Keeping the denormalised columns in sync avoids JOINs
 	// on every read query while the category_id maintains referential integrity and
 	// enables the backfill/sync maintenance operations.
-	tx, err := db.DB.Begin()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback()
-	result, err := tx.Exec(`
+	result, err := db.DB.Exec(`
 		UPDATE transactions
-		SET date = ?, type = ?, category = ?, category_id = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
+		SET date = ?, type = ?, category = ?, category_id = ?, counter_category_id = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
 		WHERE id = ?
-	`, transactionDate, transactionType, categoryMeta.Name, categoryID, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
+	`, transactionDate, transactionType, categoryMeta.Name, categoryID, counterCategoryID, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -338,27 +333,13 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction not found")
 		return
 	}
-	if existing.CategoryID > 0 {
-		if err := applyTransactionTrialBalanceDelta(tx, oldYear, existing.Type, existing.CategoryID, -existing.Amount); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if err := applyTransactionTrialBalanceDelta(tx, newYear, transactionType, categoryID, amount); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		serverError(w, err)
-		return
-	}
 	// Load the full updated row for the audit trail. The snapshot includes all columns
 	// so the audit entry is a complete record of the transaction's state after the edit.
 	if snapshot, err := loadTransactionSnapshot(transactionID); err == nil {
 		_ = recordTransactionAudit("updated", snapshot)
 	}
 
-	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction and Trial Balance updated")
+	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Entry updated and reports recalculated")
 }
 
 // DeleteTransaction handles POST requests to delete a transaction. It loads the full
@@ -397,34 +378,13 @@ func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	year := transactionYear(snapshot.Date)
-	if err := ensureTrialBalanceYear(year); err != nil {
-		serverError(w, err)
-		return
-	}
-	tx, err := db.DB.Begin()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM transactions WHERE id = ?`, transactionID); err != nil {
-		serverError(w, err)
-		return
-	}
-	if snapshot.CategoryID > 0 {
-		if err := applyTransactionTrialBalanceDelta(tx, year, snapshot.Type, snapshot.CategoryID, -snapshot.Amount); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if err := tx.Commit(); err != nil {
+	if _, err := db.DB.Exec(`DELETE FROM transactions WHERE id = ?`, transactionID); err != nil {
 		serverError(w, err)
 		return
 	}
 	_ = recordTransactionAudit("deleted", snapshot)
 
-	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction deleted and Trial Balance updated")
+	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Entry deleted and reports recalculated")
 }
 
 // loadTransactionRows queries the transactions table with the given filters and pagination
@@ -453,19 +413,21 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 		where.WriteString(` AND t.type = ?`)
 		whereArgs = append(whereArgs, filterType)
 	}
-	// The search query matches against category name, parent category name, and
-	// description—all case-insensitive via LOWER(). The pattern is wrapped with %
-	// wildcards for substring matching, so searching "offer" will match "Offering".
+	// The search query covers both sides of the accounting entry as well as its
+	// description. This matters now that the corresponding account is part of the
+	// operator's audit trail: searching for "Bank" must find income received into Bank
+	// even when the primary category is Offerings.
 	if search != "" {
 		pattern := "%" + strings.ToLower(search) + "%"
 		where.WriteString(`
 			AND (
 				LOWER(COALESCE(category.name, t.category)) LIKE ?
 				OR LOWER(COALESCE(parent.name, '')) LIKE ?
+				OR LOWER(COALESCE(counter.name, '')) LIKE ?
 				OR LOWER(COALESCE(t.description, '')) LIKE ?
 			)
 		`)
-		whereArgs = append(whereArgs, pattern, pattern, pattern)
+		whereArgs = append(whereArgs, pattern, pattern, pattern, pattern)
 	}
 
 	countQuery := `
@@ -473,6 +435,7 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 		FROM transactions t
 		LEFT JOIN categories category ON category.id = t.category_id
 		LEFT JOIN categories parent ON parent.id = category.parent_id
+		LEFT JOIN categories counter ON counter.id = t.counter_category_id
 	` + where.String()
 
 	var totalCount int
@@ -494,11 +457,13 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 			COALESCE(parent.name, category.name, t.category) AS top_category,
 			COALESCE(category.name, t.category) AS category_name,
 			COALESCE(category.note_ref, t.note_ref, '') AS note_ref,
+			COALESCE(counter.name, '') AS counter_account,
 			COALESCE(t.description, ''),
 			t.amount
 		FROM transactions t
 		LEFT JOIN categories category ON category.id = t.category_id
 		LEFT JOIN categories parent ON parent.id = category.parent_id
+		LEFT JOIN categories counter ON counter.id = t.counter_category_id
 	` + where.String() + `
 		ORDER BY t.date DESC, t.id DESC
 		LIMIT ? OFFSET ?
@@ -520,6 +485,7 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 			&row.TopCategory,
 			&row.Category,
 			&row.NoteRef,
+			&row.CounterAccount,
 			&row.Description,
 			&row.Amount,
 		); err != nil {
@@ -549,10 +515,10 @@ func loadTransactionRows(year int, filterType, search string, page, pageSize int
 func loadEditableTransaction(id int64) (EditableTransaction, error) {
 	var record EditableTransaction
 	err := db.DB.QueryRow(`
-		SELECT id, date, type, COALESCE(category_id, 0), COALESCE(description, ''), amount
+		SELECT id, date, type, COALESCE(category_id, 0), COALESCE(counter_category_id, 0), COALESCE(description, ''), amount
 		FROM transactions
 		WHERE id = ?
-	`, id).Scan(&record.ID, &record.Date, &record.Type, &record.CategoryID, &record.Description, &record.Amount)
+	`, id).Scan(&record.ID, &record.Date, &record.Type, &record.CategoryID, &record.CounterCategoryID, &record.Description, &record.Amount)
 	if err != nil {
 		return EditableTransaction{}, err
 	}

@@ -58,7 +58,7 @@ func insertTransaction(t *testing.T, transactionDate, transactionType, category 
 	}
 }
 
-func TestBuildDashboardDataUsesOpeningBalances(t *testing.T) {
+func TestCalculatedReportsIgnoreRetiredOpeningBalanceTables(t *testing.T) {
 	setupTestDB(t)
 
 	if _, err := db.DB.Exec(
@@ -91,23 +91,23 @@ func TestBuildDashboardDataUsesOpeningBalances(t *testing.T) {
 	if data.MonthExpense != 90 {
 		t.Fatalf("month expense = %v, want 90", data.MonthExpense)
 	}
-	if data.BankBalance != 125 {
-		t.Fatalf("bank balance = %v, want 125", data.BankBalance)
+	if data.BankBalance != 25 {
+		t.Fatalf("bank balance = %v, want transaction-derived 25", data.BankBalance)
 	}
 
 	balanceData, err := buildBalanceData(2026)
 	if err != nil {
 		t.Fatalf("build balance data with legacy cash openings: %v", err)
 	}
-	if amountForBalanceLine(balanceData.CurrentAssets, "Cash & Cash Equivalents") != 215 {
-		t.Fatalf("Note 26 balance = %v, want 215", amountForBalanceLine(balanceData.CurrentAssets, "Cash & Cash Equivalents"))
+	if amountForBalanceLine(balanceData.CurrentAssets, "Cash & Cash Equivalents") != 65 {
+		t.Fatalf("Note 26 balance = %v, want transaction-derived 65", amountForBalanceLine(balanceData.CurrentAssets, "Cash & Cash Equivalents"))
 	}
 	notesData, err := buildNotesData(2026)
 	if err != nil {
 		t.Fatalf("build notes with legacy cash openings: %v", err)
 	}
-	if noteSectionByNumber(t, notesData.Notes, "26").Total != 215 {
-		t.Fatalf("Note 26 notes total = %v, want 215", noteSectionByNumber(t, notesData.Notes, "26").Total)
+	if noteSectionByNumber(t, notesData.Notes, "26").Total != 65 {
+		t.Fatalf("Note 26 notes total = %v, want transaction-derived 65", noteSectionByNumber(t, notesData.Notes, "26").Total)
 	}
 }
 
@@ -164,41 +164,23 @@ func TestBuildDashboardDataIncludesDailyTotalsAndAccumulatedTransactions(t *test
 
 func TestBuildBalanceDataUsesYearEndLogic(t *testing.T) {
 	setupTestDB(t)
-
-	if _, err := db.DB.Exec(
-		`INSERT INTO account_opening_balances (year, category_id, amount) VALUES
-		(2026, ?, 100),
-		(2026, ?, 60),
-		(2026, ?, 30)`,
-		categoryID(t, "asset", "Cash & Cash Equivalents"),
-		categoryID(t, "asset", "Accounts Receivable & Prepayments"),
-		categoryID(t, "liability", "Accounts Payable & Accruals"),
-	); err != nil {
-		t.Fatalf("insert account opening balances: %v", err)
-	}
-	if _, err := db.DB.Exec(
-		`INSERT INTO fund_rollforwards (year, opening_balance, prior_year_adjustment) VALUES (2026, 50, 0)`,
-	); err != nil {
-		t.Fatalf("insert accumulated fund opening: %v", err)
-	}
-
-	insertTransaction(t, "2026-02-01", "asset", "Bank", categoryID(t, "asset", "Bank"), 40)
-	insertTransaction(t, "2026-03-15", "income", "Tithes", categoryID(t, "income", "Tithes"), 200)
-	insertTransaction(t, "2026-03-20", "expenditure", "Printing & Stationery", categoryID(t, "expenditure", "Printing & Stationery"), 80)
+	bankID := categoryID(t, "asset", "Bank")
+	insertPairedTransaction(t, "2026-03-15", "income", categoryID(t, "income", "Tithes"), bankID, 200)
+	insertPairedTransaction(t, "2026-03-20", "expenditure", categoryID(t, "expenditure", "Printing & Stationery"), bankID, 80)
 
 	data, err := buildBalanceData(2026)
 	if err != nil {
 		t.Fatalf("build balance data: %v", err)
 	}
 
-	if amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents") != 140 {
-		t.Fatalf("cash amount = %v, want 140", amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents"))
+	if amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents") != 120 {
+		t.Fatalf("cash amount = %v, want 120", amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents"))
 	}
-	if amountForBalanceLine(data.CurrentAssets, "Accounts Receivable & Prepayments") != 60 {
-		t.Fatalf("receivables amount = %v, want 60", amountForBalanceLine(data.CurrentAssets, "Accounts Receivable & Prepayments"))
+	if amountForBalanceLine(data.CurrentAssets, "Accounts Receivable & Prepayments") != 0 {
+		t.Fatalf("receivables amount = %v, want 0", amountForBalanceLine(data.CurrentAssets, "Accounts Receivable & Prepayments"))
 	}
-	if data.TotalLiabilities != 30 {
-		t.Fatalf("total liabilities = %v, want 30", data.TotalLiabilities)
+	if data.TotalLiabilities != 0 {
+		t.Fatalf("total liabilities = %v, want 0", data.TotalLiabilities)
 	}
 	if data.PriorTotalAssets != 0 {
 		t.Fatalf("prior total assets = %v, want 0", data.PriorTotalAssets)
@@ -212,11 +194,11 @@ func TestBuildBalanceDataUsesYearEndLogic(t *testing.T) {
 	if data.PriorIncomeSurplus != 0 {
 		t.Fatalf("prior income surplus = %v, want 0", data.PriorIncomeSurplus)
 	}
-	if data.TotalEquity != 170 {
-		t.Fatalf("total equity = %v, want 170", data.TotalEquity)
+	if data.TotalEquity != 120 {
+		t.Fatalf("total equity = %v, want 120", data.TotalEquity)
 	}
-	if data.AccumulatedFund != 50 {
-		t.Fatalf("accumulated fund = %v, want 50", data.AccumulatedFund)
+	if data.AccumulatedFund != 0 {
+		t.Fatalf("accumulated fund = %v, want 0", data.AccumulatedFund)
 	}
 	if data.BalanceDifference != 0 {
 		t.Fatalf("balance difference = %v, want 0", data.BalanceDifference)
@@ -423,6 +405,30 @@ func TestArchiveUsedCategoryShowsSpecificMessage(t *testing.T) {
 	}
 }
 
+func TestArchiveCategoryUsedAsCorrespondingAccountIsBlocked(t *testing.T) {
+	setupTestDB(t)
+
+	offeringsID := categoryID(t, "income", "Offerings")
+	bankID := categoryID(t, "asset", "Bank")
+	insertPairedTransaction(t, "2026-02-10", "income", offeringsID, bankID, 125)
+
+	form := url.Values{
+		"id":        {strconv.FormatInt(bankID, 10)},
+		"return_to": {"/categories?page=1"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/category/toggle", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+
+	ToggleCategoryStatus(recorder, request)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("archive corresponding account status = %d, want %d", recorder.Code, http.StatusSeeOther)
+	}
+	if location := recorder.Header().Get("Location"); !strings.Contains(location, "already+in+use+by+1+transaction") {
+		t.Fatalf("archive corresponding account redirect = %q, want specific usage message", location)
+	}
+}
+
 func TestDashboardGreetingRotationUsesConfiguredNameAndNonRepeatingCycle(t *testing.T) {
 	setupTestDB(t)
 
@@ -617,25 +623,11 @@ func TestWorkbookStatementPagesRender(t *testing.T) {
 	}
 }
 
-func TestFixedAssetScheduleUsesWorkbookRatesAndOpenings(t *testing.T) {
+func TestFixedAssetScheduleUsesWorkbookRatesAndDatedEntries(t *testing.T) {
 	setupTestDB(t)
 
 	buildingID := categoryID(t, "asset", "Buildings - Chapel")
-	if _, err := db.DB.Exec(`
-		INSERT INTO fixed_asset_openings
-			(year, category_id, opening_cost, opening_accumulated_depreciation)
-		VALUES (2026, ?, 1000, 100)
-	`, buildingID); err != nil {
-		t.Fatalf("insert fixed-asset opening: %v", err)
-	}
-	insertTransaction(t, "2026-02-01", "asset", "Buildings - Chapel", buildingID, 500)
-	insertTransaction(t, "2026-02-01", "asset", "Bank", categoryID(t, "asset", "Bank"), -500)
-	if _, err := db.DB.Exec(`
-		INSERT INTO fund_rollforwards (year, opening_balance, prior_year_adjustment)
-		VALUES (2026, 900, 0)
-	`); err != nil {
-		t.Fatalf("insert fixed-asset fund opening: %v", err)
-	}
+	insertPairedTransaction(t, "2026-02-01", "asset", buildingID, categoryID(t, "asset", "Bank"), 500)
 
 	data, err := buildFixedAssetData(2026)
 	if err != nil {
@@ -648,10 +640,10 @@ func TestFixedAssetScheduleUsesWorkbookRatesAndOpenings(t *testing.T) {
 			break
 		}
 	}
-	if building.Rate != 0.02 || building.OpeningCost != 1000 || building.Additions != 500 {
+	if building.Rate != 0.02 || building.OpeningCost != 0 || building.Additions != 500 {
 		t.Fatalf("building schedule inputs = %#v", building)
 	}
-	if building.Charge != 30 || building.ClosingAccumulatedDep != 130 || building.CarryingAmount != 1370 {
+	if building.Charge != 10 || building.ClosingAccumulatedDep != 10 || building.CarryingAmount != 490 {
 		t.Fatalf("building schedule results = %#v", building)
 	}
 	trialBalance, err := buildTrialBalanceData(2026)
@@ -663,42 +655,20 @@ func TestFixedAssetScheduleUsesWorkbookRatesAndOpenings(t *testing.T) {
 	}
 }
 
-func TestCashFlowUsesSelectedYearOpeningsAndReconciles(t *testing.T) {
+func TestCashFlowUsesDatedEntriesAndReconciles(t *testing.T) {
 	setupTestDB(t)
-
-	if _, err := db.DB.Exec(`
-		INSERT INTO account_opening_balances (year, category_id, amount) VALUES
-			(2026, ?, 100),
-			(2026, ?, 20),
-			(2026, ?, 30),
-			(2026, ?, 10)
-	`,
-		categoryID(t, "asset", "Cash & Cash Equivalents"),
-		categoryID(t, "asset", "Inventories"),
-		categoryID(t, "asset", "Accounts Receivable & Prepayments"),
-		categoryID(t, "liability", "Accounts Payable & Accruals"),
-	); err != nil {
-		t.Fatalf("insert cash-flow openings: %v", err)
-	}
-	if _, err := db.DB.Exec(`
-		INSERT INTO fund_rollforwards (year, opening_balance, prior_year_adjustment)
-		VALUES (2026, 140, 0)
-	`); err != nil {
-		t.Fatalf("insert fund opening: %v", err)
-	}
-
-	insertTransaction(t, "2026-03-01", "income", "Offerings", categoryID(t, "income", "Offerings"), 80)
-	insertTransaction(t, "2026-03-02", "expenditure", "Printing & Stationery", categoryID(t, "expenditure", "Printing & Stationery"), 20)
-	insertTransaction(t, "2026-03-03", "asset", "Stationery", categoryID(t, "asset", "Stationery"), 5)
-	insertTransaction(t, "2026-03-04", "asset", "Other Receivables", categoryID(t, "asset", "Other Receivables"), -10)
-	insertTransaction(t, "2026-03-05", "liability", "Other Payables", categoryID(t, "liability", "Other Payables"), 5)
-	insertTransaction(t, "2026-03-06", "asset", "Bank", categoryID(t, "asset", "Bank"), 70)
+	bankID := categoryID(t, "asset", "Bank")
+	insertPairedTransaction(t, "2026-03-01", "income", categoryID(t, "income", "Offerings"), bankID, 80)
+	insertPairedTransaction(t, "2026-03-02", "expenditure", categoryID(t, "expenditure", "Printing & Stationery"), bankID, 20)
+	insertPairedTransaction(t, "2026-03-03", "asset", categoryID(t, "asset", "Stationery"), bankID, 5)
+	insertPairedTransaction(t, "2026-03-04", "asset", categoryID(t, "asset", "Other Receivables"), bankID, -10)
+	insertPairedTransaction(t, "2026-03-05", "liability", categoryID(t, "liability", "Other Payables"), bankID, 5)
 
 	cashFlow, err := buildCashFlowData(2026)
 	if err != nil {
 		t.Fatalf("build cash flow: %v", err)
 	}
-	if cashFlow.OpeningCash != 100 || cashFlow.NetOperatingCash != 70 || cashFlow.ReportedClosingCash != 170 {
+	if cashFlow.OpeningCash != 0 || cashFlow.NetOperatingCash != 70 || cashFlow.ReportedClosingCash != 70 {
 		t.Fatalf("cash-flow reconciliation inputs = %#v", cashFlow)
 	}
 	if cashFlow.ReconciliationDifference != 0 {
@@ -918,13 +888,14 @@ func TestUpdateAndDeleteTransactionHandlers(t *testing.T) {
 	insertTransaction(t, "2026-01-15", "income", "Offerings", categoryID(t, "income", "Offerings"), 25)
 
 	updateForm := url.Values{
-		"id":          {"1"},
-		"date":        {"2026-01-20"},
-		"type":        {"expenditure"},
-		"category_id": {strconv.FormatInt(categoryID(t, "expenditure", "Printing & Stationery"), 10)},
-		"description": {"Reclassified stationery"},
-		"amount":      {"55.50"},
-		"return_to":   {"/transactions?year=2026"},
+		"id":                  {"1"},
+		"date":                {"2026-01-20"},
+		"type":                {"expenditure"},
+		"category_id":         {strconv.FormatInt(categoryID(t, "expenditure", "Printing & Stationery"), 10)},
+		"counter_category_id": {strconv.FormatInt(categoryID(t, "asset", "Cash on hand"), 10)},
+		"description":         {"Reclassified stationery"},
+		"amount":              {"55.50"},
+		"return_to":           {"/transactions?year=2026"},
 	}
 	updateReq := httptest.NewRequest(http.MethodPost, "/api/transaction/update", strings.NewReader(updateForm.Encode()))
 	updateReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1015,7 +986,14 @@ func TestLoadTransactionRowsPaginates(t *testing.T) {
 func TestExportTransactionsCSVExcelAndPDF(t *testing.T) {
 	setupTestDB(t)
 
-	insertTransaction(t, "2026-01-15", "income", "Offerings", categoryID(t, "income", "Offerings"), 25)
+	insertPairedTransaction(
+		t,
+		"2026-01-15",
+		"income",
+		categoryID(t, "income", "Offerings"),
+		categoryID(t, "asset", "Cash on hand"),
+		25,
+	)
 
 	for _, scenario := range []struct {
 		format      string
@@ -1043,53 +1021,60 @@ func TestExportTransactionsCSVExcelAndPDF(t *testing.T) {
 		if !strings.HasPrefix(recorder.Body.String(), scenario.bodyPrefix) {
 			t.Fatalf("%s body prefix mismatch: %q", scenario.format, recorder.Body.String())
 		}
+		if !strings.Contains(recorder.Body.String(), "Cash on hand") {
+			t.Fatalf("%s export omitted the corresponding account", scenario.format)
+		}
 	}
 }
 
-func TestTrialBalanceEditsDriveNotesAndRemainYearSpecific(t *testing.T) {
+func TestTransactionRegisterSearchIncludesCorrespondingAccount(t *testing.T) {
+	setupTestDB(t)
+
+	insertPairedTransaction(
+		t,
+		"2026-01-15",
+		"income",
+		categoryID(t, "income", "Offerings"),
+		categoryID(t, "asset", "Cash on hand"),
+		25,
+	)
+	rows, total, err := loadTransactionRows(2026, "", "cash on hand", 1, transactionsPageSize)
+	if err != nil {
+		t.Fatalf("search transactions by corresponding account: %v", err)
+	}
+	if total != 1 || len(rows) != 1 {
+		t.Fatalf("corresponding-account search returned total=%d rows=%d, want one", total, len(rows))
+	}
+}
+
+func TestDatedEntriesDriveNotesAndRemainYearSpecific(t *testing.T) {
 	setupTestDB(t)
 	offeringsID := categoryID(t, "income", "Offerings")
-	insertTransaction(t, "2026-02-01", "income", "Offerings", offeringsID, 100)
-	insertTransaction(t, "2027-02-01", "income", "Offerings", offeringsID, 125)
-
-	if _, err := buildTrialBalanceData(2026); err != nil {
-		t.Fatalf("initialize 2026 Trial Balance: %v", err)
-	}
-	if _, err := db.DB.Exec(`
-		UPDATE trial_balance_entries
-		SET credit = 450, debit = 0
-		WHERE year = 2026 AND account_type = 'income' AND account_name = 'Offerings'
-	`); err != nil {
-		t.Fatalf("edit authoritative Trial Balance row: %v", err)
-	}
+	cashID := categoryID(t, "asset", "Cash on hand")
+	insertPairedTransaction(t, "2026-02-01", "income", offeringsID, cashID, 100)
+	insertPairedTransaction(t, "2027-02-01", "income", offeringsID, cashID, 125)
 
 	notes, err := buildNotesData(2026)
 	if err != nil {
 		t.Fatalf("build notes from edited Trial Balance: %v", err)
 	}
-	if amountForNoteLine(noteSectionByNumber(t, notes.Notes, "4").Lines, "Offerings") != 450 {
-		t.Fatalf("Note 4 did not receive the edited 2026 Trial Balance amount")
+	if amountForNoteLine(noteSectionByNumber(t, notes.Notes, "4").Lines, "Offerings") != 100 {
+		t.Fatalf("Note 4 did not receive the dated 2026 entry amount")
 	}
 	annual, err := buildAnnualData(2026)
 	if err != nil {
 		t.Fatalf("build annual statement from edited Trial Balance: %v", err)
 	}
-	if amountForAnnualLine(annual.IncomeLines, "4") != 450 {
-		t.Fatalf("annual Note 4 amount = %v, want 450", amountForAnnualLine(annual.IncomeLines, "4"))
+	if amountForAnnualLine(annual.IncomeLines, "4") != 100 {
+		t.Fatalf("annual Note 4 amount = %v, want 100", amountForAnnualLine(annual.IncomeLines, "4"))
 	}
 
-	if _, err := buildTrialBalanceData(2027); err != nil {
-		t.Fatalf("initialize independent 2027 Trial Balance: %v", err)
+	trialBalance2027, err := buildTrialBalanceData(2027)
+	if err != nil {
+		t.Fatalf("build independent 2027 Trial Balance: %v", err)
 	}
-	var credit2027 float64
-	if err := db.DB.QueryRow(`
-		SELECT credit FROM trial_balance_entries
-		WHERE year = 2027 AND account_type = 'income' AND account_name = 'Offerings'
-	`).Scan(&credit2027); err != nil {
-		t.Fatalf("load 2027 offering row: %v", err)
-	}
-	if credit2027 != 125 {
-		t.Fatalf("2027 offering = %v, want its independent 125 instead of the edited 2026 value", credit2027)
+	if amountForTrialBalanceAccount(trialBalance2027.Lines, "Offerings") != 125 {
+		t.Fatalf("2027 offering did not retain its independent dated total")
 	}
 }
 

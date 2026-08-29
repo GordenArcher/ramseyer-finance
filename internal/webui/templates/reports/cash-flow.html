@@ -13,8 +13,10 @@
 </div>
 
 {{if ne .ReconciliationDifference 0.0}}
-<div class="alert alert-warning">Cash does not reconcile by GH¢ {{formatMoney .ReconciliationDifference}}. Review cash-account movements and balance-sheet postings before finalising the year.</div>
+<div class="alert alert-warning">Cash does not reconcile by GH¢ {{formatMoney (abs .ReconciliationDifference)}}. Review the corresponding cash or bank account on the dated entries before finalising the year.</div>
 {{end}}
+
+<div class="alert alert-info">This statement is calculated from dated Transaction Entries. The reference workbook supplies the report sections only; no workbook totals or cells are imported.</div>
 
 <div class="card table-card reveal" data-table-stage>
     <h3>Cash Flows from Operating Activities</h3>

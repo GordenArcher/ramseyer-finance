@@ -26,17 +26,16 @@ type CatOption struct {
 // transaction entry modal pre-opened. Rather than maintaining a separate page template
 // with duplicated category lists and balance displays, this handler reuses the dashboard
 // data builder and template, overriding the active navigation tab to "data-entry" and
-// forcing the "finance-entry" modal to be open on page load. This design keeps the entry
+// forcing the single "transaction-entry" modal to be open on page load. This design keeps the entry
 // form, category dropdowns, and balance summaries in one consistent code path.
 func DataEntryPage(w http.ResponseWriter, r *http.Request) {
 	// I continue rendering transaction entry through the dashboard shell because the modal launchers
 	// and category lists already live there, and keeping one shared shell avoids duplicate UI logic.
 	openModal := r.URL.Query().Get("open")
 	if strings.TrimSpace(openModal) == "" {
-		// I open a small chooser first on the dedicated data-entry route because the route's whole
-		// purpose is to decide which entry console the operator wants next, not to assume finance
-		// entry every time and force an extra close/reopen when the user really wanted assets.
-		openModal = "entry-selector"
+		// Transaction Entry is now the only financial input surface, so the dedicated route opens
+		// that one console directly instead of asking the operator to choose between competing flows.
+		openModal = "transaction-entry"
 	}
 
 	data, err := buildDashboardData(time.Now(), "data-entry", r.URL.Query().Get("msg"), openModal)
@@ -91,6 +90,11 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "Invalid category")
 		return
 	}
+	counterCategoryID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("counter_category_id")), 10, 64)
+	if err != nil || counterCategoryID <= 0 || counterCategoryID == categoryID {
+		badRequest(w, "Choose a different account for where the money came from or went")
+		return
+	}
 
 	amount, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue("amount")), 64)
 	if err != nil || amount == 0 || ((transactionType == "income" || transactionType == "expenditure") && amount < 0) {
@@ -103,7 +107,7 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	// frontend displays a duplicate warning. It is passed through from the confirmation
 	// dialog and tells the business rules validator to skip duplicate detection.
 	allowDuplicate := strings.TrimSpace(r.FormValue("allow_duplicate")) != ""
-	returnTo := sanitizeReturnTo(r.FormValue("return_to"), "/data-entry?open=finance-entry")
+	returnTo := sanitizeReturnTo(r.FormValue("return_to"), "/data-entry?open=transaction-entry")
 
 	// I resolve category metadata from the database instead of trusting form labels because the
 	// stored transaction should inherit the canonical category name and note mapping.
@@ -116,6 +120,14 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			badRequest(w, "Selected category does not match the transaction type")
+			return
+		}
+		serverError(w, err)
+		return
+	}
+	if _, err := lookupActiveCategoryMeta(counterCategoryID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			badRequest(w, "The corresponding account is no longer available")
 			return
 		}
 		serverError(w, err)
@@ -135,45 +147,26 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, returnTo+separator+"msg="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
-	year := transactionYear(transactionDate)
-	if err := ensureTrialBalanceYear(year); err != nil {
-		serverError(w, err)
-		return
-	}
-
 	// Insert the transaction with all fields, including the denormalised category name
 	// and note_ref from the resolved metadata. The updated_at timestamp is set to the
 	// current local time so that brand-new transactions have a meaningful value in that
 	// column from the start, not just after their first edit.
-	// The register row and its Trial Balance movement commit together. Saving them through
-	// separate database operations would recreate the exact failure the operator observed:
-	// a successful transaction that never reaches the Notes or statements.
-	tx, err := db.DB.Begin()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback()
-	result, err := tx.Exec(
-		`INSERT INTO transactions (date, type, category, category_id, description, amount, note_ref, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
+	// The primary category and corresponding account live on one dated, auditable row. Reports
+	// expand that row through financial_postings at read time, which removes the need for a
+	// separately editable Trial Balance and guarantees every view is recalculated from entries.
+	result, err := db.DB.Exec(
+		`INSERT INTO transactions (date, type, category, category_id, counter_category_id, description, amount, note_ref, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
 		transactionDate,
 		transactionType,
 		categoryMeta.Name,
 		categoryID,
+		counterCategoryID,
 		description,
 		amount,
 		categoryMeta.NoteRef,
 	)
 	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if err := applyTransactionTrialBalanceDelta(tx, year, transactionType, categoryID, amount); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -195,5 +188,5 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(returnTo, "?") {
 		separator = "&"
 	}
-	http.Redirect(w, r, returnTo+separator+"msg=Transaction+saved+and+Trial+Balance+updated", http.StatusSeeOther)
+	http.Redirect(w, r, returnTo+separator+"msg=Entry+saved.+Trial+Balance+and+reports+recalculated", http.StatusSeeOther)
 }

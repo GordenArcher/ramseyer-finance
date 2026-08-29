@@ -44,3 +44,24 @@ func TestRegisterOwnsEveryApplicationRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterDoesNotExposeCompetingFinancialWriteRoutes(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, http.NotFoundHandler())
+
+	for _, path := range []string{
+		"/api/trial-balance/save",
+		"/api/trial-balance/add",
+		"/api/trial-balance/delete",
+		"/api/opening-balance/save",
+		"/api/fund-rollforward/save",
+		"/api/account-opening-balance/save",
+		"/api/fixed-asset-opening/save",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, nil)
+		_, pattern := mux.Handler(request)
+		if pattern != "/" {
+			t.Fatalf("competing financial write route %q is still registered as %q", path, pattern)
+		}
+	}
+}

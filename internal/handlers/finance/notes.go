@@ -1,12 +1,9 @@
 package finance
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
-	"sort"
-	"strconv"
 )
 
 // NotesData carries all the template variables for the notes-to-the-accounts report page.
@@ -79,119 +76,13 @@ func NotesPage(w http.ResponseWriter, r *http.Request) {
 // categories. Sections are ordered by type (income first, then expenditure) and then by
 // note_ref number, producing a conventional financial report layout.
 func buildNotesData(year int) (NotesData, error) {
-	return buildTrialBalanceNotesData(year)
+	return buildCalculatedNotesData(year)
 }
 
-// buildTrialBalanceNotesData mirrors the workbook's direct cell links: every visible note
-// row comes from a saved Trial Balance row for the same year. Matching by type, note and
-// account name builds comparatives without requiring 2027 to reuse 2026's row structure.
-func buildTrialBalanceNotesData(year int) (NotesData, error) {
-	if err := ensureTrialBalanceYear(year); err != nil {
-		return NotesData{}, err
-	}
-	if err := ensureTrialBalanceYear(year - 1); err != nil {
-		return NotesData{}, err
-	}
-	years, err := reportYears(year)
-	if err != nil {
-		return NotesData{}, err
-	}
-	data := NotesData{Active: "notes", Year: strconv.Itoa(year), PriorYear: strconv.Itoa(year - 1), Years: years}
-
-	type lineKey struct{ Type, Note, Account string }
-	type pairedLine struct {
-		Current float64
-		Prior   float64
-	}
-	lines := map[lineKey]pairedLine{}
-	for _, period := range []struct {
-		year    int
-		current bool
-	}{{year, true}, {year - 1, false}} {
-		rows, err := db.DB.Query(`
-			SELECT account_type, note_ref, account_name, debit, credit
-			FROM trial_balance_entries
-			WHERE year = ? AND note_ref <> ''
-			ORDER BY sort_order, id
-		`, period.year)
-		if err != nil {
-			return NotesData{}, fmt.Errorf("load %d Trial Balance note rows: %w", period.year, err)
-		}
-		for rows.Next() {
-			var key lineKey
-			var debit, credit float64
-			if err := rows.Scan(&key.Type, &key.Note, &key.Account, &debit, &credit); err != nil {
-				rows.Close()
-				return NotesData{}, err
-			}
-			amount := trialBalanceAmount(key.Type, debit, credit)
-			if key.Note == "5" && key.Type == "expenditure" {
-				amount = -amount
-			}
-			pair := lines[key]
-			if period.current {
-				pair.Current += amount
-			} else {
-				pair.Prior += amount
-			}
-			lines[key] = pair
-		}
-		if err := rows.Close(); err != nil {
-			return NotesData{}, err
-		}
-	}
-
-	sections := map[string]*NoteSection{}
-	for key, pair := range lines {
-		sectionKey := key.Note
-		if key.Note == "21" {
-			sectionKey += ":" + key.Type
-		}
-		section := sections[sectionKey]
-		if section == nil {
-			section = &NoteSection{Number: key.Note, Title: noteTitle(key.Note, key.Account), CategoryType: key.Type}
-			if key.Note == "21" && key.Type == "asset" {
-				section.Title = "Non-Current Assets Schedule"
-			}
-			sections[sectionKey] = section
-		}
-		if pair.Current != 0 || pair.Prior != 0 {
-			section.Lines = append(section.Lines, NoteLine{Name: key.Account, Amount: pair.Current, PriorAmount: pair.Prior})
-		}
-		section.Total += pair.Current
-		section.PriorTotal += pair.Prior
-	}
-
-	keys := make([]string, 0, len(sections))
-	for key := range sections {
-		keys = append(keys, key)
-	}
-	sort.SliceStable(keys, func(i, j int) bool {
-		left, _ := strconv.Atoi(sections[keys[i]].Number)
-		right, _ := strconv.Atoi(sections[keys[j]].Number)
-		if left != right {
-			return left < right
-		}
-		return keys[i] < keys[j]
-	})
-	for _, key := range keys {
-		section := sections[key]
-		sort.SliceStable(section.Lines, func(i, j int) bool { return section.Lines[i].Name < section.Lines[j].Name })
-		data.Notes = append(data.Notes, *section)
-	}
-	currentTB, err := buildTrialBalanceData(year)
-	if err != nil {
-		return NotesData{}, err
-	}
-	if absFloat(currentTB.Difference) > 0.005 {
-		data.Warnings = append(data.Warnings, fmt.Sprintf("The %d Trial Balance is out by GH¢ %.2f; the Notes reflect the saved rows but the statements are not yet balanced.", year, absFloat(currentTB.Difference)))
-	}
-	return data, nil
-}
-
-// buildLegacyNotesData remains as the migration reference used to verify older report math.
-// New reports do not call it; they read the synchronized year-owned Trial Balance instead.
-func buildLegacyNotesData(year int) (NotesData, error) {
+// buildCalculatedNotesData organizes category postings into the numbered note sections
+// learned from the reference workbook. Amounts are calculated from dated entries; the
+// workbook contributes labels and grouping only, never saved totals or cell formulas.
+func buildCalculatedNotesData(year int) (NotesData, error) {
 	// I build notes from category mappings instead of hard-coded rows so the note structure stays
 	// tied to the same category tree the user is actually posting into.
 	years, err := reportYears(year)
@@ -243,9 +134,9 @@ func buildLegacyNotesData(year int) (NotesData, error) {
 				ELSE 0
 			END), 0)
 		FROM categories c
-		LEFT JOIN transactions t
+		LEFT JOIN financial_postings t
 			ON t.category_id = c.id
-			AND t.type = c.type
+			AND t.account_type = c.type
 			AND t.date >= ?
 			AND t.date < ?
 		WHERE c.type IN ('income', 'expenditure', 'asset', 'liability') AND c.note_ref <> ''
@@ -389,35 +280,6 @@ func buildLegacyNotesData(year int) (NotesData, error) {
 		}
 	}
 
-	assetSchedule, err := buildFixedAssetData(year)
-	if err != nil {
-		return NotesData{}, fmt.Errorf("build current Note 21 schedule: %w", err)
-	}
-	priorAssetSchedule, err := buildFixedAssetData(year - 1)
-	if err != nil {
-		return NotesData{}, fmt.Errorf("build prior Note 21 schedule: %w", err)
-	}
-	if expenseSection := sections["21:expenditure"]; expenseSection != nil && expenseSection.Total == 0 && expenseSection.PriorTotal == 0 {
-		expenseSection.Lines = []NoteLine{{
-			Name:        "Calculated depreciation & amortization charge",
-			Amount:      assetSchedule.TotalCharge,
-			PriorAmount: priorAssetSchedule.TotalCharge,
-		}}
-		expenseSection.Total = assetSchedule.TotalCharge
-		expenseSection.PriorTotal = priorAssetSchedule.TotalCharge
-	}
-	if assetSection := sections["21:asset"]; assetSection != nil && (assetSchedule.TotalClosingCost != 0 || priorAssetSchedule.TotalClosingCost != 0) {
-		assetSection.Title = "Non-Current Assets Schedule"
-		assetSection.Lines = []NoteLine{{Name: "Property, Plant & Equipment — carrying amount", Amount: assetSchedule.PPECarryingAmount, PriorAmount: priorAssetSchedule.PPECarryingAmount}}
-		assetSection.Total = assetSchedule.PPECarryingAmount
-		assetSection.PriorTotal = priorAssetSchedule.PPECarryingAmount
-	}
-	if intangibleSection := sections["23"]; intangibleSection != nil && (assetSchedule.TotalClosingCost != 0 || priorAssetSchedule.TotalClosingCost != 0) {
-		intangibleSection.Lines = []NoteLine{{Name: "Software — carrying amount", Amount: assetSchedule.IntangibleCarryingAmount, PriorAmount: priorAssetSchedule.IntangibleCarryingAmount}}
-		intangibleSection.Total = assetSchedule.IntangibleCarryingAmount
-		intangibleSection.PriorTotal = priorAssetSchedule.IntangibleCarryingAmount
-	}
-
 	// Transfer the ordered sections into the data struct. Using sectionOrder ensures
 	// the report displays sections in the intended sequence (income note_refs 1–9,
 	// then expenditure note_refs 10–12) regardless of map iteration order.
@@ -428,24 +290,21 @@ func buildLegacyNotesData(year int) (NotesData, error) {
 	return data, nil
 }
 
-// loadCategoryPositions applies the same opening-plus-movement rule used by the statement
-// of financial position, but at individual account level for Notes 21–28. A configured
-// opening supersedes prior transaction history; accounts without one retain the legacy
-// cumulative calculation for backward compatibility.
+// loadCategoryPositions calculates asset and liability balances from the same dated posting
+// stream as the Trial Balance. Positions accumulate through the selected year end; no Setup
+// table can override them, which keeps Transaction Entry as the only financial source.
 func loadCategoryPositions(year int) (map[int64]float64, error) {
-	startDate, endDate := yearBounds(year)
+	_, endDate := yearBounds(year)
 	rows, err := db.DB.Query(`
-		SELECT c.id,
-			COALESCE(opening.amount, 0),
-			CASE WHEN opening.category_id IS NULL THEN 0 ELSE 1 END,
-			COALESCE(SUM(CASE WHEN t.date >= ? AND t.date < ? THEN t.amount ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN t.date < ? THEN t.amount ELSE 0 END), 0)
+		SELECT c.id, COALESCE(SUM(posting.amount), 0)
 		FROM categories c
-		LEFT JOIN account_opening_balances opening ON opening.category_id = c.id AND opening.year = ?
-		LEFT JOIN transactions t ON t.category_id = c.id AND t.type = c.type AND t.date < ?
+		LEFT JOIN financial_postings posting
+			ON posting.category_id = c.id
+			AND posting.account_type = c.type
+			AND posting.date < ?
 		WHERE c.type IN ('asset', 'liability')
-		GROUP BY c.id, opening.category_id, opening.amount
-	`, startDate, endDate, endDate, year, endDate)
+		GROUP BY c.id
+	`, endDate)
 	if err != nil {
 		return nil, err
 	}
@@ -453,81 +312,14 @@ func loadCategoryPositions(year int) (map[int64]float64, error) {
 	positions := map[int64]float64{}
 	for rows.Next() {
 		var id int64
-		var opening, movement, cumulative float64
-		var configured int
-		if err := rows.Scan(&id, &opening, &configured, &movement, &cumulative); err != nil {
+		var amount float64
+		if err := rows.Scan(&id, &amount); err != nil {
 			return nil, err
 		}
-		positions[id] = cumulative
-		if configured == 1 {
-			positions[id] = opening + movement
-		}
+		positions[id] = amount
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-
-	// Retain the original Bank/Cash/Momo opening setup for upgraded databases. The standard
-	// chart now nests these accounts under Note 26, but their durable names still let us map
-	// each legacy opening to the correct account without altering historical transactions.
-	legacyRows, err := db.DB.Query(`
-		SELECT account_type, amount
-		FROM opening_balances
-		WHERE year = ?
-	`, year)
-	if err != nil {
-		return nil, err
-	}
-	type legacyOpening struct {
-		accountType string
-		amount      float64
-	}
-	var legacyOpenings []legacyOpening
-	for legacyRows.Next() {
-		var opening legacyOpening
-		if err := legacyRows.Scan(&opening.accountType, &opening.amount); err != nil {
-			legacyRows.Close()
-			return nil, err
-		}
-		legacyOpenings = append(legacyOpenings, opening)
-	}
-	if err := legacyRows.Close(); err != nil {
-		return nil, err
-	}
-
-	for _, opening := range legacyOpenings {
-		accountName := accountLabel(opening.accountType)
-		var categoryID int64
-		if err := db.DB.QueryRow(`
-			SELECT id FROM categories
-			WHERE type = 'asset' AND name = ?
-			ORDER BY CASE WHEN parent_id <> 0 THEN 0 ELSE 1 END, id
-			LIMIT 1
-		`, accountName).Scan(&categoryID); err != nil {
-			if err == sql.ErrNoRows {
-				continue
-			}
-			return nil, err
-		}
-		var explicitOpeningCount int
-		if err := db.DB.QueryRow(`
-			SELECT COUNT(*) FROM account_opening_balances
-			WHERE year = ? AND category_id = ?
-		`, year, categoryID).Scan(&explicitOpeningCount); err != nil {
-			return nil, err
-		}
-		if explicitOpeningCount > 0 {
-			continue
-		}
-		var movement float64
-		if err := db.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount), 0)
-			FROM transactions
-			WHERE type = 'asset' AND category_id = ? AND date >= ? AND date < ?
-		`, categoryID, startDate, endDate).Scan(&movement); err != nil {
-			return nil, err
-		}
-		positions[categoryID] = opening.amount + movement
 	}
 	return positions, nil
 }

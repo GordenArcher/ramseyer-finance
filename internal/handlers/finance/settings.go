@@ -15,39 +15,32 @@ import (
 // SetupData carries all the template variables for the application setup page. This page
 // consolidates several administrative concerns into one view: annual budget configuration
 // (per top-level income/expenditure category), dashboard identity/greeting preferences,
-// opening balance configuration for the three liquid accounts (bank, cash, momo), and the
 // automatic backup policy (enabled/disabled, frequency). By grouping these together, the
 // setup page serves as the single destination for year-start configuration and ongoing
 // operational settings. The Message and MessageTone fields provide feedback after form
-// submissions (e.g., "Budget saved" or "Opening balance saved").
+// submissions such as saving or deleting a budget.
 type SetupData struct {
-	Active             string
-	AppVersion         string
-	Years              []int
-	Categories         []BudgetOption
-	Budgets            []SavedBudget
-	OpeningBalances    []SavedOpeningBalance
-	FundRollforwards   []SavedFundRollforward
-	BalanceAccounts    []BalanceAccountOption
-	AccountOpenings    []SavedAccountOpeningBalance
-	FixedAssetOptions  []FixedAssetOpeningOption
-	FixedAssetOpenings []SavedFixedAssetOpening
-	AutoBackup         backupservice.AutoBackupConfig
-	DashboardConfig    DashboardGreetingConfig
-	Message            string
-	MessageTone        string
+	Active          string
+	AppVersion      string
+	Years           []int
+	Categories      []BudgetOption
+	Budgets         []SavedBudget
+	AutoBackup      backupservice.AutoBackupConfig
+	DashboardConfig DashboardGreetingConfig
+	Message         string
+	MessageTone     string
 }
 
 // SetupPage serves the application setup and configuration page. It loads the list of
 // available years (centred on the current year with a forward-looking window), the
 // top-level income and expenditure categories for budget configuration, any previously
-// saved budgets and opening balances for display in their respective tables, the current
+// saved budgets for display, the current
 // dashboard greeting configuration, and the current auto-backup configuration. Category
 // management now lives on its own page so this screen stays focused on finance setup and
 // operational controls instead of becoming one oversized administration dashboard.
 func SetupPage(w http.ResponseWriter, r *http.Request) {
 	// I keep setup intentionally narrower now that categories have their own page. This
-	// screen is for budgets, dashboard greeting preferences, opening balances, PIN changes,
+	// screen is for budgets, dashboard greeting preferences, PIN changes,
 	// and backup policy only.
 	years, err := setupYears()
 	if err != nil {
@@ -64,36 +57,6 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	openingBalances, err := loadSavedOpeningBalances()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	fundRollforwards, err := loadSavedFundRollforwards()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	balanceAccounts, err := loadBalanceAccountOptions()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	accountOpenings, err := loadSavedAccountOpeningBalances()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	fixedAssetOptions, err := loadFixedAssetOpeningOptions()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	fixedAssetOpenings, err := loadSavedFixedAssetOpenings()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
 	autoBackupConfig, err := backupservice.LoadAutoBackupConfig()
 	if err != nil {
 		serverError(w, err)
@@ -106,21 +69,15 @@ func SetupPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := SetupData{
-		Active:             "setup",
-		AppVersion:         appmeta.CurrentVersion,
-		Years:              years,
-		Categories:         categories,
-		Budgets:            budgets,
-		OpeningBalances:    openingBalances,
-		FundRollforwards:   fundRollforwards,
-		BalanceAccounts:    balanceAccounts,
-		AccountOpenings:    accountOpenings,
-		FixedAssetOptions:  fixedAssetOptions,
-		FixedAssetOpenings: fixedAssetOpenings,
-		AutoBackup:         autoBackupConfig,
-		DashboardConfig:    dashboardConfig,
-		Message:            r.URL.Query().Get("msg"),
-		MessageTone:        alertTone(r.URL.Query().Get("msg")),
+		Active:          "setup",
+		AppVersion:      appmeta.CurrentVersion,
+		Years:           years,
+		Categories:      categories,
+		Budgets:         budgets,
+		AutoBackup:      autoBackupConfig,
+		DashboardConfig: dashboardConfig,
+		Message:         r.URL.Query().Get("msg"),
+		MessageTone:     alertTone(r.URL.Query().Get("msg")),
 	}
 	RenderTemplate(w, "setup", data)
 }

@@ -47,6 +47,7 @@ type DashboardData struct {
 	ExpenseCats       []CatOption
 	AssetCats         []CatOption
 	LiabilityCats     []CatOption
+	AccountChoices    []CategoryChoice
 	DailyTransactions []RecentTx
 	Chart             viewmodels.ChartData
 }
@@ -109,6 +110,10 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	if err != nil {
 		return DashboardData{}, fmt.Errorf("load liability categories: %w", err)
 	}
+	accountChoices, err := loadAllCategoryChoices()
+	if err != nil {
+		return DashboardData{}, fmt.Errorf("load transaction counterpart accounts: %w", err)
+	}
 
 	data := DashboardData{
 		Active:          active,
@@ -122,6 +127,7 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 		ExpenseCats:     expenseCats,
 		AssetCats:       assetCats,
 		LiabilityCats:   liabilityCats,
+		AccountChoices:  accountChoices,
 	}
 
 	greetingConfig, err := loadDashboardGreetingState(now)
@@ -159,42 +165,35 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	}
 	data.DailyNetIncome = data.DailyIncome - data.DailyExpense
 
-	// I treat opening balances as part of the current liquid account position because the asset
-	// transactions only capture in-year movement, not the carried-forward starting cash.
-	// Opening balances are stored in the settings table and represent the cash position at
-	// the start of the fiscal year. The in-year transaction movement (from asset-type
-	// transactions in the Bank, Cash, and Momo categories) is added to these opening
-	// balances to produce the current displayed balance.
-	balances, err := loadOpeningBalanceMap(now.Year())
-	if err != nil {
-		return DashboardData{}, fmt.Errorf("load opening balances: %w", err)
-	}
-
 	// The balance cutoff is tomorrow (now + 1 day) so that transactions dated today are
 	// included in the balance display. Using "<" with tomorrow's date effectively means
 	// "<= today" while keeping the query compatible with the exclusive upper bound pattern
 	// used consistently across all report queries.
 	balanceCutoff := now.AddDate(0, 0, 1).Format("2006-01-02")
 	rows, err := db.DB.Query(`
-		SELECT c.name, COALESCE(SUM(t.amount), 0)
+		SELECT CASE
+			WHEN c.name IN ('Cash on hand', 'Petty Cash', 'Cash') THEN 'Cash'
+			WHEN c.name = 'Momo' THEN 'Momo'
+			ELSE 'Bank'
+		END AS balance_group,
+		COALESCE(SUM(posting.amount), 0)
 		FROM categories c
-		LEFT JOIN transactions t
-			ON t.category_id = c.id
-			AND t.type = 'asset'
-			AND t.date >= ?
-			AND t.date < ?
-		WHERE c.type = 'asset' AND c.name IN ('Bank', 'Cash', 'Momo')
-		GROUP BY c.id, c.name
-		ORDER BY c.id
-	`, yearStart, balanceCutoff)
+		LEFT JOIN financial_postings posting
+			ON posting.category_id = c.id
+			AND posting.account_type = 'asset'
+			AND posting.date < ?
+		WHERE c.type = 'asset' AND c.note_ref = '26'
+		GROUP BY balance_group
+		ORDER BY balance_group
+	`, balanceCutoff)
 	if err != nil {
 		return DashboardData{}, fmt.Errorf("query account balances: %w", err)
 	}
 	defer rows.Close()
 
-	// Map the query results to the correct balance field by matching on the category name.
-	// Each balance is the sum of the opening balance plus all in-year asset transactions
-	// for that account up to and including today.
+	// Map the workbook's detailed Note 26 accounts into the three compact dashboard cards.
+	// The underlying statements retain every individual account; this grouping is presentation
+	// only and never creates another saved balance.
 	for rows.Next() {
 		var name string
 		var amount float64
@@ -203,11 +202,11 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 		}
 		switch name {
 		case "Bank":
-			data.BankBalance = balances["bank"] + amount
+			data.BankBalance = amount
 		case "Cash":
-			data.CashBalance = balances["cash"] + amount
+			data.CashBalance = amount
 		case "Momo":
-			data.MomoBalance = balances["momo"] + amount
+			data.MomoBalance = amount
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -352,10 +351,10 @@ func loadIncomeExpenseTotals(startDate, endDate string, incomeTarget, expenseTar
 	// I aggregate income and expenditure together in one grouped query so the database does the
 	// range math and the caller only handles the two totals it actually needs.
 	rows, err := db.DB.Query(`
-		SELECT type, COALESCE(SUM(amount), 0)
-		FROM transactions
-		WHERE date >= ? AND date < ? AND type IN ('income', 'expenditure')
-		GROUP BY type
+		SELECT account_type, COALESCE(SUM(amount), 0)
+		FROM financial_postings
+		WHERE date >= ? AND date < ? AND account_type IN ('income', 'expenditure')
+		GROUP BY account_type
 	`, startDate, endDate)
 	if err != nil {
 		return err

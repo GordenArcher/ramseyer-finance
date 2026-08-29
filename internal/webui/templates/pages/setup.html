@@ -1,7 +1,7 @@
 {{template "layout" .}} {{define "content"}}
 <div class="page-header reveal">
     <h2>Setup</h2>
-    <p class="period">Budget configuration, dashboard settings, opening balances, and access control</p>
+    <p class="period">Budget configuration, dashboard settings, backups, and access control</p>
 </div>
 
 {{if .Message}}
@@ -41,11 +41,11 @@
 </div>
 
 <div class="card reveal">
-    <h3>Opening Accumulated Fund</h3>
+    <h3>Financial Figures</h3>
     <p class="section-copy">
-        This is financial data, so it now belongs in the selected year's Trial Balance instead of Setup. Enter the balance brought forward under <strong>Opening funds and equity</strong>; the app adds the year's surplus or deficit automatically.
+        Setup no longer accepts financial balances. Record every dated figure through Transaction Entry; the Trial Balance and statements calculate from those records.
     </p>
-    <a href="/trial-balance" class="btn btn-secondary" data-nav-loading>Open Trial Balance</a>
+    <a href="/data-entry" class="btn btn-secondary" data-nav-loading>Open Transaction Entry</a>
 </div>
 
 <div class="card reveal">
@@ -172,132 +172,6 @@
     </table>
 </div>
 
-<div class="card reveal">
-    <h3>Fixed-Asset Opening Schedule</h3>
-    <p class="section-copy">Enter opening cost and opening accumulated depreciation separately for Note 21. Current additions and the standard depreciation charge are then calculated by the app.</p>
-    <form method="POST" action="/api/fixed-asset-opening/save" data-loading-form>
-        <div class="form-group">
-            <label>Year</label>
-            <select name="year" required>{{range .Years}}<option value="{{.}}">{{.}}</option>{{end}}</select>
-        </div>
-        <div class="form-group">
-            <label>Asset Class</label>
-            <select name="category_id" required>
-                <option value="">Select asset class</option>
-                {{range .FixedAssetOptions}}<option value="{{.ID}}">{{.Label}}</option>{{end}}
-            </select>
-        </div>
-        <div class="form-group"><label>Opening Cost (GH¢)</label><input type="number" step="0.01" min="0" name="opening_cost" required /></div>
-        <div class="form-group"><label>Opening Accumulated Depreciation (GH¢)</label><input type="number" step="0.01" min="0" name="opening_accumulated_depreciation" required /></div>
-        <button type="submit" class="btn btn-primary">Save Fixed-Asset Opening</button>
-    </form>
-</div>
-
-<div class="card table-card reveal" data-table-stage>
-    <h3>Saved Fixed-Asset Openings</h3>
-    <table class="data-table">
-        <thead><tr><th>Year</th><th>Asset Class</th><th class="text-right">Opening Cost</th><th class="text-right">Opening Depreciation</th></tr></thead>
-        <tbody>
-        {{range .FixedAssetOpenings}}<tr><td>{{.Year}}</td><td>{{.AccountLabel}}</td><td class="text-right">{{formatMoney .OpeningCost}}</td><td class="text-right">{{formatMoney .OpeningAccumulatedDep}}</td></tr>{{end}}
-        {{if not .FixedAssetOpenings}}<tr><td colspan="4" class="text-center">No fixed-asset openings saved yet</td></tr>{{end}}
-        </tbody>
-    </table>
-</div>
-
-<div class="card reveal">
-    <h3>Balance-Sheet Account Openings</h3>
-    <p class="section-copy">Set the brought-forward balance for any asset or liability account. Current-year signed movements are added to this amount.</p>
-    <form method="POST" action="/api/account-opening-balance/save" data-loading-form>
-        <div class="form-group">
-            <label>Year</label>
-            <select name="year" required>{{range .Years}}<option value="{{.}}">{{.}}</option>{{end}}</select>
-        </div>
-        <div class="form-group">
-            <label>Account</label>
-            <select name="category_id" required>
-                <option value="">Select account</option>
-                {{range .BalanceAccounts}}
-                <option value="{{.ID}}">{{if eq .Type "asset"}}Asset{{else}}Liability{{end}}: {{.Label}}</option>
-                {{end}}
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Opening Balance (GH¢)</label>
-            <input type="number" step="0.01" min="0" name="amount" required />
-        </div>
-        <button type="submit" class="btn btn-primary">Save Account Opening</button>
-    </form>
-</div>
-
-<div class="card table-card reveal" data-table-stage>
-    <h3>Saved Account Openings</h3>
-    <table class="data-table">
-        <thead><tr><th>Year</th><th>Type</th><th>Account</th><th class="text-right">Amount (GH¢)</th></tr></thead>
-        <tbody>
-        {{range .AccountOpenings}}
-        <tr><td>{{.Year}}</td><td>{{.CategoryType}}</td><td>{{.AccountLabel}}</td><td class="text-right">{{formatMoney .Amount}}</td></tr>
-        {{end}}
-        {{if not .AccountOpenings}}<tr><td colspan="4" class="text-center">No account opening balances saved yet</td></tr>{{end}}
-        </tbody>
-    </table>
-</div>
-
-<div class="card reveal">
-    <h3>Opening Balances</h3>
-    <p class="section-copy">Legacy Bank, Cash, and Momo openings are retained for existing installations. New workbook accounts should use Balance-Sheet Account Openings above.</p>
-    <form method="POST" action="/api/opening-balance/save" data-loading-form>
-        <div class="form-group">
-            <label>Year</label>
-            <select name="year" required>
-                {{range .Years}}
-                <option value="{{.}}">{{.}}</option>
-                {{end}}
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Account</label>
-            <select name="account_type" required>
-                <option value="bank">Bank</option>
-                <option value="cash">Cash</option>
-                <option value="momo">Momo</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Amount (GHC)</label>
-            <input type="number" step="0.01" name="amount" required />
-        </div>
-        <button type="submit" class="btn btn-primary">
-            Save Opening Balance
-        </button>
-    </form>
-</div>
-
-<div class="card table-card reveal" data-table-stage>
-    <h3>Saved Opening Balances</h3>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Year</th>
-                <th>Account</th>
-                <th class="text-right">Amount (GHC)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .OpeningBalances}}
-            <tr>
-                <td>{{.Year}}</td>
-                <td>{{.AccountLabel}}</td>
-                <td class="text-right">{{formatMoney .Amount}}</td>
-            </tr>
-            {{end}}
-            {{if not .OpeningBalances}}
-            <tr>
-                <td colspan="3" class="text-center">No opening balances saved yet</td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
-</div>
 </div>
 
 <div class="modal-shell" id="update-modal" aria-hidden="true">

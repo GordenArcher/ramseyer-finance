@@ -6,9 +6,9 @@ import (
 	"ramseyer-finance/internal/db"
 )
 
-// CashFlowData is the workbook-aligned indirect cash-flow statement. Each subtotal is
-// retained separately so the template can show the operating, investing, and financing
-// sections and finish with an explicit reconciliation to Note 26 cash balances.
+// CashFlowData is the transaction-derived indirect cash-flow statement. Each subtotal is
+// retained separately so the template can show the familiar operating, investing, and
+// financing sections and finish with an explicit reconciliation to Note 26 cash balances.
 type CashFlowData struct {
 	Active                   string
 	Year                     string
@@ -48,18 +48,12 @@ func CashFlowStatement(w http.ResponseWriter, r *http.Request) {
 	RenderTemplate(w, "cash-flow", data)
 }
 
-// buildCashFlowData follows the workbook's indirect method. Working-capital movements use
+// buildCashFlowData follows the accounting indirect method using calculated postings. Working-capital movements use
 // opening minus closing for assets and closing minus opening for liabilities, so an asset
 // increase consumes cash while a liability increase releases cash. The final difference is
 // deliberately not forced to zero: it is the control that reveals missing cash-account or
 // balance-sheet movements.
 func buildCashFlowData(year int) (CashFlowData, error) {
-	if err := ensureTrialBalanceYear(year); err != nil {
-		return CashFlowData{}, err
-	}
-	if err := ensureTrialBalanceYear(year - 1); err != nil {
-		return CashFlowData{}, err
-	}
 	years, err := reportYears(year)
 	if err != nil {
 		return CashFlowData{}, err
@@ -268,64 +262,39 @@ func buildLegacyCashFlowData(year int) (CashFlowData, error) {
 }
 
 func loadTrialBalanceTypeTotal(year int, accountType string) (float64, error) {
-	rows, err := db.DB.Query("SELECT debit, credit FROM trial_balance_entries WHERE year = ? AND account_type = ?", year, accountType)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
+	startDate, endDate := yearBounds(year)
 	var total float64
-	for rows.Next() {
-		var debit, credit float64
-		if err := rows.Scan(&debit, &credit); err != nil {
-			return 0, err
-		}
-		total += trialBalanceAmount(accountType, debit, credit)
-	}
-	return total, rows.Err()
+	err := db.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)
+		FROM financial_postings
+		WHERE account_type = ? AND date >= ? AND date < ?
+	`, accountType, startDate, endDate).Scan(&total)
+	return total, err
 }
 
 func loadTrialBalanceNoteTotal(year int, accountType, noteRef string) (float64, error) {
-	rows, err := db.DB.Query("SELECT debit, credit FROM trial_balance_entries WHERE year = ? AND account_type = ? AND note_ref = ?", year, accountType, noteRef)
-	if err != nil {
-		return 0, err
+	startDate, endDate := yearBounds(year)
+	dateClause := "posting.date < ?"
+	args := []any{accountType, noteRef, endDate}
+	if accountType == "income" || accountType == "expenditure" {
+		dateClause = "posting.date >= ? AND posting.date < ?"
+		args = []any{accountType, noteRef, startDate, endDate}
 	}
-	defer rows.Close()
 	var total float64
-	for rows.Next() {
-		var debit, credit float64
-		if err := rows.Scan(&debit, &credit); err != nil {
-			return 0, err
-		}
-		total += trialBalanceAmount(accountType, debit, credit)
-	}
-	return total, rows.Err()
+	err := db.DB.QueryRow(`
+		SELECT COALESCE(SUM(posting.amount), 0)
+		FROM financial_postings posting
+		JOIN categories category ON category.id = posting.category_id
+		WHERE posting.account_type = ? AND category.note_ref = ? AND `+dateClause,
+		args...,
+	).Scan(&total)
+	return total, err
 }
 
 // loadTrialBalanceOpeningNoteTotal honours an explicitly configured opening for the
 // selected year, which preserves first-year and upgraded books that have no prior TB. When
 // no opening was entered, the prior year's saved closing note becomes the opening balance.
 func loadTrialBalanceOpeningNoteTotal(year int, accountType, noteRef string) (float64, error) {
-	var amount float64
-	var count int
-	if err := db.DB.QueryRow(`
-		SELECT COALESCE(SUM(opening.amount), 0), COUNT(*)
-		FROM account_opening_balances opening
-		JOIN categories c ON c.id = opening.category_id
-		WHERE opening.year = ? AND c.type = ? AND c.note_ref = ?
-	`, year, accountType, noteRef).Scan(&amount, &count); err != nil {
-		return 0, err
-	}
-	if count > 0 {
-		return amount, nil
-	}
-	if accountType == "asset" && noteRef == "26" {
-		if err := db.DB.QueryRow("SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM opening_balances WHERE year = ?", year).Scan(&amount, &count); err != nil {
-			return 0, err
-		}
-		if count > 0 {
-			return amount, nil
-		}
-	}
 	return loadTrialBalanceNoteTotal(year-1, accountType, noteRef)
 }
 

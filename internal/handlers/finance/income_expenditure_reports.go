@@ -388,33 +388,6 @@ func buildAnnualData(year int) (AnnualData, error) {
 	if err != nil {
 		return AnnualData{}, fmt.Errorf("load annual expenditure lines: %w", err)
 	}
-	assetSchedule, err := buildFixedAssetData(year)
-	if err != nil {
-		return AnnualData{}, fmt.Errorf("build current fixed-asset schedule: %w", err)
-	}
-	priorAssetSchedule, err := buildFixedAssetData(year - 1)
-	if err != nil {
-		return AnnualData{}, fmt.Errorf("build prior fixed-asset schedule: %w", err)
-	}
-	for index := range data.ExpenseLines {
-		if data.ExpenseLines[index].Name != "Depreciation & Amortization Expenses" {
-			continue
-		}
-		// Explicit expense postings remain authoritative when present. Otherwise the app
-		// supplies the charge calculated by Note 21 so the performance statement and asset
-		// schedule cannot silently omit depreciation.
-		if data.ExpenseLines[index].Amount == 0 {
-			data.ExpenseLines[index].Amount = assetSchedule.TotalCharge
-			data.TotalExpense += assetSchedule.TotalCharge
-		}
-		if data.ExpenseLines[index].PriorAmount == 0 {
-			data.ExpenseLines[index].PriorAmount = priorAssetSchedule.TotalCharge
-			data.TotalPriorExpense += priorAssetSchedule.TotalCharge
-		}
-		data.ExpenseLines[index].Variance = data.ExpenseLines[index].Amount - data.ExpenseLines[index].Budget
-		break
-	}
-
 	// The PCG statement presents harvest proceeds net of harvest expenses. I keep the
 	// underlying postings in their natural income and expenditure types for monthly and
 	// operational reporting, then perform the presentation reclassification here. Removing
@@ -464,12 +437,13 @@ func buildAnnualData(year int) (AnnualData, error) {
 
 	data.Surplus = data.TotalIncome - data.TotalExpense
 	data.PriorSurplus = data.TotalPriorIncome - data.TotalPriorExpense
-	// Equity/fund rows now live in the same year-owned TB as the income and expenditure
-	// figures. Reading them here prevents Setup values from becoming a second competing
-	// source after the year has been initialized.
-	data.OpeningFund, err = loadTrialBalanceTypeTotal(year, "equity")
-	if err != nil {
-		return AnnualData{}, fmt.Errorf("load accumulated fund from Trial Balance: %w", err)
+	// The opening fund is the calculated prior net-asset position already included in the
+	// read-only Trial Balance. Reading that derived line keeps the roll-forward tied to dated
+	// entries without reintroducing an editable fund table.
+	for _, line := range trialBalance.Lines {
+		if line.AccountType == "equity" {
+			data.OpeningFund += line.Amount
+		}
 	}
 	data.FundConfigured = data.OpeningFund != 0
 	data.AdjustedFund = data.OpeningFund
@@ -530,10 +504,10 @@ func loadMonthlyTotals(year int) (map[int]amountTotals, error) {
 	// index. The caller gets a month-number map that can be reshaped however it wants.
 	startDate, endDate := yearBounds(year)
 	rows, err := db.DB.Query(`
-		SELECT CAST(strftime('%m', date) AS INTEGER) AS month_number, type, COALESCE(SUM(amount), 0)
-		FROM transactions
-		WHERE date >= ? AND date < ? AND type IN ('income', 'expenditure')
-		GROUP BY month_number, type
+		SELECT CAST(strftime('%m', date) AS INTEGER) AS month_number, account_type, COALESCE(SUM(amount), 0)
+		FROM financial_postings
+		WHERE date >= ? AND date < ? AND account_type IN ('income', 'expenditure')
+		GROUP BY month_number, account_type
 	`, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -579,40 +553,34 @@ func loadMonthlyTotals(year int) (map[int]amountTotals, error) {
 // returns the ordered line items, the total of all current-year amounts, and the total of
 // all prior-year amounts.
 func loadAnnualLines(year int, categoryType string) ([]LineRow, float64, float64, error) {
-	if err := ensureTrialBalanceYear(year); err != nil {
-		return nil, 0, 0, err
-	}
-	if err := ensureTrialBalanceYear(year - 1); err != nil {
-		return nil, 0, 0, err
-	}
-
-	// The annual statement groups TB rows by note because the workbook's statement lines
-	// point to note totals, not directly to transaction categories. Note 5's harvest expense
-	// is the one cross-type exception and reduces income exactly as it does in the workbook.
+	// The statement groups calculated postings by the workbook's note organization. Note 5's
+	// harvest expense remains the one cross-type exception and reduces harvest income.
 	type totals struct{ current, prior, budget float64 }
 	byNote := map[string]totals{}
 	for _, period := range []struct {
 		year    int
 		current bool
 	}{{year, true}, {year - 1, false}} {
+		startDate, endDate := yearBounds(period.year)
 		rows, err := db.DB.Query(`
-			SELECT account_type, note_ref, debit, credit
-			FROM trial_balance_entries
-			WHERE year = ? AND note_ref <> ''
-				AND ((? = 'income' AND (account_type = 'income' OR (account_type = 'expenditure' AND note_ref = '5')))
-					OR (? = 'expenditure' AND account_type = 'expenditure' AND note_ref <> '5'))
-		`, period.year, categoryType, categoryType)
+			SELECT posting.account_type, category.note_ref, COALESCE(SUM(posting.amount), 0)
+			FROM financial_postings posting
+			JOIN categories category ON category.id = posting.category_id
+			WHERE posting.date >= ? AND posting.date < ? AND category.note_ref <> ''
+				AND ((? = 'income' AND (posting.account_type = 'income' OR (posting.account_type = 'expenditure' AND category.note_ref = '5')))
+					OR (? = 'expenditure' AND posting.account_type = 'expenditure' AND category.note_ref <> '5'))
+			GROUP BY posting.account_type, category.note_ref
+		`, startDate, endDate, categoryType, categoryType)
 		if err != nil {
 			return nil, 0, 0, err
 		}
 		for rows.Next() {
 			var accountType, note string
-			var debit, credit float64
-			if err := rows.Scan(&accountType, &note, &debit, &credit); err != nil {
+			var amount float64
+			if err := rows.Scan(&accountType, &note, &amount); err != nil {
 				rows.Close()
 				return nil, 0, 0, err
 			}
-			amount := trialBalanceAmount(accountType, debit, credit)
 			if categoryType == "income" && accountType == "expenditure" {
 				amount = -amount
 			}

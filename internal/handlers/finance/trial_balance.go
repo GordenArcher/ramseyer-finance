@@ -2,17 +2,14 @@ package finance
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"ramseyer-finance/internal/db"
 	"strconv"
-	"strings"
 )
 
-// TrialBalanceLine is one year-owned account balance. AccountType determines how the
-// debit/credit is presented in Notes and the statements; it is deliberately stored on the
-// line instead of inferred from a global category because a later year's workbook may use
-// a different account list or mapping.
+// TrialBalanceLine is one calculated account balance for the selected year. Debit and Credit
+// are presentation values derived from Amount and the category's normal side; none of these
+// values are persisted by the Trial Balance page.
 type TrialBalanceLine struct {
 	ID          int64
 	AccountType string
@@ -25,9 +22,9 @@ type TrialBalanceLine struct {
 	IsCustom    bool
 }
 
-// TrialBalanceGroup is the digital equivalent of a workbook note section. The operator
-// sees the accounting destination once above a group instead of choosing the same type and
-// note on every row, which both clarifies the flow and keeps the large entry page responsive.
+// TrialBalanceGroup follows the workbook's note organization while remaining a calculated
+// software view. Grouping is metadata only: saved amounts still belong exclusively to dated
+// transaction entries.
 type TrialBalanceGroup struct {
 	Key         string
 	AccountType string
@@ -38,16 +35,15 @@ type TrialBalanceGroup struct {
 }
 
 type TrialBalanceData struct {
-	Active      string
-	Year        string
-	Years       []int
-	Lines       []TrialBalanceLine
-	Groups      []TrialBalanceGroup
-	TotalDebit  float64
-	TotalCredit float64
-	Difference  float64
-	Saved       bool
-	Added       bool
+	Active        string
+	Year          string
+	Years         []int
+	Lines         []TrialBalanceLine
+	Groups        []TrialBalanceGroup
+	TotalDebit    float64
+	TotalCredit   float64
+	Difference    float64
+	UnpairedCount int
 }
 
 func TrialBalance(w http.ResponseWriter, r *http.Request) {
@@ -61,244 +57,123 @@ func TrialBalance(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	data.Saved = r.URL.Query().Get("saved") == "1"
-	data.Added = r.URL.Query().Get("added") == "1"
 	RenderTemplate(w, "trial-balance", data)
 }
 
-// SaveTrialBalance stores one signed, natural balance for every visible account. Assets and
-// expenditure normally post to debit while income, liabilities, and funds normally post to
-// credit; a negative value intentionally creates a contra balance. Keeping that accounting
-// rule on the server lets the entry page match the workbook's single-amount workflow without
-// weakening the debit/credit controls used by reports and balancing checks.
-func SaveTrialBalance(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		badRequest(w, "Invalid Trial Balance form")
-		return
-	}
-	year, err := parseReportYear(r.FormValue("year"))
-	if err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	if err := ensureTrialBalanceYear(year); err != nil {
-		serverError(w, err)
-		return
-	}
-
-	tx, err := db.DB.Begin()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback()
-	accountTypes := make(map[int64]string)
-	rows, err := tx.Query("SELECT id, account_type FROM trial_balance_entries WHERE year = ?", year)
-	if err != nil {
-		serverError(w, fmt.Errorf("load Trial Balance row types: %w", err))
-		return
-	}
-	for rows.Next() {
-		var id int64
-		var accountType string
-		if err := rows.Scan(&id, &accountType); err != nil {
-			rows.Close()
-			serverError(w, fmt.Errorf("scan Trial Balance row type: %w", err))
-			return
-		}
-		accountTypes[id] = accountType
-	}
-	if err := rows.Close(); err != nil {
-		serverError(w, fmt.Errorf("close Trial Balance row types: %w", err))
-		return
-	}
-	for _, rawID := range r.Form["entry_id"] {
-		id, err := strconv.ParseInt(rawID, 10, 64)
-		if err != nil || id <= 0 {
-			badRequest(w, "Invalid Trial Balance row")
-			return
-		}
-		accountType, exists := accountTypes[id]
-		if !exists || !validTrialBalanceType(accountType) {
-			badRequest(w, "A Trial Balance row no longer exists for this year")
-			return
-		}
-		amount, amountErr := parseSignedMoney(r.FormValue(fmt.Sprintf("amount_%d", id)))
-		if amountErr != nil {
-			badRequest(w, "Every Trial Balance amount must be a valid number")
-			return
-		}
-		line := TrialBalanceLine{AccountType: accountType}
-		assignNaturalBalance(&line, amount)
-		result, err := tx.Exec(`
-			UPDATE trial_balance_entries
-			SET debit = ?, credit = ?, updated_at = datetime('now','localtime')
-			WHERE id = ? AND year = ?
-		`, line.Debit, line.Credit, id, year)
-		if err != nil {
-			serverError(w, fmt.Errorf("save Trial Balance row: %w", err))
-			return
-		}
-		if affected, _ := result.RowsAffected(); affected != 1 {
-			badRequest(w, "A Trial Balance row no longer exists for this year")
-			return
-		}
-	}
-	if _, err := tx.Exec("UPDATE trial_balance_years SET updated_at = datetime('now','localtime') WHERE year = ?", year); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		serverError(w, err)
-		return
-	}
-	http.Redirect(w, r, fmt.Sprintf("/trial-balance?year=%d&saved=1", year), http.StatusSeeOther)
-}
-
-// AddTrialBalanceLine creates a row only inside the selected year. This is the mechanism
-// that lets 2027 diverge from 2026 without altering the chart or historical statements.
-func AddTrialBalanceLine(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	year, err := parseReportYear(r.FormValue("year"))
-	if err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	accountType := strings.TrimSpace(r.FormValue("account_type"))
-	accountName := strings.TrimSpace(r.FormValue("account_name"))
-	noteRef := strings.TrimSpace(r.FormValue("note_ref"))
-	if !validTrialBalanceType(accountType) || accountName == "" || !validTrialBalanceNote(noteRef) {
-		badRequest(w, "Choose a valid type and note, then enter an account name")
-		return
-	}
-	if err := ensureTrialBalanceYear(year); err != nil {
-		serverError(w, err)
-		return
-	}
-	var nextSort int
-	if err := db.DB.QueryRow("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM trial_balance_entries WHERE year = ?", year).Scan(&nextSort); err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err := db.DB.Exec(`
-		INSERT INTO trial_balance_entries (year, account_type, note_ref, account_name, sort_order)
-		VALUES (?, ?, ?, ?, ?)
-	`, year, accountType, noteRef, accountName, nextSort); err != nil {
-		serverError(w, fmt.Errorf("add Trial Balance row: %w", err))
-		return
-	}
-	http.Redirect(w, r, fmt.Sprintf("/trial-balance?year=%d&added=1", year), http.StatusSeeOther)
-}
-
-func DeleteTrialBalanceLine(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	year, err := parseReportYear(r.FormValue("year"))
-	if err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
-	if err != nil || id <= 0 {
-		badRequest(w, "Invalid Trial Balance row")
-		return
-	}
-	if _, err := db.DB.Exec("DELETE FROM trial_balance_entries WHERE id = ? AND year = ?", id, year); err != nil {
-		serverError(w, err)
-		return
-	}
-	http.Redirect(w, r, fmt.Sprintf("/trial-balance?year=%d", year), http.StatusSeeOther)
-}
-
-// buildTrialBalanceData reads the selected year's saved rows after the synchronization layer
-// has applied any supporting transaction activity. Direct amounts remain editable here, while
-// later transaction mutations adjust only their mapped account and year.
+// buildTrialBalanceData calculates the selected year's quick-lookup balances directly from
+// dated financial postings. Income and expenditure reset on 1 January, while assets and
+// liabilities remain cumulative positions through year end. The opening accumulated fund is
+// derived from the prior asset/liability position, so it is never another editable source.
 func buildTrialBalanceData(year int) (TrialBalanceData, error) {
-	if err := ensureTrialBalanceYear(year); err != nil {
-		return TrialBalanceData{}, err
-	}
 	years, err := reportYears(year)
 	if err != nil {
 		return TrialBalanceData{}, err
 	}
 	data := TrialBalanceData{Active: "trial-balance", Year: strconv.Itoa(year), Years: years}
+	startDate, endDate := yearBounds(year)
 	rows, err := db.DB.Query(`
-		SELECT id, account_type, note_ref, account_name, debit, credit,
-			CASE WHEN source_category_id IS NULL
-				AND NOT (account_type = 'equity' AND account_name = 'Opening Accumulated Fund')
-			THEN 1 ELSE 0 END
-		FROM trial_balance_entries
-		WHERE year = ?
-		ORDER BY CAST(NULLIF(note_ref, '') AS INTEGER),
-			CASE account_type WHEN 'income' THEN 0 WHEN 'expenditure' THEN 1 WHEN 'asset' THEN 2 WHEN 'liability' THEN 3 ELSE 4 END,
-			sort_order, id
-	`, year)
+		SELECT c.id, c.type, c.note_ref, c.name,
+			COALESCE(SUM(CASE
+				WHEN c.type IN ('income', 'expenditure') AND posting.date >= ? AND posting.date < ? THEN posting.amount
+				WHEN c.type IN ('asset', 'liability') AND posting.date < ? THEN posting.amount
+				ELSE 0
+			END), 0)
+		FROM categories c
+		LEFT JOIN financial_postings posting ON posting.category_id = c.id
+		WHERE COALESCE(c.is_active, 1) = 1
+		GROUP BY c.id, c.type, c.note_ref, c.name, c.parent_id
+		ORDER BY CAST(NULLIF(c.note_ref, '') AS INTEGER),
+			CASE c.type WHEN 'income' THEN 0 WHEN 'expenditure' THEN 1 WHEN 'asset' THEN 2 ELSE 3 END,
+			CASE WHEN c.parent_id = 0 THEN c.id ELSE c.parent_id END, c.parent_id, c.id
+	`, startDate, endDate, endDate)
 	if err != nil {
-		return TrialBalanceData{}, fmt.Errorf("query Trial Balance rows: %w", err)
+		return TrialBalanceData{}, fmt.Errorf("query calculated Trial Balance rows: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var line TrialBalanceLine
-		if err := rows.Scan(&line.ID, &line.AccountType, &line.Note, &line.Account, &line.Debit, &line.Credit, &line.IsCustom); err != nil {
-			return TrialBalanceData{}, fmt.Errorf("scan Trial Balance row: %w", err)
+		if err := rows.Scan(&line.ID, &line.AccountType, &line.Note, &line.Account, &line.Amount); err != nil {
+			return TrialBalanceData{}, fmt.Errorf("scan calculated Trial Balance row: %w", err)
 		}
-		line.Amount = trialBalanceAmount(line.AccountType, line.Debit, line.Credit)
 		line.NormalSide = trialBalanceNormalSide(line.AccountType)
-		data.Lines = append(data.Lines, line)
-		data.TotalDebit += line.Debit
-		data.TotalCredit += line.Credit
-
-		groupKey := line.Note + ":" + line.AccountType
-		if len(data.Groups) == 0 || data.Groups[len(data.Groups)-1].Key != groupKey {
-			data.Groups = append(data.Groups, TrialBalanceGroup{
-				Key:         groupKey,
-				AccountType: line.AccountType,
-				TypeLabel:   trialBalanceTypeLabel(line.AccountType),
-				Note:        line.Note,
-				Title:       trialBalanceGroupTitle(line.Note, line.AccountType),
-			})
-		}
-		lastGroup := &data.Groups[len(data.Groups)-1]
-		lastGroup.Lines = append(lastGroup.Lines, line)
+		assignNaturalBalance(&line, line.Amount)
+		appendTrialBalanceLine(&data, line)
 	}
 	if err := rows.Err(); err != nil {
 		return TrialBalanceData{}, err
+	}
+
+	// Prior-period income and expenditure close into accumulated fund. Because the software
+	// retains the dated entries, the brought-forward amount is the actual net asset position at
+	// 1 January—not another figure the operator can type over in Setup or Trial Balance.
+	var openingAssets, openingLiabilities float64
+	if err := db.DB.QueryRow(`
+		SELECT
+			COALESCE(SUM(CASE WHEN account_type = 'asset' THEN amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN account_type = 'liability' THEN amount ELSE 0 END), 0)
+		FROM financial_postings
+		WHERE date < ?
+	`, startDate).Scan(&openingAssets, &openingLiabilities); err != nil {
+		return TrialBalanceData{}, fmt.Errorf("calculate opening accumulated fund: %w", err)
+	}
+	if openingFund := openingAssets - openingLiabilities; openingFund != 0 {
+		line := TrialBalanceLine{AccountType: "equity", Account: "Opening Accumulated Fund", Amount: openingFund, NormalSide: "Credit"}
+		assignNaturalBalance(&line, openingFund)
+		appendTrialBalanceLine(&data, line)
+	}
+
+	if err := db.DB.QueryRow(`
+		SELECT COUNT(*) FROM transactions
+		WHERE date >= ? AND date < ? AND COALESCE(counter_category_id, 0) = 0
+	`, startDate, endDate).Scan(&data.UnpairedCount); err != nil {
+		return TrialBalanceData{}, fmt.Errorf("count incomplete financial entries: %w", err)
 	}
 	data.Difference = data.TotalDebit - data.TotalCredit
 	return data, nil
 }
 
-func parseNonNegativeMoney(raw string) (float64, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, nil
+// appendTrialBalanceLine keeps totals and grouping in the same append operation. That prevents
+// a future report change from adding a visible row without also including it in the debit/credit
+// control totals used to validate the statement flow.
+func appendTrialBalanceLine(data *TrialBalanceData, line TrialBalanceLine) {
+	data.Lines = append(data.Lines, line)
+	data.TotalDebit += line.Debit
+	data.TotalCredit += line.Credit
+	groupKey := line.Note + ":" + line.AccountType
+	if len(data.Groups) == 0 || data.Groups[len(data.Groups)-1].Key != groupKey {
+		data.Groups = append(data.Groups, TrialBalanceGroup{
+			Key:         groupKey,
+			AccountType: line.AccountType,
+			TypeLabel:   trialBalanceTypeLabel(line.AccountType),
+			Note:        line.Note,
+			Title:       trialBalanceGroupTitle(line.Note, line.AccountType),
+		})
 	}
-	value, err := strconv.ParseFloat(strings.ReplaceAll(raw, ",", ""), 64)
-	if err != nil || value < 0 {
-		return 0, fmt.Errorf("invalid amount")
-	}
-	return value, nil
+	lastGroup := &data.Groups[len(data.Groups)-1]
+	lastGroup.Lines = append(lastGroup.Lines, line)
 }
 
-func parseSignedMoney(raw string) (float64, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, nil
+func assignNaturalBalance(line *TrialBalanceLine, amount float64) {
+	if line.AccountType == "asset" || line.AccountType == "expenditure" {
+		if amount >= 0 {
+			line.Debit = amount
+		} else {
+			line.Credit = -amount
+		}
+		return
 	}
-	value, err := strconv.ParseFloat(strings.ReplaceAll(raw, ",", ""), 64)
-	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
-		return 0, fmt.Errorf("invalid amount")
+	if amount >= 0 {
+		line.Credit = amount
+	} else {
+		line.Debit = -amount
 	}
-	return value, nil
+}
+
+func trialBalanceAmount(accountType string, debit, credit float64) float64 {
+	if accountType == "asset" || accountType == "expenditure" {
+		return debit - credit
+	}
+	return credit - debit
 }
 
 func trialBalanceNormalSide(accountType string) string {
@@ -335,19 +210,9 @@ func trialBalanceGroupTitle(noteRef, accountType string) string {
 	return "Direct accounts"
 }
 
-func validTrialBalanceType(value string) bool {
-	switch value {
-	case "income", "expenditure", "asset", "liability", "equity":
-		return true
-	default:
-		return false
+func absFloat(value float64) float64 {
+	if value < 0 {
+		return -value
 	}
-}
-
-func validTrialBalanceNote(value string) bool {
-	if value == "" {
-		return true
-	}
-	note, err := strconv.Atoi(value)
-	return err == nil && note >= 3 && note <= 28
+	return value
 }

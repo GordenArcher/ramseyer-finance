@@ -7,13 +7,15 @@ CREATE TABLE IF NOT EXISTS transactions (
     type TEXT NOT NULL CHECK(type IN ('income','expenditure','asset','liability')),
     category TEXT NOT NULL,
     category_id INTEGER,
+    counter_category_id INTEGER,
     subcategory TEXT DEFAULT '',
     description TEXT DEFAULT '',
     amount REAL NOT NULL,
     note_ref TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime')),
-    FOREIGN KEY (category_id) REFERENCES categories(id)
+    FOREIGN KEY (category_id) REFERENCES categories(id),
+    FOREIGN KEY (counter_category_id) REFERENCES categories(id)
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -128,6 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
 CREATE INDEX IF NOT EXISTS idx_transactions_type_date ON transactions(type, date);
 CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(category_id, date);
+CREATE INDEX IF NOT EXISTS idx_transactions_counter_category_id_date ON transactions(counter_category_id, date);
 CREATE INDEX IF NOT EXISTS idx_dashboard_greetings_active_sort ON dashboard_greetings(is_active, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_transaction_audit_log_transaction_id ON transaction_audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_backup_events_created_at ON backup_events(created_at);
