@@ -189,8 +189,8 @@ func buildTrialBalanceNotesData(year int) (NotesData, error) {
 	return data, nil
 }
 
-// buildLegacyNotesData remains as the migration reference used to verify upgraded books.
-// New reports do not call it; the one-time TB initializer is now the only transaction bridge.
+// buildLegacyNotesData remains as the migration reference used to verify older report math.
+// New reports do not call it; they read the synchronized year-owned Trial Balance instead.
 func buildLegacyNotesData(year int) (NotesData, error) {
 	// I build notes from category mappings instead of hard-coded rows so the note structure stays
 	// tied to the same category tree the user is actually posting into.

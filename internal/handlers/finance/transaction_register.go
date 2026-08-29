@@ -249,8 +249,8 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transactionDate := strings.TrimSpace(r.FormValue("date"))
-	if _, err := parseTransactionDate(transactionDate); err != nil {
+	transactionDate, err := parseTransactionDate(r.FormValue("date"))
+	if err != nil {
 		badRequest(w, "Invalid transaction date")
 		return
 	}
@@ -287,14 +287,41 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), err.Error())
 		return
 	}
+	existing, err := lookupExistingTransaction(transactionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction not found")
+			return
+		}
+		serverError(w, err)
+		return
+	}
+	oldYear := transactionYear(existing.Date)
+	newYear := transactionYear(transactionDate)
+	if err := ensureTrialBalanceYear(oldYear); err != nil {
+		serverError(w, err)
+		return
+	}
+	if newYear != oldYear {
+		if err := ensureTrialBalanceYear(newYear); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 
 	// Update both the foreign key (category_id) and the denormalised columns (category,
 	// note_ref) in one statement. Keeping the denormalised columns in sync avoids JOINs
 	// on every read query while the category_id maintains referential integrity and
 	// enables the backfill/sync maintenance operations.
-	result, err := db.DB.Exec(`
+	tx, err := db.DB.Begin()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`
 		UPDATE transactions
-		SET date = ?, type = ?, category = ?, category_id = ?, note_ref = ?, description = ?, amount = ?
+		SET date = ?, type = ?, category = ?, category_id = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
 		WHERE id = ?
 	`, transactionDate, transactionType, categoryMeta.Name, categoryID, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
 	if err != nil {
@@ -311,9 +338,17 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction not found")
 		return
 	}
-	// I update `updated_at` separately after the write so audit-oriented views can sort by change
-	// time without conflating it with the original creation timestamp.
-	if err := updateTransactionTimestamp(transactionID); err != nil {
+	if existing.CategoryID > 0 {
+		if err := applyTransactionTrialBalanceDelta(tx, oldYear, existing.Type, existing.CategoryID, -existing.Amount); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	if err := applyTransactionTrialBalanceDelta(tx, newYear, transactionType, categoryID, amount); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -323,7 +358,7 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		_ = recordTransactionAudit("updated", snapshot)
 	}
 
-	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction updated")
+	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction and Trial Balance updated")
 }
 
 // DeleteTransaction handles POST requests to delete a transaction. It loads the full
@@ -362,13 +397,34 @@ func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := db.DB.Exec(`DELETE FROM transactions WHERE id = ?`, transactionID); err != nil {
+	year := transactionYear(snapshot.Date)
+	if err := ensureTrialBalanceYear(year); err != nil {
+		serverError(w, err)
+		return
+	}
+	tx, err := db.DB.Begin()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM transactions WHERE id = ?`, transactionID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if snapshot.CategoryID > 0 {
+		if err := applyTransactionTrialBalanceDelta(tx, year, snapshot.Type, snapshot.CategoryID, -snapshot.Amount); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
 	_ = recordTransactionAudit("deleted", snapshot)
 
-	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction deleted")
+	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Transaction deleted and Trial Balance updated")
 }
 
 // loadTransactionRows queries the transactions table with the given filters and pagination
@@ -595,6 +651,11 @@ func parseTransactionDate(raw string) (string, error) {
 		return "", err
 	}
 	return value, nil
+}
+
+func transactionYear(validDate string) int {
+	parsed, _ := time.Parse("2006-01-02", validDate)
+	return parsed.Year()
 }
 
 // parsePageNumber converts a raw query parameter string into a positive page number.

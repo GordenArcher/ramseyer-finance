@@ -170,21 +170,6 @@ func loadRecentTransactionAuditEntries(limit int) ([]TransactionAuditEntry, erro
 	return entries, nil
 }
 
-// updateTransactionTimestamp sets the updated_at column of a transaction to the current
-// local time. This is called after every successful transaction update so that views and
-// reports that sort by modification time reflect the most recent change. The timestamp is
-// kept separate from the audit log—the audit log records who changed what and when with
-// a full snapshot, while updated_at provides a simple, indexed column for cheap sorting
-// and filtering without needing to inspect the audit table.
-func updateTransactionTimestamp(transactionID int64) error {
-	// I keep `updated_at` separate from the audit log so ordinary sorted views can use one cheap
-	// column without having to inspect the audit table.
-	if _, err := db.DB.Exec(`UPDATE transactions SET updated_at = datetime('now','localtime') WHERE id = ?`, transactionID); err != nil {
-		return fmt.Errorf("update transaction timestamp: %w", err)
-	}
-	return nil
-}
-
 // lookupExistingTransaction retrieves a transaction snapshot and distinguishes between a
 // genuine database error and the case where the transaction simply does not exist. It is
 // used by the update and delete flows, both of which need to load the current row state

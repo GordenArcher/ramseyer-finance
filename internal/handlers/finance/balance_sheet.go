@@ -245,7 +245,8 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 }
 
 // buildLegacyBalanceData is retained for migration verification only. New statement pages
-// use buildTrialBalancePositionData so transaction edits cannot rewrite a saved year.
+// use buildTrialBalancePositionData so every transaction and direct adjustment reaches the
+// same saved year-owned source.
 func buildLegacyBalanceData(year int) (BalanceData, error) {
 	// I build current and prior snapshots through the same helper so the comparative columns are
 	// produced by identical rules instead of two drifting implementations.

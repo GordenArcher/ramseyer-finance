@@ -41,54 +41,11 @@
 </div>
 
 <div class="card reveal">
-    <h3>Accumulated Fund Roll-Forward</h3>
+    <h3>Opening Accumulated Fund</h3>
     <p class="section-copy">
-        Enter the independently confirmed opening accumulated fund and any prior-year correction. The app adds the calculated annual surplus and uses the result to test whether the financial position balances.
+        This is financial data, so it now belongs in the selected year's Trial Balance instead of Setup. Enter the balance brought forward under <strong>Opening funds and equity</strong>; the app adds the year's surplus or deficit automatically.
     </p>
-    <form method="POST" action="/api/fund-rollforward/save" data-loading-form>
-        <div class="form-group">
-            <label>Year</label>
-            <select name="year" required>
-                {{range .Years}}
-                <option value="{{.}}">{{.}}</option>
-                {{end}}
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Opening Accumulated Fund (GH¢)</label>
-            <input type="number" step="0.01" name="opening_balance" required />
-        </div>
-        <div class="form-group">
-            <label>Prior-Year Adjustment (GH¢)</label>
-            <input type="number" step="0.01" name="prior_year_adjustment" value="0" required />
-        </div>
-        <button type="submit" class="btn btn-primary">Save Fund Roll-Forward</button>
-    </form>
-</div>
-
-<div class="card table-card reveal" data-table-stage>
-    <h3>Saved Fund Roll-Forwards</h3>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Year</th>
-                <th class="text-right">Opening Fund (GH¢)</th>
-                <th class="text-right">Prior Adjustment (GH¢)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .FundRollforwards}}
-            <tr>
-                <td>{{.Year}}</td>
-                <td class="text-right">{{formatMoney .OpeningBalance}}</td>
-                <td class="text-right">{{formatMoney .PriorYearAdjustment}}</td>
-            </tr>
-            {{end}}
-            {{if not .FundRollforwards}}
-            <tr><td colspan="3" class="text-center">No accumulated fund roll-forward saved yet</td></tr>
-            {{end}}
-        </tbody>
-    </table>
+    <a href="/trial-balance" class="btn btn-secondary" data-nav-loading>Open Trial Balance</a>
 </div>
 
 <div class="card reveal">

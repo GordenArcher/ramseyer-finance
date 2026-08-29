@@ -219,9 +219,9 @@ func DeleteTrialBalanceLine(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/trial-balance?year=%d", year), http.StatusSeeOther)
 }
 
-// buildTrialBalanceData reads only the selected year's saved rows. The initializer takes a
-// one-time snapshot from legacy transaction data for upgraded installations, after which
-// transaction changes cannot silently rewrite a Trial Balance the operator has reviewed.
+// buildTrialBalanceData reads the selected year's saved rows after the synchronization layer
+// has applied any supporting transaction activity. Direct amounts remain editable here, while
+// later transaction mutations adjust only their mapped account and year.
 func buildTrialBalanceData(year int) (TrialBalanceData, error) {
 	if err := ensureTrialBalanceYear(year); err != nil {
 		return TrialBalanceData{}, err
@@ -233,7 +233,9 @@ func buildTrialBalanceData(year int) (TrialBalanceData, error) {
 	data := TrialBalanceData{Active: "trial-balance", Year: strconv.Itoa(year), Years: years}
 	rows, err := db.DB.Query(`
 		SELECT id, account_type, note_ref, account_name, debit, credit,
-			CASE WHEN source_category_id IS NULL THEN 1 ELSE 0 END
+			CASE WHEN source_category_id IS NULL
+				AND NOT (account_type = 'equity' AND account_name = 'Opening Accumulated Fund')
+			THEN 1 ELSE 0 END
 		FROM trial_balance_entries
 		WHERE year = ?
 		ORDER BY CAST(NULLIF(note_ref, '') AS INTEGER),
@@ -262,7 +264,7 @@ func buildTrialBalanceData(year int) (TrialBalanceData, error) {
 				AccountType: line.AccountType,
 				TypeLabel:   trialBalanceTypeLabel(line.AccountType),
 				Note:        line.Note,
-				Title:       noteTitle(line.Note, "Unmapped accounts"),
+				Title:       trialBalanceGroupTitle(line.Note, line.AccountType),
 			})
 		}
 		lastGroup := &data.Groups[len(data.Groups)-1]
@@ -321,6 +323,16 @@ func trialBalanceTypeLabel(accountType string) string {
 	default:
 		return accountType
 	}
+}
+
+func trialBalanceGroupTitle(noteRef, accountType string) string {
+	if noteRef != "" {
+		return noteTitle(noteRef, "Note "+noteRef)
+	}
+	if accountType == "equity" {
+		return "Opening funds and equity"
+	}
+	return "Direct accounts"
 }
 
 func validTrialBalanceType(value string) bool {

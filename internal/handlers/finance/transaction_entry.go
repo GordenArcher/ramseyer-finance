@@ -80,8 +80,8 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transactionDate := strings.TrimSpace(r.FormValue("date"))
-	if _, err := parseTransactionDate(transactionDate); err != nil {
+	transactionDate, err := parseTransactionDate(r.FormValue("date"))
+	if err != nil {
 		badRequest(w, "Invalid transaction date")
 		return
 	}
@@ -135,12 +135,26 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, returnTo+separator+"msg="+queryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
+	year := transactionYear(transactionDate)
+	if err := ensureTrialBalanceYear(year); err != nil {
+		serverError(w, err)
+		return
+	}
 
 	// Insert the transaction with all fields, including the denormalised category name
 	// and note_ref from the resolved metadata. The updated_at timestamp is set to the
 	// current local time so that brand-new transactions have a meaningful value in that
 	// column from the start, not just after their first edit.
-	result, err := db.DB.Exec(
+	// The register row and its Trial Balance movement commit together. Saving them through
+	// separate database operations would recreate the exact failure the operator observed:
+	// a successful transaction that never reaches the Notes or statements.
+	tx, err := db.DB.Begin()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(
 		`INSERT INTO transactions (date, type, category, category_id, description, amount, note_ref, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
 		transactionDate,
@@ -152,6 +166,14 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		categoryMeta.NoteRef,
 	)
 	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := applyTransactionTrialBalanceDelta(tx, year, transactionType, categoryID, amount); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -173,5 +195,5 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(returnTo, "?") {
 		separator = "&"
 	}
-	http.Redirect(w, r, returnTo+separator+"msg=Transaction+saved", http.StatusSeeOther)
+	http.Redirect(w, r, returnTo+separator+"msg=Transaction+saved+and+Trial+Balance+updated", http.StatusSeeOther)
 }

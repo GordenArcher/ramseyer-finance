@@ -23,6 +23,8 @@ func TestTrialBalanceRendersAsPrimarySingleAmountEntry(t *testing.T) {
 	for _, expected := range []string{
 		"Primary financial entry",
 		"Enter balances here",
+		"Opening Accumulated Fund",
+		"Opening funds and equity",
 		`data-open-modal="trial-balance-add-row"`,
 		`name="amount_`,
 		"Save 2026 Trial Balance",
