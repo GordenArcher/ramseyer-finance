@@ -132,8 +132,8 @@ func SetupPIN(w http.ResponseWriter, r *http.Request) {
 
 // Unlock handles the PIN entry POST request for returning users. It validates the provided
 // PIN against the stored hash using constant-time comparison to prevent timing side-channel
-// attacks. On success, it creates a new session and redirects to the dashboard; on failure,
-// it redirects back to the login page with an error message.
+// attacks. On success, it creates a new session and redirects to the startup choice; on
+// failure, it redirects back to the login page with an error message.
 func Unlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -166,7 +166,7 @@ func Unlock(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/startup", http.StatusSeeOther)
 }
 
 // Logout destroys the current session by removing it from the in-memory store and clearing

@@ -41,6 +41,7 @@ func LoadRestoreCandidates() ([]RestoreCandidate, error) {
 
 	autoDir := filepath.Join(rootDir, "Ramseyer Finance Backups", "Auto")
 	safetyDir := filepath.Join(rootDir, "Ramseyer Finance Backups", "Safety")
+	recoveryDir := filepath.Join(rootDir, "Ramseyer Finance Backups", freshStartRecoveryFolder)
 	candidatesByPath := map[string]RestoreCandidate{}
 
 	// Manual downloads are written directly into the user's Downloads directory, which may
@@ -54,6 +55,9 @@ func LoadRestoreCandidates() ([]RestoreCandidate, error) {
 		return nil, err
 	}
 	if err := collectRestoreDirectory(safetyDir, "safety", false, candidatesByPath); err != nil {
+		return nil, err
+	}
+	if err := collectRestoreDirectory(recoveryDir, "fresh-start", false, candidatesByPath); err != nil {
 		return nil, err
 	}
 
@@ -180,6 +184,8 @@ func restoreKindFromEvent(eventKind string) string {
 		return "automatic"
 	case eventKind == "pre-restore-safety":
 		return "safety"
+	case eventKind == "fresh-start-recovery":
+		return "fresh-start"
 	case eventKind == "manual-download":
 		return "manual"
 	default:
@@ -195,6 +201,8 @@ func restoreKindLabel(kind string) string {
 		return "Safety"
 	case "manual":
 		return "Manual"
+	case "fresh-start":
+		return "Fresh-start recovery"
 	default:
 		return "History"
 	}

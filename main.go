@@ -61,6 +61,11 @@ func main() {
 	// goroutine is cleanly shut down when main() exits.
 	stopAutoBackupScheduler := backupservice.StartAutoBackupScheduler()
 	defer stopAutoBackupScheduler()
+	// Fresh-start recovery files are intentionally temporary. This independent scheduler
+	// performs an immediate cleanup after launch and then checks hourly, so a snapshot that
+	// expires while the app is closed is removed the next time it starts.
+	stopFreshStartCleanup := backupservice.StartFreshStartRecoveryCleanupScheduler()
+	defer stopFreshStartCleanup()
 
 	// Create a sub-filesystem rooted at "static/" so that http.FileServerFS serves
 	// "/static/styles/style.css" when the browser requests it, without the

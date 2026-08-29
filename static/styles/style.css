@@ -1343,6 +1343,142 @@ button {
     box-shadow: var(--shadow-strong);
 }
 
+.startup-shell {
+    width: min(980px, 100%);
+}
+
+.auth-panel.startup-panel {
+    display: block;
+    padding: clamp(28px, 5vw, 52px);
+}
+
+.startup-heading {
+    max-width: 720px;
+    margin-bottom: 28px;
+}
+
+.startup-heading h1 {
+    margin: 4px 0 12px;
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+    font-size: clamp(2rem, 4vw, 3.2rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+}
+
+.startup-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.startup-choice,
+.recovery-receipt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 26px;
+    border: 1px solid rgba(27, 42, 64, 0.12);
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 16px 36px rgba(22, 18, 12, 0.06);
+}
+
+.startup-choice-primary {
+    border-color: rgba(24, 78, 72, 0.28);
+    background: rgba(216, 236, 232, 0.5);
+}
+
+.startup-choice h2,
+.recovery-receipt h2 {
+    font-size: 1.28rem;
+    line-height: 1.25;
+}
+
+.startup-choice p {
+    flex: 1;
+}
+
+.startup-choice-kicker {
+    color: var(--brand-deep);
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.startup-backup-form {
+    display: grid;
+    gap: 14px;
+}
+
+.startup-radio-card {
+    position: relative;
+    display: block;
+    cursor: pointer;
+}
+
+.startup-radio-card input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.startup-radio-card span {
+    display: grid;
+    gap: 5px;
+    padding: 20px 22px;
+    border: 2px solid rgba(27, 42, 64, 0.12);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.76);
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.startup-radio-card small {
+    color: var(--ink-soft);
+}
+
+.startup-radio-card input:checked + span {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 12px 30px rgba(24, 78, 72, 0.12);
+}
+
+.startup-radio-card input:focus-visible + span {
+    outline: 3px solid rgba(186, 122, 17, 0.24);
+    outline-offset: 3px;
+}
+
+.startup-radio-card-danger input:checked + span {
+    border-color: var(--danger);
+    background: var(--danger-soft);
+}
+
+.startup-warning {
+    margin-top: 4px;
+}
+
+.startup-actions {
+    margin-top: 4px;
+}
+
+.recovery-receipt {
+    margin-bottom: 20px;
+}
+
+.recovery-location {
+    width: 100%;
+    padding: 12px 14px;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-muted);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.82rem;
+    color: var(--ink-soft);
+}
+
 .auth-copy {
     display: flex;
     flex-direction: column;
@@ -1788,7 +1924,8 @@ button {
     .launcher-grid,
     .entry-selector-grid,
     .stats-grid,
-    .form-grid {
+    .form-grid,
+    .startup-choice-grid {
         grid-template-columns: 1fr;
     }
 

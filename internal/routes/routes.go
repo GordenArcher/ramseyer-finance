@@ -5,6 +5,7 @@ import (
 	authhandlers "ramseyer-finance/internal/handlers/auth"
 	backuphandlers "ramseyer-finance/internal/handlers/backup"
 	financehandlers "ramseyer-finance/internal/handlers/finance"
+	startuphandlers "ramseyer-finance/internal/handlers/startup"
 	updatehandlers "ramseyer-finance/internal/handlers/updates"
 )
 
@@ -18,6 +19,9 @@ func Register(mux *http.ServeMux, staticHandler http.Handler) {
 	mux.HandleFunc("/api/auth/setup", authhandlers.SetupPIN)
 	mux.HandleFunc("/api/auth/unlock", authhandlers.Unlock)
 	mux.HandleFunc("/api/auth/logout", authhandlers.Logout)
+	mux.HandleFunc("/startup", authhandlers.WithAuth(startuphandlers.Page))
+	mux.HandleFunc("/api/startup/continue", authhandlers.WithAuth(startuphandlers.Continue))
+	mux.HandleFunc("/api/startup/fresh", authhandlers.WithAuth(startuphandlers.FreshStart))
 
 	// Every financial screen and mutation passes through the same PIN session middleware.
 	// This explicit table also makes destructive POST endpoints easy to distinguish during

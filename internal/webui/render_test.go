@@ -29,3 +29,26 @@ func TestLoginFeedbackStaysInsidePINForm(t *testing.T) {
 		t.Fatalf("login feedback rendered outside the PIN form and can displace the two-column grid")
 	}
 }
+
+func TestStartupBackupStepExplainsResetAndRecoveryLifetime(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	RenderStandaloneTemplate(recorder, "startup", struct {
+		Step        string
+		Message     string
+		MessageTone string
+	}{
+		Step: "backup",
+	})
+
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Would you like a safety backup first?",
+		"expire automatically after three days",
+		"Starting fresh clears transactions, Trial Balances, budgets, opening balances",
+		`name="safety_backup" value="yes" checked`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("startup backup screen missing %q: %s", expected, body)
+		}
+	}
+}

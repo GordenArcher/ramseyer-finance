@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Choose Your Starting Point — Ramseyer Finance</title>
+    <link rel="icon" type="image/png" href="/static/app-icon-64.png" />
+    <link rel="stylesheet" href="/static/styles/style.css" />
+    <script src="/static/scripts/app.js" defer></script>
+</head>
+<body class="auth-body">
+    <main class="auth-shell startup-shell">
+        <section class="auth-panel startup-panel reveal">
+            {{if eq .Step "choice"}}
+            <header class="startup-heading">
+                <p class="eyebrow">Welcome back</p>
+                <h1>How would you like to begin?</h1>
+                <p>This choice is about your financial records. It does not install an update or change your PIN.</p>
+            </header>
+            <div class="startup-choice-grid">
+                <form method="POST" action="/api/startup/continue" class="startup-choice startup-choice-primary" data-loading-form>
+                    <span class="startup-choice-kicker">Existing records</span>
+                    <h2>Continue where I left off</h2>
+                    <p>Open the current transactions, Trial Balances, reports, budgets, and opening balances exactly as they are.</p>
+                    <button type="submit" class="btn btn-primary">Continue existing records</button>
+                </form>
+                <article class="startup-choice">
+                    <span class="startup-choice-kicker">New beginning</span>
+                    <h2>Start a fresh financial record</h2>
+                    <p>Clear the accounting activity and begin empty while keeping the PIN, app settings, and standard chart of accounts.</p>
+                    <a href="/startup?step=backup" class="btn btn-secondary" data-nav-loading>Review fresh-start options</a>
+                </article>
+            </div>
+            {{else if eq .Step "backup"}}
+            <header class="startup-heading">
+                <p class="eyebrow">Fresh financial record</p>
+                <h1>Would you like a safety backup first?</h1>
+                <p>The app checks free disk space before creating the recovery copy. If the backup cannot be completed safely, no records are cleared.</p>
+            </header>
+            {{if .Message}}
+            <div class="alert alert-{{.MessageTone}}">{{.Message}}</div>
+            {{end}}
+            <form method="POST" action="/api/startup/fresh" class="startup-backup-form" data-loading-form>
+                <label class="startup-radio-card">
+                    <input type="radio" name="safety_backup" value="yes" checked />
+                    <span>
+                        <strong>Yes, create a safety backup</strong>
+                        <small>Recommended. It will appear in the in-app restore library and expire automatically after three days.</small>
+                    </span>
+                </label>
+                <label class="startup-radio-card startup-radio-card-danger">
+                    <input type="radio" name="safety_backup" value="no" />
+                    <span>
+                        <strong>No, start without a backup</strong>
+                        <small>No new recovery copy will be created. Existing manual and automatic backups remain untouched.</small>
+                    </span>
+                </label>
+                <div class="alert alert-warning startup-warning">
+                    Starting fresh clears transactions, Trial Balances, budgets, opening balances, fund roll-forwards, fixed-asset openings, and their audit entries across all years.
+                </div>
+                <div class="form-actions startup-actions">
+                    <button type="submit" class="btn btn-danger">Start fresh financial record</button>
+                    <a href="/startup" class="btn btn-secondary" data-nav-loading>Go back</a>
+                </div>
+            </form>
+            {{else}}
+            <header class="startup-heading">
+                <p class="eyebrow">Fresh start ready</p>
+                <h1>Your financial record is empty and ready.</h1>
+                <p>Your PIN, app preferences, and chart of accounts are still available.</p>
+            </header>
+            {{if .Message}}
+            <div class="alert alert-{{.MessageTone}}">{{.Message}}</div>
+            {{end}}
+            {{if .BackupPath}}
+            <section class="recovery-receipt">
+                <span class="startup-choice-kicker">Temporary recovery backup</span>
+                <h2>{{.BackupFilename}}</h2>
+                <p class="recovery-location">{{.BackupPath}}</p>
+                <p>This backup is available until <strong>{{.BackupExpiresLabel}}</strong>, then the app deletes it automatically.</p>
+                <form method="POST" action="/api/backup/restore" data-loading-form>
+                    <input type="hidden" name="backup_path" value="{{.BackupPath}}" />
+                    <button type="submit" class="btn btn-secondary">Restore this backup now</button>
+                </form>
+            </section>
+            {{else}}
+            <div class="alert alert-warning">No safety backup was created for this fresh start.</div>
+            {{end}}
+            <div class="form-actions startup-actions">
+                <a href="/" class="btn btn-primary" data-nav-loading>Open the fresh record</a>
+                <a href="/backup" class="btn btn-secondary" data-nav-loading>View restore library</a>
+            </div>
+            {{end}}
+        </section>
+    </main>
+</body>
+</html>

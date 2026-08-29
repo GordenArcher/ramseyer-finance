@@ -12,6 +12,7 @@ func TestRegisterOwnsEveryApplicationRoute(t *testing.T) {
 
 	paths := []string{
 		"/login",
+		"/startup",
 		"/data-entry",
 		"/transactions",
 		"/monthly",
@@ -26,6 +27,7 @@ func TestRegisterOwnsEveryApplicationRoute(t *testing.T) {
 		"/setup",
 		"/backup",
 		"/api/transaction/add",
+		"/api/startup/fresh",
 		"/api/transactions/export",
 		"/api/category/save",
 		"/api/settings/auto-backup/save",
