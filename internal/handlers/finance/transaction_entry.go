@@ -125,12 +125,6 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	counterCategoryID, err := resolvePaymentAccount(categoryID, paymentMethod)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-
 	// Run the same business rule validation used for updates. The transactionID of 0
 	// tells the validator this is a new transaction (so the duplicate check should
 	// not exclude any existing row). If validation fails, the error message is
@@ -148,16 +142,15 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	// and note_ref from the resolved metadata. The updated_at timestamp is set to the
 	// current local time so that brand-new transactions have a meaningful value in that
 	// column from the start, not just after their first edit.
-	// The visible payment method is stored on the dated transaction. Its internally resolved
-	// liquid account lets reports recalculate without exposing double-entry bookkeeping in the UI.
+	// The visible payment method is only a classification flag. The transaction category and
+	// amount are saved once so no report can manufacture a second deduction the operator never entered.
 	result, err := db.DB.Exec(
-		`INSERT INTO transactions (date, type, category, category_id, counter_category_id, payment_method, description, amount, note_ref, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
+		`INSERT INTO transactions (date, type, category, category_id, payment_method, description, amount, note_ref, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
 		transactionDate,
 		transactionType,
 		categoryMeta.Name,
 		categoryID,
-		counterCategoryID,
 		paymentMethod,
 		description,
 		amount,

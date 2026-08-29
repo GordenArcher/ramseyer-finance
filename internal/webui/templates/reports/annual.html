@@ -20,22 +20,7 @@
 </div>
 {{end}}
 
-{{if not .FundConfigured}}
-<div class="alert alert-info">The accumulated fund is calculated from prior dated entries and the selected year's surplus or deficit. No separate balance is entered on this report.</div>
-{{end}}
-
-<div class="card reveal">
-    <h3>Statement of Changes in Accumulated Fund</h3>
-    <table class="data-table">
-        <tbody>
-            <tr><td>Opening balance</td><td class="text-right">{{formatMoney .OpeningFund}}</td></tr>
-            <tr><td>Prior-year adjustments</td><td class="text-right {{if lt .PriorAdjustment 0.0}}negative{{end}}">{{formatMoney .PriorAdjustment}}</td></tr>
-            <tr><td>Adjusted balance</td><td class="text-right">{{formatMoney .AdjustedFund}}</td></tr>
-            <tr><td>Surplus / (Deficit) for the year</td><td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td></tr>
-            <tr class="total-row"><td>Closing accumulated fund</td><td class="text-right">{{formatMoney .ClosingFund}}</td></tr>
-        </tbody>
-    </table>
-</div>
+<div class="alert alert-info">This report adds the dated income and expenditure transactions entered for the selected year. Payment method labels do not alter the totals.</div>
 
 <section class="stats-grid reveal">
     <div class="stat-card">

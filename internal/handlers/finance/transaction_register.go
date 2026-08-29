@@ -289,12 +289,6 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	counterCategoryID, err := resolvePaymentAccount(categoryID, paymentMethod)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-
 	if err := validateTransactionBusinessRules(transactionID, transactionDate, transactionType, categoryID, strings.TrimSpace(r.FormValue("description")), amount, allowDuplicate); err != nil {
 		redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), err.Error())
 		return
@@ -313,9 +307,9 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	// enables the backfill/sync maintenance operations.
 	result, err := db.DB.Exec(`
 		UPDATE transactions
-		SET date = ?, type = ?, category = ?, category_id = ?, counter_category_id = ?, payment_method = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
+		SET date = ?, type = ?, category = ?, category_id = ?, payment_method = ?, note_ref = ?, description = ?, amount = ?, updated_at = datetime('now','localtime')
 		WHERE id = ?
-	`, transactionDate, transactionType, categoryMeta.Name, categoryID, counterCategoryID, paymentMethod, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
+	`, transactionDate, transactionType, categoryMeta.Name, categoryID, paymentMethod, categoryMeta.NoteRef, strings.TrimSpace(r.FormValue("description")), amount, transactionID)
 	if err != nil {
 		serverError(w, err)
 		return

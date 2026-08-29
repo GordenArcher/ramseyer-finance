@@ -56,7 +56,7 @@ func TestDataEntryRendersScrollableTransactionModalAndGlobalLogout(t *testing.T)
 	}
 }
 
-func TestTrialBalanceFlagsHistoricalEntryWithoutCorrespondingAccount(t *testing.T) {
+func TestTrialBalanceTreatsHistoricalEntryAsOneCompleteFinancialFact(t *testing.T) {
 	setupTestDB(t)
 	offeringID := categoryID(t, "income", "Adult Service Offertory")
 	insertTransaction(t, "2026-04-05", "income", "Adult Service Offertory", offeringID, 125.5)
@@ -64,11 +64,8 @@ func TestTrialBalanceFlagsHistoricalEntryWithoutCorrespondingAccount(t *testing.
 	if err != nil {
 		t.Fatalf("build Trial Balance: %v", err)
 	}
-	if data.UnpairedCount != 1 {
-		t.Fatalf("unpaired count = %d, want 1", data.UnpairedCount)
-	}
-	if data.Difference == 0 {
-		t.Fatalf("incomplete historical entry was silently presented as balanced")
+	if data.IncomeTotal != 125.5 {
+		t.Fatalf("income total = %.2f, want 125.50", data.IncomeTotal)
 	}
 }
 

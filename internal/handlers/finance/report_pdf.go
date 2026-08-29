@@ -51,11 +51,11 @@ func buildReportPDFLines(report string, year int) (string, []string, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		lines := []string{"Note  Type          Account                                  Debit          Credit"}
+		lines := []string{"Note  Type          Account                                                   Amount"}
 		for _, row := range data.Lines {
-			lines = append(lines, fmt.Sprintf("%-5s %-13s %-36s %12.2f %12.2f", row.Note, row.AccountType, truncateForPDF(row.Account, 36), row.Debit, row.Credit))
+			lines = append(lines, fmt.Sprintf("%-5s %-13s %-48s %14.2f", row.Note, row.AccountType, truncateForPDF(row.Account, 48), row.Amount))
 		}
-		lines = append(lines, fmt.Sprintf("TOTAL%61.2f %12.2f", data.TotalDebit, data.TotalCredit), fmt.Sprintf("DIFFERENCE: %.2f", data.Difference))
+		lines = append(lines, "", pdfAmountLine("Income total", data.IncomeTotal), pdfAmountLine("Expenditure total", data.ExpenditureTotal), pdfAmountLine("Asset total", data.AssetTotal), pdfAmountLine("Liability total", data.LiabilityTotal))
 		return "TRIAL BALANCE", lines, nil
 	case "annual":
 		data, err := buildAnnualData(year)
@@ -92,7 +92,7 @@ func buildReportPDFLines(report string, year int) (string, []string, error) {
 		for _, row := range data.CurrentLiabilities {
 			lines = append(lines, reportLine("", row.Name, row.PriorAmount, row.Amount))
 		}
-		lines = append(lines, fmt.Sprintf("TOTAL LIABILITIES%43.2f %14.2f", data.PriorTotalLiabilities, data.TotalLiabilities), fmt.Sprintf("TOTAL EQUITY%48.2f %14.2f", data.PriorTotalEquity, data.TotalEquity), fmt.Sprintf("BALANCE DIFFERENCE%42.2f %14.2f", data.PriorBalanceDifference, data.BalanceDifference))
+		lines = append(lines, fmt.Sprintf("TOTAL LIABILITIES%43.2f %14.2f", data.PriorTotalLiabilities, data.TotalLiabilities), fmt.Sprintf("NET ASSETS%50.2f %14.2f", data.PriorTotalEquity, data.TotalEquity))
 		return "STATEMENT OF FINANCIAL POSITION", lines, nil
 	case "cash-flow":
 		data, err := buildCashFlowData(year)
@@ -100,23 +100,23 @@ func buildReportPDFLines(report string, year int) (string, []string, error) {
 			return "", nil, err
 		}
 		lines := []string{
-			"STATEMENT OF CASH FLOWS", "",
-			pdfAmountLine("Surplus / (Deficit)", data.Surplus), pdfAmountLine("Depreciation & amortization", data.DepreciationAmortization), pdfAmountLine("Changes in inventory", data.InventoryMovement), pdfAmountLine("Changes in receivables", data.ReceivablesMovement), pdfAmountLine("Changes in payables", data.PayablesMovement), pdfAmountLine("Net operating cash", data.NetOperatingCash), "",
-			pdfAmountLine("PPE acquisitions", -data.PPEAcquisitions), pdfAmountLine("Investment acquisitions", -data.InvestmentAcquisitions), pdfAmountLine("Intangible acquisitions", -data.IntangibleAcquisitions), pdfAmountLine("Net investing cash", data.NetInvestingCash), "",
-			pdfAmountLine("Long-term loan movement", data.LongTermLoanMovement), pdfAmountLine("Net financing cash", data.NetFinancingCash), "", pdfAmountLine("Opening cash", data.OpeningCash), pdfAmountLine("Net cash change", data.NetCashChange), pdfAmountLine("Reported closing cash", data.ReportedClosingCash), pdfAmountLine("Reconciliation difference", data.ReconciliationDifference),
+			"CASH FLOW REVIEW", "",
+			pdfAmountLine("Income entries", data.IncomeEntries), pdfAmountLine("Expenditure entries", data.ExpenditureEntries), pdfAmountLine("Income less expenditure", data.IncomeLessExpenditure), "",
+			pdfAmountLine("PPE entries", data.PPEEntries), pdfAmountLine("Investment entries", data.InvestmentEntries), pdfAmountLine("Intangible asset entries", data.IntangibleAssetEntries), pdfAmountLine("All asset entries", data.AssetEntries), "",
+			pdfAmountLine("All liability entries", data.LiabilityEntries),
 		}
-		return "STATEMENT OF CASH FLOWS", lines, nil
+		return "CASH FLOW REVIEW", lines, nil
 	case "fixed-assets":
 		data, err := buildFixedAssetData(year)
 		if err != nil {
 			return "", nil, err
 		}
-		lines := []string{"NOTE 21 - NON-CURRENT ASSETS SCHEDULE", "", "Asset class                         Open cost    Additions   Closing cost      Carrying"}
+		lines := []string{"NOTE 21 - PROPERTY, PLANT & EQUIPMENT", "", "Asset class                              Additions     Disposals    Year total"}
 		for _, row := range data.Lines {
-			lines = append(lines, fmt.Sprintf("%-34s %11.2f %11.2f %14.2f %13.2f", truncateForPDF(row.Name, 34), row.OpeningCost, row.Additions, row.ClosingCost, row.CarryingAmount))
+			lines = append(lines, fmt.Sprintf("%-39s %12.2f %12.2f %13.2f", truncateForPDF(row.Name, 39), row.Additions, row.Disposals, row.YearTotal))
 		}
-		lines = append(lines, fmt.Sprintf("TOTAL%41.2f %11.2f %14.2f %13.2f", data.TotalOpeningCost, data.TotalAdditions, data.TotalClosingCost, data.TotalCarryingAmount))
-		return "NOTE 21 - NON-CURRENT ASSETS", lines, nil
+		lines = append(lines, fmt.Sprintf("TOTAL%46.2f %12.2f %13.2f", data.TotalAdditions, data.TotalDisposals, data.TotalYear))
+		return "NOTE 21 - PROPERTY, PLANT & EQUIPMENT", lines, nil
 	case "notes":
 		data, err := buildNotesData(year)
 		if err != nil {

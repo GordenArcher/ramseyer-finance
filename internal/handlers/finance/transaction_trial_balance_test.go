@@ -11,7 +11,7 @@ import (
 	"ramseyer-finance/internal/db"
 )
 
-func TestTransactionLifecycleRecalculatesBalancedTrialBalance(t *testing.T) {
+func TestTransactionLifecycleRecalculatesSingleEntryTrialBalance(t *testing.T) {
 	setupTestDB(t)
 	offeringID := categoryID(t, "income", "Adult Service Offertory")
 	cashID := categoryID(t, "asset", "Cash on hand")
@@ -32,8 +32,7 @@ func TestTransactionLifecycleRecalculatesBalancedTrialBalance(t *testing.T) {
 		t.Fatalf("add transaction status = %d, want 303: %s", addRecorder.Code, addRecorder.Body.String())
 	}
 	assertCalculatedTrialBalanceAmount(t, 2026, offeringID, 125.5)
-	assertCalculatedTrialBalanceAmount(t, 2026, cashID, 125.5)
-	assertCalculatedTrialBalanceBalanced(t, 2026)
+	assertCalculatedTrialBalanceAmount(t, 2026, cashID, 0)
 
 	var transactionID int64
 	var paymentMethod string
@@ -63,8 +62,7 @@ func TestTransactionLifecycleRecalculatesBalancedTrialBalance(t *testing.T) {
 	}
 	assertCalculatedTrialBalanceAmount(t, 2026, offeringID, 0)
 	assertCalculatedTrialBalanceAmount(t, 2027, printingID, 40)
-	assertCalculatedTrialBalanceAmount(t, 2027, cashID, -40)
-	assertCalculatedTrialBalanceBalanced(t, 2027)
+	assertCalculatedTrialBalanceAmount(t, 2027, cashID, 0)
 
 	deleteValues := url.Values{"id": {strconv.FormatInt(transactionID, 10)}, "return_to": {"/transactions?year=2027"}}
 	deleteRequest := httptest.NewRequest(http.MethodPost, "/api/transaction/delete", strings.NewReader(deleteValues.Encode()))
@@ -85,13 +83,12 @@ func TestTransactionPaymentMethodsAreOptionalVisibleFlags(t *testing.T) {
 	scenarios := []struct {
 		method         string
 		wantStored     string
-		wantAccount    string
 		transactionDay string
 	}{
-		{method: "", wantStored: "cash", wantAccount: "Cash on hand", transactionDay: "2026-05-03"},
-		{method: "momo", wantStored: "momo", wantAccount: "Momo", transactionDay: "2026-05-10"},
-		{method: "cheque", wantStored: "cheque", wantAccount: "Bank", transactionDay: "2026-05-17"},
-		{method: "bank", wantStored: "bank", wantAccount: "Bank", transactionDay: "2026-05-24"},
+		{method: "", wantStored: "cash", transactionDay: "2026-05-03"},
+		{method: "momo", wantStored: "momo", transactionDay: "2026-05-10"},
+		{method: "cheque", wantStored: "cheque", transactionDay: "2026-05-17"},
+		{method: "bank", wantStored: "bank", transactionDay: "2026-05-24"},
 	}
 
 	for _, scenario := range scenarios {
@@ -112,17 +109,16 @@ func TestTransactionPaymentMethodsAreOptionalVisibleFlags(t *testing.T) {
 			t.Fatalf("add %q payment method status = %d, want 303: %s", scenario.method, recorder.Code, recorder.Body.String())
 		}
 
-		var storedMethod, accountName string
+		var storedMethod string
 		if err := db.DB.QueryRow(`
-			SELECT t.payment_method, counter.name
+			SELECT payment_method
 			FROM transactions t
-			JOIN categories counter ON counter.id = t.counter_category_id
 			WHERE t.date = ?
-		`, scenario.transactionDay).Scan(&storedMethod, &accountName); err != nil {
+		`, scenario.transactionDay).Scan(&storedMethod); err != nil {
 			t.Fatalf("load %q payment classification: %v", scenario.method, err)
 		}
-		if storedMethod != scenario.wantStored || accountName != scenario.wantAccount {
-			t.Fatalf("payment %q stored as method=%q account=%q, want method=%q account=%q", scenario.method, storedMethod, accountName, scenario.wantStored, scenario.wantAccount)
+		if storedMethod != scenario.wantStored {
+			t.Fatalf("payment %q stored as method=%q, want method=%q", scenario.method, storedMethod, scenario.wantStored)
 		}
 	}
 
@@ -143,7 +139,7 @@ func TestTransactionPaymentMethodsAreOptionalVisibleFlags(t *testing.T) {
 	}
 }
 
-func TestCalculatedTrialBalanceCarriesPriorNetAssetsAsOpeningFund(t *testing.T) {
+func TestCalculatedTrialBalanceKeepsTransactionsInTheirOwnYear(t *testing.T) {
 	setupTestDB(t)
 	offeringID := categoryID(t, "income", "Adult Service Offertory")
 	cashID := categoryID(t, "asset", "Cash on hand")
@@ -153,11 +149,49 @@ func TestCalculatedTrialBalanceCarriesPriorNetAssetsAsOpeningFund(t *testing.T) 
 	if err != nil {
 		t.Fatalf("build 2027 Trial Balance: %v", err)
 	}
-	if amountForTrialBalanceAccount(data.Lines, "Opening Accumulated Fund") != 300 {
-		t.Fatalf("2027 opening accumulated fund = %.2f, want 300", amountForTrialBalanceAccount(data.Lines, "Opening Accumulated Fund"))
+	if amountForTrialBalanceAccount(data.Lines, "Adult Service Offertory") != 0 {
+		t.Fatalf("2026 offering leaked into the 2027 Trial Balance")
 	}
-	if data.Difference != 0 {
-		t.Fatalf("2027 Trial Balance difference = %.2f, want 0", data.Difference)
+	if data.IncomeTotal != 0 || data.AssetTotal != 0 {
+		t.Fatalf("2027 totals include prior-year activity: %#v", data)
+	}
+}
+
+func TestSundayEntriesAddTogetherAndRemainYearScopedEverywhere(t *testing.T) {
+	setupTestDB(t)
+	offeringID := categoryID(t, "income", "Adult Service Offertory")
+	insertTransaction(t, "2025-12-28", "income", "Adult Service Offertory", offeringID, 900)
+	insertTransaction(t, "2026-01-04", "income", "Adult Service Offertory", offeringID, 3000)
+	insertTransaction(t, "2026-01-11", "income", "Adult Service Offertory", offeringID, 7000)
+
+	trial2026, err := buildTrialBalanceData(2026)
+	if err != nil {
+		t.Fatalf("build 2026 Trial Balance: %v", err)
+	}
+	if amount := amountForTrialBalanceAccount(trial2026.Lines, "Adult Service Offertory"); amount != 10000 {
+		t.Fatalf("2026 Sunday offering total = %.2f, want 10000", amount)
+	}
+	trial2025, err := buildTrialBalanceData(2025)
+	if err != nil {
+		t.Fatalf("build 2025 Trial Balance: %v", err)
+	}
+	if amount := amountForTrialBalanceAccount(trial2025.Lines, "Adult Service Offertory"); amount != 900 {
+		t.Fatalf("2025 Sunday offering total = %.2f, want 900", amount)
+	}
+
+	notes2026, err := buildNotesData(2026)
+	if err != nil {
+		t.Fatalf("build 2026 notes: %v", err)
+	}
+	if total := noteSectionByNumber(t, notes2026.Notes, "4").Total; total != 10000 {
+		t.Fatalf("2026 Note 4 total = %.2f, want 10000", total)
+	}
+	annual2026, err := buildAnnualData(2026)
+	if err != nil {
+		t.Fatalf("build 2026 annual report: %v", err)
+	}
+	if annual2026.TotalIncome != 10000 {
+		t.Fatalf("2026 annual income = %.2f, want 10000", annual2026.TotalIncome)
 	}
 }
 
@@ -168,9 +202,9 @@ func insertPairedTransaction(t *testing.T, date, transactionType string, categor
 		t.Fatalf("load transaction category: %v", err)
 	}
 	if _, err := db.DB.Exec(`
-		INSERT INTO transactions (date, type, category, category_id, counter_category_id, amount)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, date, transactionType, category, categoryID, counterCategoryID, amount); err != nil {
+		INSERT INTO transactions (date, type, category, category_id, amount)
+		VALUES (?, ?, ?, ?, ?)
+	`, date, transactionType, category, categoryID, amount); err != nil {
 		t.Fatalf("insert paired transaction: %v", err)
 	}
 }
@@ -189,18 +223,10 @@ func assertCalculatedTrialBalanceAmount(t *testing.T, year int, categoryID int64
 			return
 		}
 	}
+	if expected == 0 {
+		return
+	}
 	t.Fatalf("Trial Balance category %d/%d was not rendered", year, categoryID)
-}
-
-func assertCalculatedTrialBalanceBalanced(t *testing.T, year int) {
-	t.Helper()
-	data, err := buildTrialBalanceData(year)
-	if err != nil {
-		t.Fatalf("build %d Trial Balance: %v", year, err)
-	}
-	if data.Difference != 0 {
-		t.Fatalf("Trial Balance %d difference = %.2f, want 0", year, data.Difference)
-	}
 }
 
 func amountForTrialBalanceAccount(lines []TrialBalanceLine, account string) float64 {

@@ -124,7 +124,6 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 	type pair struct{ current, prior float64 }
 	balances := map[key]pair{}
 	var currentIncome, currentExpense, priorIncome, priorExpense float64
-	var currentOpeningEquity, priorOpeningEquity float64
 
 	for _, period := range []struct {
 		year    int
@@ -162,12 +161,6 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 					currentExpense += amount
 				} else {
 					priorExpense += amount
-				}
-			case "equity":
-				if period.current {
-					currentOpeningEquity += amount
-				} else {
-					priorOpeningEquity += amount
 				}
 			}
 		}
@@ -209,19 +202,15 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 	}
 	data.IncomeSurplus = currentIncome - currentExpense
 	data.PriorIncomeSurplus = priorIncome - priorExpense
-	data.AccumulatedFund = currentOpeningEquity
-	data.PriorAccumulatedFund = priorOpeningEquity
-	data.TotalEquity = data.AccumulatedFund + data.IncomeSurplus
-	data.PriorTotalEquity = data.PriorAccumulatedFund + data.PriorIncomeSurplus
-	data.BalanceDifference = data.TotalAssets - data.TotalLiabilities - data.TotalEquity
-	data.PriorBalanceDifference = data.PriorTotalAssets - data.PriorTotalLiabilities - data.PriorTotalEquity
-	data.FundConfigured = currentOpeningEquity != 0
-	data.PriorFundConfigured = priorOpeningEquity != 0
+	// Net assets is a display subtotal only. It does not create an equity transaction or force
+	// the income/expenditure result to balance against asset categories the user never entered.
+	data.TotalEquity = data.TotalAssets - data.TotalLiabilities
+	data.PriorTotalEquity = data.PriorTotalAssets - data.PriorTotalLiabilities
 	data.Chart = viewmodels.ChartData{
-		Labels: []string{"Assets", "Liabilities", "Equity", "Accumulated Fund", "Income Surplus"},
+		Labels: []string{"Assets", "Liabilities", "Net Assets", "Income less Expenditure"},
 		Datasets: []viewmodels.ChartDataset{
-			{Label: data.PriorYear, Type: "bar", Color: "#5a6475", SoftColor: "rgba(90, 100, 117, 0.14)", Values: []float64{data.PriorTotalAssets, data.PriorTotalLiabilities, data.PriorTotalEquity, data.PriorAccumulatedFund, data.PriorIncomeSurplus}},
-			{Label: data.Year, Type: "bar", Color: "#184e48", SoftColor: "rgba(24, 78, 72, 0.16)", Values: []float64{data.TotalAssets, data.TotalLiabilities, data.TotalEquity, data.AccumulatedFund, data.IncomeSurplus}},
+			{Label: data.PriorYear, Type: "bar", Color: "#5a6475", SoftColor: "rgba(90, 100, 117, 0.14)", Values: []float64{data.PriorTotalAssets, data.PriorTotalLiabilities, data.PriorTotalEquity, data.PriorIncomeSurplus}},
+			{Label: data.Year, Type: "bar", Color: "#184e48", SoftColor: "rgba(24, 78, 72, 0.16)", Values: []float64{data.TotalAssets, data.TotalLiabilities, data.TotalEquity, data.IncomeSurplus}},
 		},
 	}
 	return data, nil
@@ -361,17 +350,12 @@ func buildLegacyBalanceData(year int) (BalanceData, error) {
 	return data, nil
 }
 
-// buildBalanceSnapshot computes a complete balance sheet position for a single year. It
-// determines the year's date boundaries, loads non-current asset totals as cumulative
-// balances up to year-end, loads the opening balances for the three liquid accounts (which
-// represent cash positions carried forward from prior periods), computes current asset
-// totals by adding in-year transaction movements to those opening balances, loads liability
-// totals, and then derives the equity components: total equity as assets minus liabilities,
-// accumulated fund as total equity minus the current year's income surplus, and income
-// surplus as the difference between income and expenditure transactions within the year.
+// buildBalanceSnapshot computes the selected year's balance-sheet presentation from the same
+// dated transaction rows used everywhere else. Nothing is carried forward or manufactured:
+// every line is simply the sum of entries assigned to that category during the selected year.
 func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
-	// I treat the balance sheet as a year-end snapshot assembled from category groups plus carried
-	// opening cash positions. It is a different cut of the same data, not a separate ledger.
+	// Keeping a strict start and end date here prevents a transaction entered for one reporting
+	// year from silently appearing in another year's statement.
 	yearStart, yearEnd := yearBounds(year)
 
 	nonCurrentDefs, err := loadTopLevelCategoryDefs("asset", "non_current_asset")
@@ -391,74 +375,26 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 		return balanceSnapshot{}, fmt.Errorf("load current liability definitions for %d: %w", year, err)
 	}
 
-	// Non-current assets are cumulative: all transactions from the beginning of time up to
-	// the end of the reporting year. There is no opening balance to add because these
-	// categories represent long-term holdings, not flow accounts.
-	nonCurrentTotals, err := loadTopLevelPositions("asset", categoryDefNames(nonCurrentDefs), yearStart, yearEnd)
+	nonCurrentTotals, err := loadTopLevelPeriodSums("asset", categoryDefNames(nonCurrentDefs), yearStart, yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load non-current asset totals for %d: %w", year, err)
 	}
-	assetSchedule, err := buildFixedAssetData(year)
-	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("build non-current asset schedule for %d: %w", year, err)
-	}
-	// When detailed class movements exist, Note 21's carrying amounts replace gross cost in
-	// the financial position. The zero-cost guard preserves legacy installations that posted
-	// directly to the old top-level PPE account and therefore cannot yet be depreciated by class.
-	if assetSchedule.TotalClosingCost != 0 {
-		nonCurrentTotals["Property, Plant & Equipment"] = assetSchedule.PPECarryingAmount
-		nonCurrentTotals["Intangible Assets"] = assetSchedule.IntangibleCarryingAmount
-	}
-
-	// Opening balances are stored in the settings table and represent the cash position at
-	// the start of the year. They are added to the in-year transaction movement to produce
-	// the year-end position for bank, cash, and momo accounts.
-	openingBalances, err := loadOpeningBalanceMap(year)
-	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("load opening balances for %d: %w", year, err)
-	}
-
-	// I split liquid assets from the other current assets because bank, cash, and momo are the
-	// only accounts that combine opening balances with in-year movement.
-	currentAssetTotals, err := loadTopLevelPositions("asset", categoryDefNames(currentDefs), yearStart, yearEnd)
+	currentAssetTotals, err := loadTopLevelPeriodSums("asset", categoryDefNames(currentDefs), yearStart, yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load current asset totals for %d: %w", year, err)
 	}
-	// Liquid accounts sum only transactions within the current year, because the opening
-	// balance already captures the position from prior periods.
-	cashAssetTotals, err := loadDirectCategorySums("asset", []string{"Bank", "Cash", "Momo"}, yearStart, yearEnd)
-	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("load liquid asset totals for %d: %w", year, err)
-	}
-
-	currentAssets := map[string]float64{}
-	for _, item := range currentDefs {
-		switch item.Name {
-		case "Bank":
-			currentAssets[item.Name] = cashAssetTotals["Bank"] + openingBalances["bank"]
-		case "Cash":
-			currentAssets[item.Name] = cashAssetTotals["Cash"] + openingBalances["cash"]
-		case "Momo":
-			currentAssets[item.Name] = cashAssetTotals["Momo"] + openingBalances["momo"]
-		default:
-			currentAssets[item.Name] = currentAssetTotals[item.Name]
-		}
-	}
-
-	// Liabilities are cumulative up to year-end, following the same pattern as non-current
-	// assets. They represent obligations that persist across periods.
-	longTermLiabilityTotals, err := loadTopLevelPositions("liability", categoryDefNames(longTermLiabilityDefs), yearStart, yearEnd)
+	longTermLiabilityTotals, err := loadTopLevelPeriodSums("liability", categoryDefNames(longTermLiabilityDefs), yearStart, yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load long-term liabilities for %d: %w", year, err)
 	}
-	currentLiabilityTotals, err := loadTopLevelPositions("liability", categoryDefNames(currentLiabilityDefs), yearStart, yearEnd)
+	currentLiabilityTotals, err := loadTopLevelPeriodSums("liability", categoryDefNames(currentLiabilityDefs), yearStart, yearEnd)
 	if err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load current liabilities for %d: %w", year, err)
 	}
 
 	snapshot := balanceSnapshot{
 		NonCurrentAssets:    nonCurrentTotals,
-		CurrentAssets:       currentAssets,
+		CurrentAssets:       currentAssetTotals,
 		LongTermLiabilities: longTermLiabilityTotals,
 		CurrentLiabilities:  currentLiabilityTotals,
 	}
@@ -478,31 +414,16 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 		snapshot.TotalLiabilities += amount
 	}
 
-	// Income surplus is the net of all income and expenditure transactions within the
-	// reporting year. The opening fund and prior-year adjustment are independently entered
-	// in Setup, so the balance check below can expose omitted assets or liabilities instead
-	// of manufacturing a residual equity figure that always makes the statement balance.
+	// Income less expenditure is a useful selected-year summary. Net assets is displayed as
+	// assets less liabilities; it is a presentation value, not a generated ledger posting.
 	var yearlyIncome, yearlyExpense float64
 	if err := loadIncomeExpenseTotals(yearStart, yearEnd, &yearlyIncome, &yearlyExpense); err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load income surplus for %d: %w", year, err)
 	}
-	postedDepreciation, err := loadNoteMovement("expenditure", "21", yearStart, yearEnd, false)
-	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("load posted depreciation for %d: %w", year, err)
-	}
-	if postedDepreciation == 0 {
-		yearlyExpense += assetSchedule.TotalCharge
-	}
 	snapshot.IncomeSurplus = yearlyIncome - yearlyExpense
-	fund, err := loadFundRollforward(year)
-	if err != nil {
-		return balanceSnapshot{}, fmt.Errorf("load accumulated fund roll-forward for %d: %w", year, err)
-	}
-	snapshot.FundConfigured = fund.Exists
-	snapshot.PriorYearAdjustment = fund.PriorYearAdjustment
-	snapshot.AccumulatedFund = fund.OpeningBalance + fund.PriorYearAdjustment
-	snapshot.TotalEquity = snapshot.AccumulatedFund + snapshot.IncomeSurplus
-	snapshot.BalanceDifference = snapshot.TotalAssets - snapshot.TotalLiabilities - snapshot.TotalEquity
+	snapshot.TotalEquity = snapshot.TotalAssets - snapshot.TotalLiabilities
+	snapshot.AccumulatedFund = snapshot.TotalEquity - snapshot.IncomeSurplus
+	snapshot.BalanceDifference = 0
 
 	return snapshot, nil
 }

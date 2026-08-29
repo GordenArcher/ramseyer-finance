@@ -14,8 +14,8 @@ func TestInitializeAddsTransactionClassificationColumnsBeforeCreatingIndexes(t *
 		t.Fatalf("open legacy database: %v", err)
 	}
 	// This table mirrors the immediately preceding application schema: category_id and
-	// updated_at already exists, but the internal account and visible payment classification
-	// have not been introduced yet. Initialize must add both safely before normal use.
+	// updated_at already exists, but the visible payment classification has not been introduced
+	// yet. Initialize must add it safely without reviving the retired counter-account model.
 	if _, err := legacyDB.Exec(`
 		CREATE TABLE transactions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,8 +47,8 @@ func TestInitializeAddsTransactionClassificationColumnsBeforeCreatingIndexes(t *
 	if err != nil {
 		t.Fatalf("inspect migrated transaction columns: %v", err)
 	}
-	if !exists {
-		t.Fatalf("counter_category_id was not added")
+	if exists {
+		t.Fatalf("counter_category_id was added to the simplified transaction model")
 	}
 	paymentMethodExists, err := columnExists("transactions", "payment_method")
 	if err != nil {
@@ -56,16 +56,6 @@ func TestInitializeAddsTransactionClassificationColumnsBeforeCreatingIndexes(t *
 	}
 	if !paymentMethodExists {
 		t.Fatalf("payment_method was not added")
-	}
-	var indexCount int
-	if err := DB.QueryRow(`
-		SELECT COUNT(*) FROM sqlite_master
-		WHERE type = 'index' AND name = 'idx_transactions_counter_category_id_date'
-	`).Scan(&indexCount); err != nil {
-		t.Fatalf("inspect counterpart index: %v", err)
-	}
-	if indexCount != 1 {
-		t.Fatalf("counterpart index count = %d, want 1", indexCount)
 	}
 }
 
@@ -95,6 +85,50 @@ func TestInitializeBackfillsLegacyTransactionCategoryIDs(t *testing.T) {
 	}
 	if categoryID == 0 {
 		t.Fatalf("category ID was not backfilled")
+	}
+}
+
+func TestInitializeRemovesLegacyCounterWithoutChangingEnteredAmount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "counter-model.db")
+	if err := Initialize(path); err != nil {
+		t.Fatalf("initialize database: %v", err)
+	}
+	if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN counter_category_id INTEGER"); err != nil {
+		t.Fatalf("add legacy counter column: %v", err)
+	}
+	var offeringID, cashID int64
+	if err := DB.QueryRow("SELECT id FROM categories WHERE type = 'income' AND name = 'Adult Service Offertory'").Scan(&offeringID); err != nil {
+		t.Fatalf("load offering category: %v", err)
+	}
+	if err := DB.QueryRow("SELECT id FROM categories WHERE type = 'asset' AND name = 'Cash on hand'").Scan(&cashID); err != nil {
+		t.Fatalf("load cash category: %v", err)
+	}
+	if _, err := DB.Exec(`
+		INSERT INTO transactions (date, type, category, category_id, counter_category_id, payment_method, amount)
+		VALUES ('2026-01-04', 'income', 'Adult Service Offertory', ?, ?, 'cash', 3000)
+	`, offeringID, cashID); err != nil {
+		t.Fatalf("insert legacy paired transaction: %v", err)
+	}
+	Close()
+
+	if err := Initialize(path); err != nil {
+		t.Fatalf("reinitialize migrated database: %v", err)
+	}
+	t.Cleanup(Close)
+	var counterID sql.NullInt64
+	if err := DB.QueryRow("SELECT counter_category_id FROM transactions").Scan(&counterID); err != nil {
+		t.Fatalf("load migrated counter: %v", err)
+	}
+	if counterID.Valid {
+		t.Fatalf("legacy counter remained linked to category %d", counterID.Int64)
+	}
+	var postingCount int
+	var postingAmount float64
+	if err := DB.QueryRow("SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM financial_postings").Scan(&postingCount, &postingAmount); err != nil {
+		t.Fatalf("load migrated financial postings: %v", err)
+	}
+	if postingCount != 1 || postingAmount != 3000 {
+		t.Fatalf("migrated postings = count %d amount %.2f, want one posting of 3000", postingCount, postingAmount)
 	}
 }
 

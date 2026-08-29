@@ -361,14 +361,6 @@ func buildAnnualData(year int) (AnnualData, error) {
 		PriorYear: fmt.Sprintf("%d", year-1),
 		Years:     years,
 	}
-	trialBalance, err := buildTrialBalanceData(year)
-	if err != nil {
-		return AnnualData{}, fmt.Errorf("load annual Trial Balance control: %w", err)
-	}
-	if absFloat(trialBalance.Difference) > 0.005 {
-		data.Warnings = append(data.Warnings, fmt.Sprintf("The %d Trial Balance is out by GH¢ %.2f; correct it before finalising this statement.", year, absFloat(trialBalance.Difference)))
-	}
-
 	data.IncomeLines, data.TotalIncome, data.TotalPriorIncome, err = loadAnnualLines(year, "income")
 	if err != nil {
 		return AnnualData{}, fmt.Errorf("load annual income lines: %w", err)
@@ -388,45 +380,6 @@ func buildAnnualData(year int) (AnnualData, error) {
 	if err != nil {
 		return AnnualData{}, fmt.Errorf("load annual expenditure lines: %w", err)
 	}
-	// The PCG statement presents harvest proceeds net of harvest expenses. I keep the
-	// underlying postings in their natural income and expenditure types for monthly and
-	// operational reporting, then perform the presentation reclassification here. Removing
-	// the same amount from income and expenditure preserves the year's surplus while making
-	// both the statement line and Note 5 agree with the workbook.
-	var harvestExpense LineRow
-	filteredExpenses := data.ExpenseLines[:0]
-	for _, line := range data.ExpenseLines {
-		if line.Name == "Harvest Expenses" {
-			harvestExpense = line
-			continue
-		}
-		filteredExpenses = append(filteredExpenses, line)
-	}
-	data.ExpenseLines = filteredExpenses
-	if harvestExpense.Name != "" {
-		for index := range data.IncomeLines {
-			if data.IncomeLines[index].Name != "Harvest Proceeds" {
-				continue
-			}
-			data.IncomeLines[index].Name = "Harvest Proceeds (Net)"
-			data.IncomeLines[index].Amount -= harvestExpense.Amount
-			data.IncomeLines[index].PriorAmount -= harvestExpense.PriorAmount
-			data.IncomeLines[index].Budget -= harvestExpense.Budget
-			data.IncomeLines[index].Variance = data.IncomeLines[index].Amount - data.IncomeLines[index].Budget
-			break
-		}
-		data.TotalIncome -= harvestExpense.Amount
-		data.TotalPriorIncome -= harvestExpense.PriorAmount
-		data.TotalExpense -= harvestExpense.Amount
-		data.TotalPriorExpense -= harvestExpense.PriorAmount
-	}
-	for index := range data.IncomeLines {
-		if data.IncomeLines[index].IsTotal {
-			data.IncomeLines[index].Amount = data.TotalIncome
-			data.IncomeLines[index].PriorAmount = data.TotalPriorIncome
-			break
-		}
-	}
 	data.ExpenseLines = append(data.ExpenseLines, LineRow{
 		Name:        "TOTAL EXPENDITURE",
 		Amount:      data.TotalExpense,
@@ -437,17 +390,6 @@ func buildAnnualData(year int) (AnnualData, error) {
 
 	data.Surplus = data.TotalIncome - data.TotalExpense
 	data.PriorSurplus = data.TotalPriorIncome - data.TotalPriorExpense
-	// The opening fund is the calculated prior net-asset position already included in the
-	// read-only Trial Balance. Reading that derived line keeps the roll-forward tied to dated
-	// entries without reintroducing an editable fund table.
-	for _, line := range trialBalance.Lines {
-		if line.AccountType == "equity" {
-			data.OpeningFund += line.Amount
-		}
-	}
-	data.FundConfigured = data.OpeningFund != 0
-	data.AdjustedFund = data.OpeningFund
-	data.ClosingFund = data.AdjustedFund + data.Surplus
 	// The annual comparison chart uses paired bars for the current and prior year,
 	// grouped by the three key metrics: income, expenditure, and surplus. The prior
 	// year uses a muted grey to push visual focus toward the current year's results.
@@ -553,8 +495,8 @@ func loadMonthlyTotals(year int) (map[int]amountTotals, error) {
 // returns the ordered line items, the total of all current-year amounts, and the total of
 // all prior-year amounts.
 func loadAnnualLines(year int, categoryType string) ([]LineRow, float64, float64, error) {
-	// The statement groups calculated postings by the workbook's note organization. Note 5's
-	// harvest expense remains the one cross-type exception and reduces harvest income.
+	// The statement groups each transaction type independently by the workbook's note labels.
+	// It never moves or nets a saved amount into another type.
 	type totals struct{ current, prior, budget float64 }
 	byNote := map[string]totals{}
 	for _, period := range []struct {
@@ -563,26 +505,22 @@ func loadAnnualLines(year int, categoryType string) ([]LineRow, float64, float64
 	}{{year, true}, {year - 1, false}} {
 		startDate, endDate := yearBounds(period.year)
 		rows, err := db.DB.Query(`
-			SELECT posting.account_type, category.note_ref, COALESCE(SUM(posting.amount), 0)
+			SELECT category.note_ref, COALESCE(SUM(posting.amount), 0)
 			FROM financial_postings posting
 			JOIN categories category ON category.id = posting.category_id
-			WHERE posting.date >= ? AND posting.date < ? AND category.note_ref <> ''
-				AND ((? = 'income' AND (posting.account_type = 'income' OR (posting.account_type = 'expenditure' AND category.note_ref = '5')))
-					OR (? = 'expenditure' AND posting.account_type = 'expenditure' AND category.note_ref <> '5'))
-			GROUP BY posting.account_type, category.note_ref
-		`, startDate, endDate, categoryType, categoryType)
+			WHERE posting.date >= ? AND posting.date < ?
+				AND posting.account_type = ? AND category.note_ref <> ''
+			GROUP BY category.note_ref
+		`, startDate, endDate, categoryType)
 		if err != nil {
 			return nil, 0, 0, err
 		}
 		for rows.Next() {
-			var accountType, note string
+			var note string
 			var amount float64
-			if err := rows.Scan(&accountType, &note, &amount); err != nil {
+			if err := rows.Scan(&note, &amount); err != nil {
 				rows.Close()
 				return nil, 0, 0, err
-			}
-			if categoryType == "income" && accountType == "expenditure" {
-				amount = -amount
 			}
 			item := byNote[note]
 			if period.current {

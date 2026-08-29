@@ -106,9 +106,8 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 	}
 
 	// I query both current and prior periods in one pass so each note line is assembled once with
-	// both comparative values attached. Income and expenditure are period flows, while asset and
-	// liability notes are year-end balances, so the CASE expressions deliberately use different
-	// date boundaries for those two accounting behaviours.
+	// both comparative values attached. Every category type follows the same dated-year rule;
+	// assets and liabilities are not silently carried into a year with no matching transaction.
 	// The query uses conditional aggregation (SUM with CASE WHEN) to compute current-year
 	// and prior-year totals in the same row, avoiding a separate query or JOIN for the
 	// prior period. The date range for the LEFT JOIN covers the full two-year span
@@ -124,13 +123,11 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 			c.parent_id,
 			c.note_ref,
 			COALESCE(SUM(CASE
-				WHEN c.type IN ('income', 'expenditure') AND t.date >= ? AND t.date < ? THEN t.amount
-				WHEN c.type IN ('asset', 'liability') AND t.date < ? THEN t.amount
+				WHEN t.date >= ? AND t.date < ? THEN t.amount
 				ELSE 0
 			END), 0),
 			COALESCE(SUM(CASE
-				WHEN c.type IN ('income', 'expenditure') AND t.date >= ? AND t.date < ? THEN t.amount
-				WHEN c.type IN ('asset', 'liability') AND t.date < ? THEN t.amount
+				WHEN t.date >= ? AND t.date < ? THEN t.amount
 				ELSE 0
 			END), 0)
 		FROM categories c
@@ -146,7 +143,7 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 			CAST(c.note_ref AS INTEGER),
 			c.parent_id,
 			c.id
-	`, startDate, endDate, endDate, priorStartDate, priorEndDate, priorEndDate, priorStartDate, endDate)
+	`, startDate, endDate, priorStartDate, priorEndDate, priorStartDate, endDate)
 	if err != nil {
 		return NotesData{}, fmt.Errorf("query note categories: %w", err)
 	}
@@ -180,19 +177,7 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 	if err := rows.Err(); err != nil {
 		return NotesData{}, fmt.Errorf("iterate note categories: %w", err)
 	}
-	currentPositions, err := loadCategoryPositions(year)
-	if err != nil {
-		return NotesData{}, fmt.Errorf("load current note account positions: %w", err)
-	}
-	priorPositions, err := loadCategoryPositions(year - 1)
-	if err != nil {
-		return NotesData{}, fmt.Errorf("load prior note account positions: %w", err)
-	}
 	for index := range categories {
-		if categories[index].Type == "asset" || categories[index].Type == "liability" {
-			categories[index].Amount = currentPositions[categories[index].ID]
-			categories[index].PriorAmount = priorPositions[categories[index].ID]
-		}
 		if categories[index].ParentID > 0 {
 			childrenByParent[categories[index].ParentID] = append(childrenByParent[categories[index].ParentID], categories[index])
 		}
@@ -241,26 +226,15 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 		// in at least one of the two periods. Categories with zero in both periods
 		// are hidden to keep the notes concise—the section still exists because it
 		// may have active children, but the parent line is omitted.
-		amountSign := 1.0
-		if category.Type == "expenditure" && category.NoteRef == "5" {
-			// Harvest proceeds are presented net in the workbook. The underlying expense stays
-			// an expenditure posting for operational reports, but Note 5 displays it as a
-			// deduction so its total reconciles to the statement line.
-			amountSign = -1
-		}
 		if category.Amount != 0 || category.PriorAmount != 0 {
-			lineName := category.Name
-			if amountSign < 0 {
-				lineName = "Deduct: " + lineName
-			}
 			section.Lines = append(section.Lines, NoteLine{
-				Name:        lineName,
-				Amount:      category.Amount * amountSign,
-				PriorAmount: category.PriorAmount * amountSign,
+				Name:        category.Name,
+				Amount:      category.Amount,
+				PriorAmount: category.PriorAmount,
 			})
 		}
-		section.Total += category.Amount * amountSign
-		section.PriorTotal += category.PriorAmount * amountSign
+		section.Total += category.Amount
+		section.PriorTotal += category.PriorAmount
 
 		// Append all child categories that belong to this parent. Children with zero
 		// activity in both periods are skipped to avoid cluttering the report with
@@ -272,17 +246,13 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 			}
 			section.Lines = append(section.Lines, NoteLine{
 				Name:        child.Name,
-				Amount:      child.Amount * amountSign,
-				PriorAmount: child.PriorAmount * amountSign,
+				Amount:      child.Amount,
+				PriorAmount: child.PriorAmount,
 			})
-			section.Total += child.Amount * amountSign
-			section.PriorTotal += child.PriorAmount * amountSign
+			section.Total += child.Amount
+			section.PriorTotal += child.PriorAmount
 		}
 	}
-	if err := applyFixedAssetSchedulesToNotes(year, sections); err != nil {
-		return NotesData{}, fmt.Errorf("apply dated fixed-asset schedules to notes: %w", err)
-	}
-
 	// Transfer the ordered sections into the data struct. Using sectionOrder ensures
 	// the report displays sections in the intended sequence (income note_refs 1–9,
 	// then expenditure note_refs 10–12) regardless of map iteration order.
@@ -293,21 +263,22 @@ func buildCalculatedNotesData(year int) (NotesData, error) {
 	return data, nil
 }
 
-// loadCategoryPositions calculates asset and liability balances from the same dated posting
-// stream as the Trial Balance. Positions accumulate through the selected year end; no Setup
-// table can override them, which keeps Transaction Entry as the only financial source.
+// loadCategoryPositions calculates asset and liability totals from transactions dated within
+// the selected year. This shared helper is intentionally period-scoped so a later report cannot
+// display an amount merely because a different year contains a transaction.
 func loadCategoryPositions(year int) (map[int64]float64, error) {
-	_, endDate := yearBounds(year)
+	startDate, endDate := yearBounds(year)
 	rows, err := db.DB.Query(`
 		SELECT c.id, COALESCE(SUM(posting.amount), 0)
 		FROM categories c
 		LEFT JOIN financial_postings posting
 			ON posting.category_id = c.id
 			AND posting.account_type = c.type
+			AND posting.date >= ?
 			AND posting.date < ?
 		WHERE c.type IN ('asset', 'liability')
 		GROUP BY c.id
-	`, endDate)
+	`, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +311,7 @@ func noteTitle(noteRef, fallback string) string {
 	titles := map[string]string{
 		"3":  "Tithes",
 		"4":  "Offerings",
-		"5":  "Harvest Proceeds (Net)",
+		"5":  "Harvest Proceeds and Expenses",
 		"6":  "Donations Received",
 		"7":  "Investment Income",
 		"8":  "Other Income",

@@ -43,6 +43,7 @@ type DashboardData struct {
 	BankBalance       float64
 	MomoBalance       float64
 	CashBalance       float64
+	ChequeBalance     float64
 	IncomeCats        []CatOption
 	ExpenseCats       []CatOption
 	AssetCats         []CatOption
@@ -85,8 +86,8 @@ func Dashboard(w http.ResponseWriter, r *http.Request) {
 // the provided parameters. It loads all four category type lists for the transaction entry
 // modals, computes monthly and yearly income/expense/surplus totals using the same shared
 // helpers that power the report pages (ensuring mathematical consistency between the
-// dashboard summary and the full financial statements), calculates liquid account balances
-// by combining opening balances with in-year transaction movements up to today, fetches
+// dashboard summary and the full financial statements), calculates the selected year's totals
+// grouped by payment-method flag, fetches
 // the ten most recent transactions for the activity feed, and builds the twelve-month
 // income-vs-expense chart with a surplus trend line. The function is parameterised with
 // the current time rather than calling time.Now() internally so it can be tested with
@@ -159,35 +160,23 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	}
 	data.DailyNetIncome = data.DailyIncome - data.DailyExpense
 
-	// The balance cutoff is tomorrow (now + 1 day) so that transactions dated today are
-	// included in the balance display. Using "<" with tomorrow's date effectively means
-	// "<= today" while keeping the query compatible with the exclusive upper bound pattern
-	// used consistently across all report queries.
+	// Payment method is only a label on a transaction. These dashboard cards group the same
+	// saved amounts by that label; they do not create asset accounts or subtract from anything.
 	balanceCutoff := now.AddDate(0, 0, 1).Format("2006-01-02")
 	rows, err := db.DB.Query(`
-		SELECT CASE
-			WHEN c.name IN ('Cash on hand', 'Petty Cash', 'Cash') THEN 'Cash'
-			WHEN c.name = 'Momo' THEN 'Momo'
-			ELSE 'Bank'
-		END AS balance_group,
-		COALESCE(SUM(posting.amount), 0)
-		FROM categories c
-		LEFT JOIN financial_postings posting
-			ON posting.category_id = c.id
-			AND posting.account_type = 'asset'
-			AND posting.date < ?
-		WHERE c.type = 'asset' AND c.note_ref = '26'
-		GROUP BY balance_group
-		ORDER BY balance_group
-	`, balanceCutoff)
+		SELECT COALESCE(NULLIF(payment_method, ''), 'cash'), COALESCE(SUM(amount), 0)
+		FROM transactions
+		WHERE date >= ? AND date < ?
+		GROUP BY COALESCE(NULLIF(payment_method, ''), 'cash')
+		ORDER BY payment_method
+	`, yearStart, balanceCutoff)
 	if err != nil {
 		return DashboardData{}, fmt.Errorf("query account balances: %w", err)
 	}
 	defer rows.Close()
 
-	// Map the workbook's detailed Note 26 accounts into the three compact dashboard cards.
-	// The underlying statements retain every individual account; this grouping is presentation
-	// only and never creates another saved balance.
+	// Mapping is deliberately presentation-only. The transaction's amount remains attached to
+	// its chosen financial category, while this flag answers how it was received or paid.
 	for rows.Next() {
 		var name string
 		var amount float64
@@ -195,12 +184,14 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 			return DashboardData{}, fmt.Errorf("scan account balance: %w", err)
 		}
 		switch name {
-		case "Bank":
+		case "bank":
 			data.BankBalance = amount
-		case "Cash":
+		case "cash":
 			data.CashBalance = amount
-		case "Momo":
+		case "momo":
 			data.MomoBalance = amount
+		case "cheque":
+			data.ChequeBalance = amount
 		}
 	}
 	if err := rows.Err(); err != nil {

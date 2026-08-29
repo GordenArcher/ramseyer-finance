@@ -25,12 +25,7 @@
     <div><strong>Notes and statements</strong><span>All fetch the same calculated amounts</span></div>
 </div>
 
-<div class="alert alert-info">
-    Debit and credit are internal control sides, not two copies of the church's money. Assets and expenditure normally appear under Debit; income and liabilities normally appear under Credit. When both control totals agree, the Trial Balance is balanced.
-</div>
-
-{{if gt .UnpairedCount 0}}<div class="alert alert-warning">{{.UnpairedCount}} older entr{{if eq .UnpairedCount 1}}y could{{else}}ies could{{end}} not be assigned a payment method automatically. Edit {{if eq .UnpairedCount 1}}it{{else}}them{{end}} in the Transaction Register.</div>{{end}}
-{{if ne .Difference 0.0}}<div class="alert alert-warning">The calculated Trial Balance differs by GH¢ {{formatMoney (abs .Difference)}}. Review the dated source entries in the Transaction Register; no value can be edited on this page.</div>{{end}}
+<div class="alert alert-info">Each figure below is the sum of transactions dated within {{.Year}}. Payment methods are labels only and do not add or subtract another amount.</div>
 
 <div class="trial-balance-groups reveal">
     {{range .Groups}}
@@ -47,14 +42,12 @@
         </div>
         <div class="table-scroll">
             <table class="data-table trial-balance-entry-table">
-                <thead><tr><th>Account</th><th>Normal side</th><th class="text-right">Debit (GH¢)</th><th class="text-right">Credit (GH¢)</th></tr></thead>
+                <thead><tr><th>Account</th><th class="text-right">{{$.Year}} total (GH¢)</th></tr></thead>
                 <tbody>
                     {{range .Lines}}
                     <tr>
                         <td><strong>{{.Account}}</strong></td>
-                        <td><span class="balance-side">{{.NormalSide}}</span></td>
-                        <td class="text-right">{{if ne .Debit 0.0}}{{formatMoney .Debit}}{{else}}-{{end}}</td>
-                        <td class="text-right">{{if ne .Credit 0.0}}{{formatMoney .Credit}}{{else}}-{{end}}</td>
+                        <td class="text-right">{{formatMoney .Amount}}</td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -65,9 +58,10 @@
 </div>
 
 <div class="card trial-balance-control reveal">
-    <div><span>Debit-side control total</span><strong>GH¢ {{formatMoney .TotalDebit}}</strong></div>
-    <div><span>Credit-side control total</span><strong>GH¢ {{formatMoney .TotalCredit}}</strong></div>
-    <div class="{{if ne .Difference 0.0}}is-unbalanced{{else}}is-balanced{{end}}"><span>Control status</span><strong>{{if ne .Difference 0.0}}Out by GH¢ {{formatMoney (abs .Difference)}}{{else}}Balanced{{end}}</strong></div>
+    <div><span>Income</span><strong>GH¢ {{formatMoney .IncomeTotal}}</strong></div>
+    <div><span>Expenditure</span><strong>GH¢ {{formatMoney .ExpenditureTotal}}</strong></div>
+    <div><span>Assets</span><strong>GH¢ {{formatMoney .AssetTotal}}</strong></div>
+    <div><span>Liabilities</span><strong>GH¢ {{formatMoney .LiabilityTotal}}</strong></div>
     <a href="/transactions?year={{.Year}}" class="btn btn-secondary" data-nav-loading>Review Source Entries</a>
 </div>
 {{end}}

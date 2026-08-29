@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     type TEXT NOT NULL CHECK(type IN ('income','expenditure','asset','liability')),
     category TEXT NOT NULL,
     category_id INTEGER,
-    counter_category_id INTEGER,
     payment_method TEXT NOT NULL DEFAULT 'cash',
     subcategory TEXT DEFAULT '',
     description TEXT DEFAULT '',
@@ -15,8 +14,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     note_ref TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime')),
-    FOREIGN KEY (category_id) REFERENCES categories(id),
-    FOREIGN KEY (counter_category_id) REFERENCES categories(id)
+    FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 
 CREATE TABLE IF NOT EXISTS categories (

@@ -458,7 +458,7 @@ func loadManagedCategories(page, pageSize int, filters categoryFilters) ([]Manag
 			COALESCE(c.note_ref, ''),
 			COALESCE(c.report_section, ''),
 			COALESCE(c.is_active, 1),
-			(SELECT COUNT(*) FROM transactions t WHERE t.category_id = c.id OR t.counter_category_id = c.id),
+			(SELECT COUNT(*) FROM transactions t WHERE t.category_id = c.id),
 			(SELECT COUNT(*) FROM budgets b WHERE b.category_id = c.id)
 		FROM categories c
 		LEFT JOIN categories parent ON parent.id = c.parent_id
@@ -596,7 +596,7 @@ func loadManagedCategory(categoryID int64) (ManagedCategory, error) {
 			COALESCE(c.note_ref, ''),
 			COALESCE(c.report_section, ''),
 			COALESCE(c.is_active, 1),
-			(SELECT COUNT(*) FROM transactions t WHERE t.category_id = c.id OR t.counter_category_id = c.id),
+			(SELECT COUNT(*) FROM transactions t WHERE t.category_id = c.id),
 			(SELECT COUNT(*) FROM budgets b WHERE b.category_id = c.id)
 		FROM categories c
 		LEFT JOIN categories parent ON parent.id = c.parent_id
@@ -628,16 +628,14 @@ func loadCategoryUsageSummary(category ManagedCategory) (categoryUsageSummary, e
 		SELECT
 			(SELECT COUNT(*) FROM transactions
 				WHERE category_id = c.id
-					OR counter_category_id = c.id
-					OR (? = 0 AND category_id IN (SELECT id FROM categories WHERE parent_id = c.id))
-					OR (? = 0 AND counter_category_id IN (SELECT id FROM categories WHERE parent_id = c.id))),
+					OR (? = 0 AND category_id IN (SELECT id FROM categories WHERE parent_id = c.id))),
 			(SELECT COUNT(*) FROM budgets WHERE category_id = c.id OR (? = 0 AND category_id IN (SELECT id FROM categories WHERE parent_id = c.id)))
 		FROM categories c
 		WHERE c.id = ?
 	`
 
 	var summary categoryUsageSummary
-	if err := db.DB.QueryRow(query, category.ParentID, category.ParentID, category.ParentID, category.ID).Scan(&summary.TransactionCount, &summary.BudgetCount); err != nil {
+	if err := db.DB.QueryRow(query, category.ParentID, category.ParentID, category.ID).Scan(&summary.TransactionCount, &summary.BudgetCount); err != nil {
 		return categoryUsageSummary{}, fmt.Errorf("load category usage summary: %w", err)
 	}
 	return summary, nil

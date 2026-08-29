@@ -91,8 +91,8 @@ func TestCalculatedReportsIgnoreRetiredOpeningBalanceTables(t *testing.T) {
 	if data.MonthExpense != 90 {
 		t.Fatalf("month expense = %v, want 90", data.MonthExpense)
 	}
-	if data.BankBalance != 25 {
-		t.Fatalf("bank balance = %v, want transaction-derived 25", data.BankBalance)
+	if data.BankBalance != 0 || data.CashBalance != 415 {
+		t.Fatalf("payment method totals = bank %.2f cash %.2f, want bank 0 and cash 415", data.BankBalance, data.CashBalance)
 	}
 
 	balanceData, err := buildBalanceData(2026)
@@ -173,8 +173,8 @@ func TestBuildBalanceDataUsesYearEndLogic(t *testing.T) {
 		t.Fatalf("build balance data: %v", err)
 	}
 
-	if amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents") != 120 {
-		t.Fatalf("cash amount = %v, want 120", amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents"))
+	if amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents") != 0 {
+		t.Fatalf("cash amount = %v, want 0 without an explicit cash category transaction", amountForBalanceLine(data.CurrentAssets, "Cash & Cash Equivalents"))
 	}
 	if amountForBalanceLine(data.CurrentAssets, "Accounts Receivable & Prepayments") != 0 {
 		t.Fatalf("receivables amount = %v, want 0", amountForBalanceLine(data.CurrentAssets, "Accounts Receivable & Prepayments"))
@@ -194,11 +194,11 @@ func TestBuildBalanceDataUsesYearEndLogic(t *testing.T) {
 	if data.PriorIncomeSurplus != 0 {
 		t.Fatalf("prior income surplus = %v, want 0", data.PriorIncomeSurplus)
 	}
-	if data.TotalEquity != 120 {
-		t.Fatalf("total equity = %v, want 120", data.TotalEquity)
+	if data.TotalEquity != 0 {
+		t.Fatalf("net assets = %v, want 0 without an asset or liability transaction", data.TotalEquity)
 	}
 	if data.AccumulatedFund != 0 {
-		t.Fatalf("accumulated fund = %v, want 0", data.AccumulatedFund)
+		t.Fatalf("accumulated fund = %v, want 0 because the app does not manufacture it", data.AccumulatedFund)
 	}
 	if data.BalanceDifference != 0 {
 		t.Fatalf("balance difference = %v, want 0", data.BalanceDifference)
@@ -405,7 +405,7 @@ func TestArchiveUsedCategoryShowsSpecificMessage(t *testing.T) {
 	}
 }
 
-func TestArchiveCategoryUsedAsCorrespondingAccountIsBlocked(t *testing.T) {
+func TestFormerCorrespondingAccountIsNotLinkedToTransaction(t *testing.T) {
 	setupTestDB(t)
 
 	offeringsID := categoryID(t, "income", "Offerings")
@@ -424,8 +424,8 @@ func TestArchiveCategoryUsedAsCorrespondingAccountIsBlocked(t *testing.T) {
 	if recorder.Code != http.StatusSeeOther {
 		t.Fatalf("archive corresponding account status = %d, want %d", recorder.Code, http.StatusSeeOther)
 	}
-	if location := recorder.Header().Get("Location"); !strings.Contains(location, "already+in+use+by+1+transaction") {
-		t.Fatalf("archive corresponding account redirect = %q, want specific usage message", location)
+	if location := recorder.Header().Get("Location"); !strings.Contains(location, "Category+archived") {
+		t.Fatalf("archive category redirect = %q, want archive confirmation", location)
 	}
 }
 
@@ -604,9 +604,9 @@ func TestWorkbookStatementPagesRender(t *testing.T) {
 	}{
 		{name: "financial performance", path: "/annual?year=2026", handler: AnnualReport, heading: "Statement of Financial Performance", marker: `data-page-tab-target="annual-expenditure-panel"`},
 		{name: "financial position", path: "/balance-sheet?year=2026", handler: BalanceSheet, heading: "Statement of Financial Position", marker: `data-page-tab-target="balance-liabilities-panel"`},
-		{name: "trial balance", path: "/trial-balance?year=2026", handler: TrialBalance, heading: "Trial Balance", marker: "Debit and credit are internal control sides"},
+		{name: "trial balance", path: "/trial-balance?year=2026", handler: TrialBalance, heading: "Trial Balance", marker: "sum of transactions dated within"},
 		{name: "cash flow", path: "/cash-flow?year=2026", handler: CashFlowStatement, heading: "Statement of Cash Flows"},
-		{name: "fixed assets", path: "/fixed-assets?year=2026", handler: FixedAssetSchedule, heading: "Non-Current Assets Schedule"},
+		{name: "fixed assets", path: "/fixed-assets?year=2026", handler: FixedAssetSchedule, heading: "Property, Plant &amp; Equipment"},
 		{name: "notes", path: "/notes?year=2026", handler: NotesPage, heading: "Notes to the Financial Statements", marker: `aria-label="Financial statement notes"`},
 	}
 
@@ -659,7 +659,7 @@ func TestSetupAndRegisterUseTheFocusedOperationalLayout(t *testing.T) {
 	}
 }
 
-func TestFixedAssetScheduleUsesWorkbookRatesAndDatedEntries(t *testing.T) {
+func TestFixedAssetScheduleAddsOnlySelectedYearDatedEntries(t *testing.T) {
 	setupTestDB(t)
 
 	buildingID := categoryID(t, "asset", "Buildings - Chapel")
@@ -676,18 +676,18 @@ func TestFixedAssetScheduleUsesWorkbookRatesAndDatedEntries(t *testing.T) {
 			break
 		}
 	}
-	if building.Rate != 0.02 || building.OpeningCost != 0 || building.Additions != 500 {
+	if building.Additions != 500 || building.Disposals != 0 {
 		t.Fatalf("building schedule inputs = %#v", building)
 	}
-	if building.Charge != 10 || building.ClosingAccumulatedDep != 10 || building.CarryingAmount != 490 {
+	if building.YearTotal != 500 {
 		t.Fatalf("building schedule results = %#v", building)
 	}
 	trialBalance, err := buildTrialBalanceData(2026)
 	if err != nil {
 		t.Fatalf("build fixed-asset trial balance: %v", err)
 	}
-	if trialBalance.Difference != 0 {
-		t.Fatalf("fixed-asset trial-balance difference = %v, want 0", trialBalance.Difference)
+	if trialBalance.AssetTotal != 500 {
+		t.Fatalf("fixed-asset trial-balance total = %v, want 500", trialBalance.AssetTotal)
 	}
 }
 
@@ -702,8 +702,8 @@ func TestNote21UsesTheSelectedYearsFixedAssetSchedule(t *testing.T) {
 		t.Fatalf("build 2026 notes: %v", err)
 	}
 	assets2026 := noteSectionByNumberAndType(t, notes2026.Notes, "21", "asset")
-	if amount := amountForNoteLine(assets2026.Lines, "Buildings - Chapel"); amount != 490 {
-		t.Fatalf("2026 Note 21 building carrying amount = %.2f, want 490", amount)
+	if amount := amountForNoteLine(assets2026.Lines, "Buildings - Chapel"); amount != 500 {
+		t.Fatalf("2026 Note 21 building total = %.2f, want 500", amount)
 	}
 	if prior := priorAmountForNoteLine(assets2026.Lines, "Buildings - Chapel"); prior != 0 {
 		t.Fatalf("2026 Note 21 prior building amount = %.2f, want 0", prior)
@@ -714,15 +714,61 @@ func TestNote21UsesTheSelectedYearsFixedAssetSchedule(t *testing.T) {
 		t.Fatalf("build 2027 notes: %v", err)
 	}
 	assets2027 := noteSectionByNumberAndType(t, notes2027.Notes, "21", "asset")
-	if amount := amountForNoteLine(assets2027.Lines, "Buildings - Chapel"); amount != 480 {
-		t.Fatalf("2027 Note 21 building carrying amount = %.2f, want 480", amount)
+	if amount := amountForNoteLine(assets2027.Lines, "Buildings - Chapel"); amount != 0 {
+		t.Fatalf("2027 Note 21 building total = %.2f, want 0", amount)
 	}
-	if prior := priorAmountForNoteLine(assets2027.Lines, "Buildings - Chapel"); prior != 490 {
-		t.Fatalf("2027 Note 21 prior building amount = %.2f, want 490", prior)
+	if prior := priorAmountForNoteLine(assets2027.Lines, "Buildings - Chapel"); prior != 500 {
+		t.Fatalf("2027 Note 21 prior building amount = %.2f, want 500", prior)
 	}
 }
 
-func TestCashFlowUsesDatedEntriesAndReconciles(t *testing.T) {
+func TestSoftwareTransactionRemainsFullAmountWithoutCashDeductionOrAmortization(t *testing.T) {
+	setupTestDB(t)
+	softwareID := categoryID(t, "asset", "Software")
+	insertTransaction(t, "2026-08-29", "asset", "Software", softwareID, 15000)
+
+	notes, err := buildNotesData(2026)
+	if err != nil {
+		t.Fatalf("build notes: %v", err)
+	}
+	softwareNote := noteSectionByNumberAndType(t, notes.Notes, "23", "asset")
+	if amount := amountForNoteLine(softwareNote.Lines, "Software"); amount != 15000 {
+		t.Fatalf("Note 23 software amount = %.2f, want 15000", amount)
+	}
+
+	balance, err := buildBalanceData(2026)
+	if err != nil {
+		t.Fatalf("build balance sheet: %v", err)
+	}
+	if amount := amountForBalanceLine(balance.NonCurrentAssets, "Intangible Assets"); amount != 15000 {
+		t.Fatalf("non-current intangible assets = %.2f, want 15000", amount)
+	}
+	if amount := amountForBalanceLine(balance.CurrentAssets, "Cash & Cash Equivalents"); amount != 0 {
+		t.Fatalf("cash and cash equivalents = %.2f, want 0 without a separate cash entry", amount)
+	}
+	if balance.TotalAssets != 15000 || balance.TotalEquity != 15000 {
+		t.Fatalf("balance totals = assets %.2f net assets %.2f, want 15000 and 15000", balance.TotalAssets, balance.TotalEquity)
+	}
+
+	fixedAssets, err := buildFixedAssetData(2026)
+	if err != nil {
+		t.Fatalf("build Note 21 schedule: %v", err)
+	}
+	for _, line := range fixedAssets.Lines {
+		if line.Name == "Software" {
+			t.Fatalf("Software was incorrectly included in Note 21 instead of Note 23")
+		}
+	}
+	cashFlow, err := buildCashFlowData(2026)
+	if err != nil {
+		t.Fatalf("build cash-flow review: %v", err)
+	}
+	if cashFlow.IntangibleAssetEntries != 15000 || cashFlow.AssetEntries != 15000 || cashFlow.IncomeLessExpenditure != 0 {
+		t.Fatalf("cash-flow review inferred a deduction from Software: %#v", cashFlow)
+	}
+}
+
+func TestCashFlowUsesDatedEntriesWithoutSyntheticCashPosting(t *testing.T) {
 	setupTestDB(t)
 	bankID := categoryID(t, "asset", "Bank")
 	insertPairedTransaction(t, "2026-03-01", "income", categoryID(t, "income", "Offerings"), bankID, 80)
@@ -735,19 +781,19 @@ func TestCashFlowUsesDatedEntriesAndReconciles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build cash flow: %v", err)
 	}
-	if cashFlow.OpeningCash != 0 || cashFlow.NetOperatingCash != 70 || cashFlow.ReportedClosingCash != 70 {
-		t.Fatalf("cash-flow reconciliation inputs = %#v", cashFlow)
+	if cashFlow.IncomeEntries != 80 || cashFlow.ExpenditureEntries != 20 || cashFlow.IncomeLessExpenditure != 60 {
+		t.Fatalf("cash-flow income and expenditure totals = %#v", cashFlow)
 	}
-	if cashFlow.ReconciliationDifference != 0 {
-		t.Fatalf("cash-flow difference = %v, want 0", cashFlow.ReconciliationDifference)
+	if cashFlow.AssetEntries != -5 || cashFlow.LiabilityEntries != 5 {
+		t.Fatalf("cash-flow informational asset and liability totals = %#v", cashFlow)
 	}
 
 	trialBalance, err := buildTrialBalanceData(2026)
 	if err != nil {
 		t.Fatalf("build trial balance: %v", err)
 	}
-	if trialBalance.Difference != 0 {
-		t.Fatalf("trial-balance difference = %v, want 0", trialBalance.Difference)
+	if trialBalance.IncomeTotal != 80 || trialBalance.ExpenditureTotal != 20 || trialBalance.AssetTotal != -5 || trialBalance.LiabilityTotal != 5 {
+		t.Fatalf("trial-balance type totals = %#v", trialBalance)
 	}
 }
 

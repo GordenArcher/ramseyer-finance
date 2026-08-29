@@ -2,8 +2,8 @@
 {{define "content"}}
 {{ $selected := .Year }}
 <div class="page-header reveal">
-    <h2>Note 21 — Non-Current Assets Schedule</h2>
-    <p class="period">Property, plant, equipment and intangible assets for {{.Year}}</p>
+    <h2>Note 21 — Property, Plant &amp; Equipment</h2>
+    <p class="period">Dated property, plant and equipment transactions for {{.Year}}</p>
     <div class="year-selector">
         {{range .Years}}
         <a href="?year={{.}}" data-nav-loading class="btn btn-sm {{if eq (printf "%d" .) $selected}}btn-primary{{else}}btn-secondary{{end}}">{{.}}</a>
@@ -12,26 +12,25 @@
     <button type="button" class="btn btn-secondary" data-report-pdf="fixed-assets" data-report-year="{{.Year}}">Save PDF &amp; Open</button>
 </div>
 
+<div class="alert alert-info">This schedule totals only the property, plant and equipment transactions entered for {{.Year}}. The app does not calculate depreciation or reduce an amount automatically.</div>
+
 <div class="card table-card reveal" data-table-stage>
     <div class="table-scroll">
     <table class="data-table">
         <thead><tr>
-            <th>Asset class</th><th>Rate</th>
-            <th class="text-right">Opening cost</th><th class="text-right">Additions</th><th class="text-right">Disposals</th><th class="text-right">Closing cost</th>
-            <th class="text-right">Opening depreciation</th><th class="text-right">Charge</th><th class="text-right">Closing depreciation</th><th class="text-right">Carrying amount</th>
+            <th>Asset class</th>
+            <th class="text-right">Additions</th><th class="text-right">Disposals</th><th class="text-right">{{.Year}} total</th>
         </tr></thead>
         <tbody>
         {{range .Lines}}
         <tr>
-            <td>{{.Name}}</td><td>{{if .Rate}}{{formatPercent .Rate}}{{else}}—{{end}}</td>
-            <td class="text-right">{{formatMoney .OpeningCost}}</td><td class="text-right">{{formatMoney .Additions}}</td><td class="text-right">{{formatMoney .Disposals}}</td><td class="text-right">{{formatMoney .ClosingCost}}</td>
-            <td class="text-right">{{formatMoney .OpeningAccumulatedDep}}</td><td class="text-right">{{formatMoney .Charge}}</td><td class="text-right">{{formatMoney .ClosingAccumulatedDep}}</td><td class="text-right">{{formatMoney .CarryingAmount}}</td>
+            <td>{{.Name}}</td>
+            <td class="text-right">{{formatMoney .Additions}}</td><td class="text-right">{{formatMoney .Disposals}}</td><td class="text-right">{{formatMoney .YearTotal}}</td>
         </tr>
         {{end}}
         <tr class="total-row">
-            <td>Total</td><td></td>
-            <td class="text-right">{{formatMoney .TotalOpeningCost}}</td><td class="text-right">{{formatMoney .TotalAdditions}}</td><td class="text-right">{{formatMoney .TotalDisposals}}</td><td class="text-right">{{formatMoney .TotalClosingCost}}</td>
-            <td class="text-right">{{formatMoney .TotalOpeningAccumulatedDep}}</td><td class="text-right">{{formatMoney .TotalCharge}}</td><td class="text-right">{{formatMoney .TotalClosingAccumulatedDep}}</td><td class="text-right">{{formatMoney .TotalCarryingAmount}}</td>
+            <td>Total</td>
+            <td class="text-right">{{formatMoney .TotalAdditions}}</td><td class="text-right">{{formatMoney .TotalDisposals}}</td><td class="text-right">{{formatMoney .TotalYear}}</td>
         </tr>
         </tbody>
     </table>

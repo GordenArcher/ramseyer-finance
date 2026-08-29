@@ -21,7 +21,7 @@
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalLiabilities}}">{{formatCompactMoney .TotalLiabilities}}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Total Equity</div>
+        <div class="stat-label">Net Assets</div>
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalEquity}}">{{formatCompactMoney .TotalEquity}}</div>
     </div>
     <div class="stat-card">
@@ -30,10 +30,7 @@
     </div>
 </section>
 
-<div class="alert alert-info">This statement is calculated from dated Transaction Entries. Use the Transaction Register to correct a source entry; no balance is editable here.</div>
-{{if ne .BalanceDifference 0.0}}
-<div class="alert alert-warning">The statement is out of balance by GH¢ {{formatMoney (abs .BalanceDifference)}}. Review the dated source entries and their payment methods in the Transaction Register.</div>
-{{end}}
+<div class="alert alert-info">Every line is the total of transactions entered for the selected year. Cash, Momo, Cheque, or Bank is only a label and never changes these amounts.</div>
 
 <div class="card chart-card reveal">
     <div class="card-header">
@@ -56,7 +53,7 @@
 <div class="page-tabs reveal" role="tablist" aria-label="Balance sheet sections">
     <button type="button" class="page-tab active" role="tab" aria-selected="true" data-page-tab-target="balance-assets-panel">Assets</button>
     <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="balance-liabilities-panel">Liabilities</button>
-    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="balance-financing-panel">Financed By</button>
+    <button type="button" class="page-tab" role="tab" aria-selected="false" tabindex="-1" data-page-tab-target="balance-financing-panel">Summary</button>
 </div>
 
 <section id="balance-assets-panel" class="page-tab-panel active" role="tabpanel" data-page-tab-panel>
@@ -163,7 +160,7 @@
 
 <section id="balance-financing-panel" class="page-tab-panel" role="tabpanel" data-page-tab-panel hidden>
 <div class="card table-card reveal" data-table-stage>
-    <h3>Financed By</h3>
+    <h3>Selected-Year Summary</h3>
     <table class="data-table">
         <thead>
             <tr>
@@ -174,24 +171,14 @@
         </thead>
         <tbody>
         <tr>
-            <td>Adjusted Opening Accumulated Fund</td>
-            <td class="text-right">{{formatMoney .PriorAccumulatedFund}}</td>
-            <td class="text-right">{{formatMoney .AccumulatedFund}}</td>
-        </tr>
-        <tr>
-            <td>Income Surplus</td>
+            <td>Income less Expenditure</td>
             <td class="text-right">{{formatMoney .PriorIncomeSurplus}}</td>
             <td class="text-right">{{formatMoney .IncomeSurplus}}</td>
         </tr>
         <tr class="total-row">
-            <td>Closing Accumulated Fund / Total Equity</td>
+            <td>Net Assets (Assets less Liabilities)</td>
             <td class="text-right">{{formatMoney .PriorTotalEquity}}</td>
             <td class="text-right">{{formatMoney .TotalEquity}}</td>
-        </tr>
-        <tr>
-            <td>Statement Balance Difference</td>
-            <td class="text-right {{if ne .PriorBalanceDifference 0.0}}negative{{end}}">{{formatMoney .PriorBalanceDifference}}</td>
-            <td class="text-right {{if ne .BalanceDifference 0.0}}negative{{end}}">{{formatMoney .BalanceDifference}}</td>
         </tr>
         </tbody>
     </table>

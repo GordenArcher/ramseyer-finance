@@ -156,13 +156,6 @@ func migrateTransactions() error {
 	if err != nil {
 		return err
 	}
-	if !counterCategoryExists {
-		// This column is an internal reporting detail. Operators classify how money moved with the
-		// simpler payment_method field; the write path resolves the matching liquid account.
-		if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN counter_category_id INTEGER"); err != nil {
-			return fmt.Errorf("add counter_category_id column: %w", err)
-		}
-	}
 
 	paymentMethodExists, err := columnExists("transactions", "payment_method")
 	if err != nil {
@@ -183,6 +176,15 @@ func migrateTransactions() error {
 		END
 	`); err != nil {
 		return fmt.Errorf("normalize transaction payment methods: %w", err)
+	}
+	// Payment method is presentation metadata, not a second account. Earlier builds stored an
+	// inferred cash/bank counterpart that caused one operator-entered figure to be subtracted
+	// elsewhere. Clearing it during migration makes restored databases obey the same one-row rule
+	// as fresh records without deleting or changing the transaction the operator actually entered.
+	if counterCategoryExists {
+		if _, err := DB.Exec(`UPDATE transactions SET counter_category_id = NULL WHERE counter_category_id IS NOT NULL`); err != nil {
+			return fmt.Errorf("remove inferred transaction counterparts: %w", err)
+		}
 	}
 
 	updatedAtExists, err := columnExists("transactions", "updated_at")
@@ -218,7 +220,6 @@ func migrateTransactions() error {
 		"CREATE INDEX IF NOT EXISTS idx_transactions_type_date ON transactions(type, date)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(category_id, date)",
-		"CREATE INDEX IF NOT EXISTS idx_transactions_counter_category_id_date ON transactions(counter_category_id, date)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_updated_at ON transactions(updated_at)",
 	}
 	for _, stmt := range indexes {
@@ -230,16 +231,10 @@ func migrateTransactions() error {
 	return nil
 }
 
-// createFinancialPostingsView turns each dated entry into the two natural-balance movements
-// used by Trial Balance and every downstream statement. The transaction row remains the one
-// auditable record the operator created; the view supplies its accounting counterpart without
-// duplicating editable rows in the register.
-//
-// Amounts in this view use each account's natural sign: positive increases an account and
-// negative decreases it. When both accounts share the same natural side, the counterpart
-// reverses the entered amount. When their natural sides differ, the same signed amount balances
-// the debit and credit. Recreating the view on startup keeps the definition deterministic across
-// upgrades while preserving all transaction data.
+// createFinancialPostingsView exposes one report row for the one transaction the operator saved.
+// The view remains useful because report queries already share it, but it must never invent a
+// cash/bank deduction from the payment-method flag. Recreating it on startup also corrects older
+// databases whose previous view expanded one entry into two competing postings.
 func createFinancialPostingsView() error {
 	if _, err := DB.Exec("DROP VIEW IF EXISTS financial_postings"); err != nil {
 		return fmt.Errorf("drop previous financial postings view: %w", err)
@@ -255,25 +250,6 @@ func createFinancialPostingsView() error {
 			'primary' AS posting_role
 		FROM transactions t
 		JOIN categories primary_account ON primary_account.id = t.category_id
-
-		UNION ALL
-
-		SELECT
-			t.id AS transaction_id,
-			t.date,
-			counter_account.type AS account_type,
-			counter_account.id AS category_id,
-			CASE
-				WHEN primary_account.type IN ('asset', 'expenditure')
-					AND counter_account.type IN ('asset', 'expenditure') THEN -t.amount
-				WHEN primary_account.type IN ('income', 'liability')
-					AND counter_account.type IN ('income', 'liability') THEN -t.amount
-				ELSE t.amount
-			END AS amount,
-			'counter' AS posting_role
-		FROM transactions t
-		JOIN categories primary_account ON primary_account.id = t.category_id
-		JOIN categories counter_account ON counter_account.id = t.counter_category_id
 	`)
 	if err != nil {
 		return fmt.Errorf("create financial postings view: %w", err)
