@@ -85,7 +85,7 @@ func main() {
 	}
 	port := os.Getenv("PORT")
 	if strings.TrimSpace(port) == "" {
-		port = "8080"
+		port = "47823"
 	}
 	addr := net.JoinHostPort(host, port)
 
