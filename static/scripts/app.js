@@ -391,14 +391,12 @@ function initExportForms() {
       startPageLoading();
 
       try {
-        // I intercept export submits because the desktop webview was replacing the whole screen
-        // with raw CSV/PDF output. Saving server-side and returning the path is more reliable here.
+        // Intercept export submits for browser download
         const formData = new FormData(form);
         const query = new URLSearchParams();
         for (const [key, value] of formData.entries()) {
           query.append(key, value);
         }
-        query.set("delivery", "native");
 
         const response = await fetch(`${form.action}?${query.toString()}`, {
           credentials: "same-origin",
@@ -408,12 +406,22 @@ function initExportForms() {
           throw new Error(message);
         }
 
-        const payload = await response.json();
-        setFormMessage(
-          form,
-          payload.path ? `Export saved to ${payload.path}` : "Export saved.",
-          "success",
-        );
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('Content-Disposition');
+        let filename = 'export';
+        if (disposition) {
+          const match = disposition.match(/filename="?([^"]+)"?/);
+          if (match) filename = match[1];
+        }
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        setFormMessage(form, "Export downloaded.", "success");
       } catch (error) {
         setFormMessage(
           form,
@@ -770,10 +778,7 @@ function initBackupDownloads() {
       startPageLoading();
 
       try {
-        // I keep backup download in JS for the same reason as exports: embedded webviews are
-        // inconsistent about file downloads, but they are reliable at showing a saved-path result.
         const targetURL = new URL(link.href, window.location.origin);
-        targetURL.searchParams.set("delivery", "native");
         const response = await fetch(targetURL.toString(), {
           credentials: "same-origin",
         });
@@ -783,14 +788,26 @@ function initBackupDownloads() {
           throw new Error(message);
         }
 
-        const payload = await response.json();
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('Content-Disposition');
+        let filename = 'backup.db';
+        if (disposition) {
+          const match = disposition.match(/filename="?([^"]+)"?/);
+          if (match) filename = match[1];
+        }
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
 
         const messageNode = document.createElement("p");
         messageNode.className = "form-status";
         messageNode.dataset.tone = "success";
-        messageNode.textContent = payload.path
-          ? `Backup saved to ${payload.path}`
-          : "Backup saved.";
+        messageNode.textContent = "Backup downloaded.";
         link.parentElement?.appendChild(messageNode);
         window.setTimeout(() => {
           messageNode.classList.add("is-dismissing");
@@ -924,14 +941,6 @@ function initUpdateCenter() {
       throw new Error("No release page is available for this update yet.");
     }
 
-    // I route external release links through the native shell first because embedded desktop
-    // webviews are inconsistent about target=_blank. Falling back to window.open keeps browsers
-    // working when the app is not running inside the packaged shell.
-    if (typeof window.openExternalURL === "function") {
-      await window.openExternalURL(releaseURL);
-      return;
-    }
-
     const popup = window.open(releaseURL, "_blank", "noopener,noreferrer");
     if (popup) {
       return;
@@ -1049,12 +1058,8 @@ function initUpdateCenter() {
       const payload = await response.json();
       setStatus(modalStatus, payload.message || "Update prepared.", "success");
 
-      if (payload.quit_required && typeof window.quitApp === "function") {
-        // I leave a short readable pause here so the operator sees that the update was staged
-        // successfully before the desktop shell closes and the updater takes over.
-        window.setTimeout(() => {
-          window.quitApp();
-        }, 1100);
+      if (payload.quit_required) {
+        setStatus(modalStatus, "Update applied. Please restart the application.", "success");
       }
     } catch (error) {
       setStatus(
@@ -1529,7 +1534,6 @@ function initStatementPrinting() {
         const query = new URLSearchParams({
           report: button.dataset.reportPdf,
           year: button.dataset.reportYear,
-          delivery: "native",
         });
         const response = await fetch(`/api/report/pdf?${query.toString()}`, {
           credentials: "same-origin",
@@ -1537,14 +1541,22 @@ function initStatementPrinting() {
         if (!response.ok) {
           throw new Error((await response.text()).trim() || "PDF creation failed.");
         }
-        const payload = await response.json();
-        showReportPDFStatus(button, `PDF saved to ${payload.path}`, "success");
-
-        // The native bridge opens the exact server-created file in Preview or the user's
-        // default PDF viewer, where normal printing is fully supported.
-        if (typeof window.openSavedPDF === "function" && payload.path) {
-          await window.openSavedPDF(payload.path);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('Content-Disposition');
+        let filename = 'report.pdf';
+        if (disposition) {
+          const match = disposition.match(/filename="?([^"]+)"?/);
+          if (match) filename = match[1];
         }
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showReportPDFStatus(button, "PDF downloaded", "success");
       } catch (error) {
         showReportPDFStatus(
           button,

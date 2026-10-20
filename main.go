@@ -11,12 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
-	"ramseyer-finance/internal/desktop"
 	backupservice "ramseyer-finance/internal/handlers/backup"
 	"ramseyer-finance/internal/routes"
 	"strings"
-
-	webview "github.com/webview/webview_go"
 )
 
 // staticFS embeds the entire static/ directory (CSS, JavaScript, images, fonts) into the
@@ -33,7 +30,7 @@ func main() {
 	// Resolve the database file path before doing anything else. The database is the
 	// application's durable state layer—authentication, transactions, settings, budgets,
 	// and audit history all live in SQLite. If the path can't be resolved or the database
-	// can't be opened, there's no point in starting the web server or the desktop shell.
+	// can't be opened, there's no point in starting the web server.
 	dbPath, err := resolveDatabasePath()
 	if err != nil {
 		log.Fatalf("Failed to resolve database path: %v", err)
@@ -42,7 +39,7 @@ func main() {
 
 	// I initialize SQLite before anything else because most of the app contract depends on
 	// durable local state: authentication, backups, transactions, audit history, and settings.
-	// If storage is not healthy, I prefer failing early instead of opening a half-working shell.
+	// If storage is not healthy, I prefer failing early instead of opening a half-working server.
 	// Initialize opens (or creates) the database, applies the schema, runs migrations,
 	// seeds the category chart of accounts, and backfills any denormalised data. If any
 	// of these steps fail, the application logs the error and exits immediately rather
@@ -76,66 +73,35 @@ func main() {
 	}
 
 	// Route ownership lives outside process bootstrapping so main remains focused on storage,
-	// lifecycle, the local listener, and the desktop window. The route package receives the
-	// embedded static filesystem as a normal handler dependency.
+	// lifecycle, and the HTTP server. The route package receives the embedded static filesystem
+	// as a normal handler dependency.
 	mux := http.NewServeMux()
 	routes.Register(mux, http.FileServerFS(staticSubFS))
 
-	// Bind to an ephemeral port on localhost only. Listening on 127.0.0.1 ensures the
-	// server is not accessible from other machines on the network. Port 0 tells the
-	// operating system to assign any available port, which prevents conflicts with other
-	// applications and allows multiple instances of the app to run simultaneously (each
-	// gets its own port). The actual assigned address is passed to the webview for
-	// navigation.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// Bind to a configurable host/port for pure web access
+	host := os.Getenv("HOST")
+	if strings.TrimSpace(host) == "" {
+		host = "127.0.0.1"
+	}
+	port := os.Getenv("PORT")
+	if strings.TrimSpace(port) == "" {
+		port = "8080"
+	}
+	addr := net.JoinHostPort(host, port)
+
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("Failed to start local listener: %v", err)
+		log.Fatalf("Failed to start server listener: %v", err)
 	}
 	defer listener.Close()
 
 	server := &http.Server{Handler: mux}
 	defer server.Close()
 
-	// I bind to an ephemeral localhost port so multiple dev runs do not collide on a fixed port
-	// and so packaged builds do not need the user to manage server startup manually.
-	// Start the HTTP server in a background goroutine. The server runs for the lifetime
-	// of the application and is shut down when main() returns (via the deferred Close).
-	// The listener's address is logged so developers can see which port was assigned.
-	go func() {
-		log.Printf("Server running on http://%s", listener.Addr().String())
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
-		}
-	}()
-
-	// I use a webview shell instead of building a separate native UI because the product is
-	// HTML-driven. Backup selection deliberately stays in that UI now; the only desktop bridge
-	// opens trusted release links in the user's browser and never exposes filesystem pickers.
-	// Create a new webview window (false = no debug inspector). The webview wraps the
-	// HTML/CSS/JS frontend in a native desktop window without requiring Electron or a
-	// separate browser. The window title and default size are set before navigation.
-	w := webview.New(false)
-	defer w.Destroy()
-	if err := w.Bind("openExternalURL", desktop.OpenExternalURL); err != nil {
-		log.Fatalf("Failed to bind external URL opener: %v", err)
+	log.Printf("Server running on http://%s", listener.Addr().String())
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
 	}
-	if err := w.Bind("openSavedPDF", desktop.OpenLocalPDF); err != nil {
-		log.Fatalf("Failed to bind saved PDF opener: %v", err)
-	}
-	if err := w.Bind("quitApp", func() {
-		w.Terminate()
-	}); err != nil {
-		log.Fatalf("Failed to bind app quit helper: %v", err)
-	}
-	w.SetTitle("Ramseyer Presbyterian Church — Financial Manager")
-	w.SetSize(1280, 800, webview.HintNone)
-	w.Navigate("http://" + listener.Addr().String())
-	// Run enters the webview's main event loop. This call blocks until the window is
-	// closed by the user. When w.Run() returns, the deferred functions execute in
-	// reverse order: w.Destroy() cleans up the webview, server.Close() shuts down the
-	// HTTP server, listener.Close() releases the port, stopAutoBackupScheduler()
-	// stops the background goroutine, and db.Close() closes the database connection.
-	w.Run()
 }
 
 // resolveDatabasePath determines where the SQLite database file should be stored.

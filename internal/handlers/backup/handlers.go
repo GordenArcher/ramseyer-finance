@@ -52,23 +52,10 @@ func BackupPage(w http.ResponseWriter, r *http.Request) {
 	webui.RenderTemplate(w, "backup", data)
 }
 
-// DownloadBackup handles backup file download requests. It supports two delivery modes
-// selected by the "delivery" query parameter: the default browser-based download (which
-// streams the file as an attachment with Content-Disposition headers), and a "native"
-// mode designed for embedded desktop webviews that save the file directly to the user's
-// downloads folder and return a JSON response with the saved path. Both modes go through
-// db.CreateBackupFile to get a consistent, WAL-safe SQLite snapshot.
+// DownloadBackup handles backup file download requests. It streams the file as an
+// attachment with Content-Disposition headers. It goes through db.CreateBackupFile to
+// get a consistent, WAL-safe SQLite snapshot.
 func DownloadBackup(w http.ResponseWriter, r *http.Request) {
-	if strings.TrimSpace(r.URL.Query().Get("delivery")) == "native" {
-		// I support a native-save path for the desktop shell because some embedded webviews do not
-		// behave like a full browser download manager. Returning JSON lets the frontend show the
-		// saved location instead of navigating away to raw file contents.
-		saveBackupLocally(w)
-		return
-	}
-
-	// I keep the attachment response for normal browser use so this endpoint still behaves
-	// correctly outside the desktop wrapper.
 	backupPath, err := db.CreateBackupFile()
 	if err != nil {
 		serverError(w, err)
@@ -137,49 +124,7 @@ func RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/backup?msg=Restore+successful", http.StatusSeeOther)
 }
 
-// saveBackupLocally writes the current database backup directly to the user's downloads
-// directory, bypassing the browser's download mechanism entirely. This is designed for
-// embedded desktop webview environments where Content-Disposition headers may be ignored
-// or where the application wants direct control over the save location. On success, it
-// returns a JSON response containing the saved file's path and filename so the frontend
-// can display the result to the user. If the target filename already exists, it appends
-// a numeric suffix (e.g., "file (2).db") to avoid overwriting previous backups.
-func saveBackupLocally(w http.ResponseWriter) {
-	// I save into the user's downloads area by default because that is the most discoverable
-	// location in a desktop flow where there is no browser download shelf.
-	backupPath, err := db.CreateBackupFile()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer func() {
-		_ = os.Remove(backupPath)
-	}()
 
-	downloadsDir, err := ResolveUserDownloadsDir()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-
-	filename := "ramseyer-finance-backup-" + time.Now().Format("2006-01-02") + ".db"
-	// Use nextAvailableFilePath to avoid clobbering existing backups with the same date.
-	// This generates names like "ramseyer-finance-backup-2026-05-01 (2).db" if the base
-	// name is already taken.
-	targetPath := NextAvailableFilePath(downloadsDir, filename)
-	if err := CopyFile(backupPath, targetPath); err != nil {
-		_ = RecordBackupEvent("manual-download", "failed", targetPath, err.Error())
-		serverError(w, fmt.Errorf("save backup to downloads: %w", err))
-		return
-	}
-	_ = RecordBackupEvent("manual-download", "success", targetPath, "Manual backup download")
-
-	WriteJSON(w, http.StatusOK, SavedFileResponse{
-		Path:     targetPath,
-		Filename: filepath.Base(targetPath),
-		Message:  "Backup saved",
-	})
-}
 
 // openRestoreSource inspects the incoming HTTP request and returns an io.ReadCloser for
 // the restore payload. It supports two input methods: a managed filesystem path selected

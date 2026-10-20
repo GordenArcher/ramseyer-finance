@@ -5,10 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"ramseyer-finance/internal/db"
-	backupservice "ramseyer-finance/internal/handlers/backup"
 	"strconv"
 	"strings"
 	"time"
@@ -48,9 +45,8 @@ type pdfObject struct {
 // (SpreadsheetML), or PDF format. It parses the date range (inclusive start, inclusive
 // end), an optional transaction type filter, and the desired output format from query
 // parameters, loads the matching transactions from the database with resolved category
-// metadata, builds the export file in the requested format, and delivers it either as a
-// browser download (with Content-Disposition attachment headers) or as a native filesystem
-// save (for the desktop webview, returning a JSON response with the saved path).
+// metadata, builds the export file in the requested format, and delivers it as a
+// browser download (with Content-Disposition attachment headers).
 // The function is intentionally a GET endpoint so that export requests are bookmarkable
 // and easy to retry from the register page's filter UI.
 func ExportTransactions(w http.ResponseWriter, r *http.Request) {
@@ -123,18 +119,12 @@ func ExportTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// I support native delivery separately because the desktop shell wants a saved-file result
-	// rather than a browser-style attachment download.
-	if strings.TrimSpace(r.URL.Query().Get("delivery")) == "native" {
-		saveExportLocally(w, filename, content)
-		return
-	}
-
 	// Standard browser download: set the Content-Type to match the file format and
 	// Content-Disposition to "attachment" so the browser prompts the user to save the
 	// file rather than attempting to display it inline.
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
 }
 
@@ -619,31 +609,4 @@ func buildTransactionExportFile(
 	}
 }
 
-// saveExportLocally writes the export file directly to the user's downloads directory and
-// returns a JSON response with the saved path and filename. This is the "native" delivery
-// path for the desktop webview environment, where Content-Disposition attachment headers
-// may not trigger a typical browser download dialog. If the target filename already
-// exists, nextAvailableFilePath appends a numeric suffix to avoid overwriting previous
-// exports. The file is written with 0644 permissions (owner read/write, group and others
-// read-only).
-func saveExportLocally(w http.ResponseWriter, filename string, content []byte) {
-	// I save exports locally on behalf of the desktop shell because an embedded webview does not
-	// guarantee the same download UX as a full browser.
-	downloadsDir, err := backupservice.ResolveUserDownloadsDir()
-	if err != nil {
-		serverError(w, err)
-		return
-	}
 
-	targetPath := backupservice.NextAvailableFilePath(downloadsDir, filename)
-	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
-		serverError(w, fmt.Errorf("save export to downloads: %w", err))
-		return
-	}
-
-	backupservice.WriteJSON(w, http.StatusOK, backupservice.SavedFileResponse{
-		Path:     targetPath,
-		Filename: filepath.Base(targetPath),
-		Message:  "Export saved",
-	})
-}

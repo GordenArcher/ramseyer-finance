@@ -3,7 +3,6 @@ module ramseyer-finance
 go 1.25.1
 
 require (
-	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	golang.org/x/sys v0.42.0
 	modernc.org/sqlite v1.50.0
 )

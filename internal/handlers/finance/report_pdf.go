@@ -7,10 +7,7 @@ import (
 	"strings"
 )
 
-// ExportReportPDF builds a real PDF on the Go side instead of relying on window.print(),
-// which is not consistently implemented by embedded WKWebView/WebView2 shells. Native
-// delivery saves to Downloads and returns the path; browser delivery remains available for
-// tests and future hosted use.
+// ExportReportPDF builds a real PDF on the Go side.
 func ExportReportPDF(w http.ResponseWriter, r *http.Request) {
 	year, err := parseReportYear(r.URL.Query().Get("year"))
 	if err != nil {
@@ -34,10 +31,6 @@ func ExportReportPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filename := fmt.Sprintf("ramseyer-%s-%d.pdf", strings.ReplaceAll(report, "_", "-"), year)
-	if r.URL.Query().Get("delivery") == "native" {
-		saveExportLocally(w, filename, content)
-		return
-	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)

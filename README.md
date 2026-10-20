@@ -1,11 +1,10 @@
 # Ramseyer Finance
 
-Ramseyer Finance is a local desktop finance manager for church operations. It runs a Go HTTP app inside a desktop webview, stores data in SQLite, supports PIN-based local access control, keeps backups locally, and can export register data to CSV, Excel-compatible XML, and PDF.
+Ramseyer Finance is a web-based finance manager for church operations. It runs a Go HTTP server, stores data in SQLite, supports PIN-based local access control, keeps backups locally, and can export register data to CSV, Excel-compatible XML, and PDF. Access it via your web browser.
 
 ## Tech Stack
 
 - Go backend with `net/http` and SQLite (`modernc.org/sqlite`)
-- Desktop shell via `github.com/webview/webview_go`
 - Embedded HTML/CSS/JS frontend with canvas charts
 
 ## What It Does
