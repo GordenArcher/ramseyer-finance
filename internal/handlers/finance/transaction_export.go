@@ -608,5 +608,3 @@ func buildTransactionExportFile(
 		return "", "", nil, fmt.Errorf("unsupported export format %q", format)
 	}
 }
-
-

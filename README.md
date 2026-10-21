@@ -21,20 +21,18 @@ Ramseyer Finance is a web-based finance manager for church operations. It runs a
 
 ## Project Layout
 
-- `main.go`: application bootstrap, embedded assets, local server, desktop webview
+- `main.go`: application bootstrap, embedded assets, local server, and command routing
+- `internal/cli/`: release updates and per-user background service management
 - `internal/db/`: SQLite schema, migrations, and backup/restore helpers
 - `internal/appmeta/`: embedded version and release-channel metadata
 - `internal/routes/`: the complete HTTP route table and middleware composition
 - `internal/handlers/finance/`: clearly named statement, transaction, dashboard, category, and settings handlers
 - `internal/handlers/auth/`: PIN authentication and route middleware
 - `internal/handlers/backup/`: backup routes, scheduling, history, file storage, and restore-library services
-- `internal/handlers/updates/`: GitHub Release checks and packaged update staging
+- `internal/handlers/updates/`: GitHub Release update checks for the web interface
 - `internal/handlers/viewmodels/`: shared presentation models used across report handlers
 - `internal/webui/`: shared rendering with templates grouped into `auth/`, `pages/`, `reports/`, and `partials/`
-- `cmd/updater/`: packaged Windows updater helper used for in-app updates
-- `cmd/launcher/`: terminal-free Windows GUI entry point
-- `internal/desktop/`: minimal desktop bridge for opening trusted external links
-- `scripts/`: Windows and macOS build/packaging scripts
+- `scripts/`: client installation, update, version, and asset maintenance scripts
 - `static/scripts/`: shared page behavior, charts, and reusable JavaScript components
 - `static/styles/`: base styling and reusable component styles
 - `docs/`: installation, operations, and distribution notes
@@ -44,8 +42,7 @@ Ramseyer Finance is a web-based finance manager for church operations. It runs a
 ### Requirements
 
 - Go `1.25+`
-- A desktop environment supported by `github.com/webview/webview_go`
-- Platform-native webview dependencies available on the build machine
+- A web browser for using the local interface
 
 ### Run
 
@@ -71,10 +68,10 @@ go build -o build/ramseyer-finance main.go
 
 ### Default database path
 
-- Windows: `%AppData%\ramseyer-finance\ramseyer-finance.db`
-- macOS: `~/Library/Application Support/ramseyer-finance/ramseyer-finance.db`
-- Linux: `~/.config/ramseyer-finance/ramseyer-finance.db`
-- Fallback: `./ramseyer-finance.db` if the user config directory is unavailable
+- Windows: `%AppData%\ramseyer-financial-manager\financial-records.db`
+- macOS: `~/Library/Application Support/ramseyer-financial-manager/financial-records.db`
+- Linux: `~/.config/ramseyer-financial-manager/financial-records.db`
+- Fallback: `./financial-records.db` if the user config directory is unavailable
 
 ### Override database path
 
@@ -133,10 +130,9 @@ ramseyer-finance serve     # starts without opening a browser
 ```
 
 The app listens only on `127.0.0.1:47823` by default. It is local to the client machine;
-the browser is just its user interface. On future use, the client only runs
-`ramseyer-finance`; `ramseyer-finance update` handles updates. Installation creates a
-per-user background service that starts when the client signs in to their computer, without
-opening a browser. The Windows installer also creates a Desktop shortcut that opens the app.
+the browser is its user interface. Installation creates a per-user background service that
+starts silently when the client signs in. On Windows, the installer adds a **Ramseyer Finance**
+Desktop shortcut that opens the browser interface without showing a terminal window.
 
 ### Publishing the CLI releases
 
@@ -149,68 +145,19 @@ It creates a GitHub Release with these client assets:
 - `ramseyer-finance-linux-arm64.tar.gz`
 - `ramseyer-finance-windows-amd64.zip`
 
-The tag must match `internal/appmeta/meta.go`'s `CurrentVersion`, otherwise the built-in
-`update` command will correctly regard the installed version as newer or equal.
-
-### Primary release target: Windows
-
-On Windows PowerShell:
-
-```powershell
-.\scripts\build_windows_bundle.ps1
-```
-
-This creates:
-
-- `dist\Ramseyer Finance-windows\`
-- `dist\Ramseyer Finance-windows.zip`
-
-The extracted package starts by double-clicking `Ramseyer Finance.exe`. The application,
-launcher, and updater use the Windows GUI subsystem, so normal start-up and in-app updates
-do not open Command Prompt or PowerShell.
-
-The Windows packager script lives in `scripts/build_windows_bundle.ps1`.
-
-### Version bump for the next release
-
-Before tagging a new release, update:
-
-- `internal/appmeta/meta.go` → `CurrentVersion`
-
-Or use:
+Before pushing a release tag, set `internal/appmeta/meta.go`'s `CurrentVersion` to the same
+version. For example, set it to `v1.2.3`, then run:
 
 ```bash
-./scripts/bump_version.sh v1.2.1
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
-### GitHub Release handoff
-
-Recommended client delivery flow:
-
-1. Push a version tag from macOS.
-2. GitHub Actions builds the Windows package using a Windows runner.
-3. GitHub creates a Release automatically.
-4. `dist/Ramseyer Finance-windows.zip` is uploaded as the release asset.
-5. Send the client the GitHub Release download link.
-
-That way the client downloads the packaged app directly and does not need to clone the repository or install Go.
-
-### Secondary release target: macOS
-
-```bash
-make macos-app
-```
-
-This creates:
-
-- `dist/Ramseyer Finance.app`
-- `dist/Ramseyer Finance-macos.zip`
-
-The macOS bundle script lives in `scripts/build_macos_app.sh`.
+The workflow creates the GitHub Release and uploads all matching platform assets. The client
+installer and `ramseyer-finance update` select assets by their exact names, so do not rename them.
 
 ## Operational Notes
 
-- This release starts from a clean application-data location. The previous installation's database is left untouched instead of being upgraded in place.
 - The first launch asks the operator to create a PIN.
 - The app uses SQLite on disk, not in-memory storage.
 - Automatic backups are configured from the Setup screen.

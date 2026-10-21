@@ -124,8 +124,6 @@ func RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/backup?msg=Restore+successful", http.StatusSeeOther)
 }
 
-
-
 // openRestoreSource inspects the incoming HTTP request and returns an io.ReadCloser for
 // the restore payload. It supports two input methods: a managed filesystem path selected
 // inside the custom backup library and a multipart file supplied through drag-and-drop.
