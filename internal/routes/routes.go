@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"encoding/json"
+	"github.com/google/uuid"
 	"net/http"
 	authhandlers "ramseyer-finance/internal/handlers/auth"
 	backuphandlers "ramseyer-finance/internal/handlers/backup"
@@ -9,10 +11,42 @@ import (
 	updatehandlers "ramseyer-finance/internal/handlers/updates"
 )
 
+type healthResponse struct {
+	Status     string         `json:"status"`
+	HTTPStatus int            `json:"http_status"`
+	Message    string         `json:"message"`
+	Data       map[string]any `json:"data"`
+	Errors     any            `json:"errors"`
+	Code       string         `json:"code"`
+	RequestID  string         `json:"request_id"`
+}
+
 // Register owns the application's complete HTTP surface. Keeping route composition here
 // leaves main.go responsible for process bootstrapping only, and gives reviewers one place
 // to audit which endpoints are public, authenticated, mutating, or static.
 func Register(mux *http.ServeMux, staticHandler http.Handler) {
+	// Keeping this route public lets the local service manager prove that the process on the port
+	// is this app, not merely another program that happened to bind the expected port.
+	// It deliberately excludes account and database details because health checks run unattended.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		response := healthResponse{
+			Status:     "success",
+			HTTPStatus: http.StatusOK,
+			Message:    "Ramseyer Finance is healthy.",
+			Data:       map[string]any{"service": "ramseyer-finance"},
+			Errors:     nil,
+			Code:       "SERVICE_HEALTHY",
+			RequestID:  uuid.NewString(),
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(response)
+	})
+
 	// Authentication entry points must remain public so a fresh installation can create its
 	// first PIN and a returning operator can unlock the local application.
 	mux.HandleFunc("/login", authhandlers.LoginPage)

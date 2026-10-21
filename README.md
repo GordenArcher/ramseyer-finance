@@ -16,7 +16,7 @@ Ramseyer Finance is a web-based finance manager for church operations. It runs a
 - Supports transaction editing, deletion, pagination, and audit history
 - Supports manual backup, restore, scheduled auto-backup, and export
 - Replaces visible native dropdowns with reusable in-app searchable selectors
-- Supports GitHub Release update checks and packaged Windows in-app updates
+- Can be installed as a `ramseyer-finance` command and updated from GitHub Releases
 - Uses a local PIN screen for first-run setup and later unlock
 
 ## Project Layout
@@ -50,7 +50,7 @@ Ramseyer Finance is a web-based finance manager for church operations. It runs a
 ### Run
 
 ```bash
-go run main.go
+go run main.go serve
 ```
 
 The app logs the active SQLite path on startup. By default it uses the user config directory, so rerunning `go run main.go` continues using the same database.
@@ -79,7 +79,7 @@ go build -o build/ramseyer-finance main.go
 ### Override database path
 
 ```bash
-RAMSEYER_FINANCE_DB_PATH=/absolute/path/ramseyer-finance.db go run main.go
+RAMSEYER_FINANCE_DB_PATH=/absolute/path/ramseyer-finance.db go run main.go serve
 ```
 
 ### Default backup and export paths
@@ -94,10 +94,63 @@ Automatic backups and pre-restore safety backups use subdirectories under the ba
 ### Override backup root
 
 ```bash
-RAMSEYER_FINANCE_BACKUP_DIR=/absolute/path/to/backups go run main.go
+RAMSEYER_FINANCE_BACKUP_DIR=/absolute/path/to/backups go run main.go serve
 ```
 
 ## Packaging
+
+### Client command-line install and updates
+
+Once a version tag has been published as a GitHub Release, the client needs to copy and run
+only one command for their computer. The installer detects its operating system/CPU, downloads
+the right binary, adds it to PATH, and opens the app in the browser. No Go, source checkout,
+or ZIP extraction is needed.
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.sh | bash
+```
+
+**Windows PowerShell:**
+
+```powershell
+irm https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.ps1 | iex
+```
+
+Then use:
+
+```text
+ramseyer-finance           # starts the background app silently (default)
+ramseyer-finance start     # starts it if it was stopped, without opening a browser
+ramseyer-finance open      # opens it in the browser; starts it only if needed
+ramseyer-finance stop      # stops the background app
+ramseyer-finance status    # reports whether it is running
+ramseyer-finance health    # verifies the local server is responding
+ramseyer-finance update    # downloads the latest matching GitHub Release and restarts it
+ramseyer-finance version   # prints the installed version
+ramseyer-finance serve     # starts without opening a browser
+```
+
+The app listens only on `127.0.0.1:47823` by default. It is local to the client machine;
+the browser is just its user interface. On future use, the client only runs
+`ramseyer-finance`; `ramseyer-finance update` handles updates. Installation creates a
+per-user background service that starts when the client signs in to their computer, without
+opening a browser. The Windows installer also creates a Desktop shortcut that opens the app.
+
+### Publishing the CLI releases
+
+Pushing a semantic-version tag, such as `v1.2.3`, runs `.github/workflows/release.yml`.
+It creates a GitHub Release with these client assets:
+
+- `ramseyer-finance-darwin-amd64.tar.gz`
+- `ramseyer-finance-darwin-arm64.tar.gz`
+- `ramseyer-finance-linux-amd64.tar.gz`
+- `ramseyer-finance-linux-arm64.tar.gz`
+- `ramseyer-finance-windows-amd64.zip`
+
+The tag must match `internal/appmeta/meta.go`'s `CurrentVersion`, otherwise the built-in
+`update` command will correctly regard the installed version as newer or equal.
 
 ### Primary release target: Windows
 

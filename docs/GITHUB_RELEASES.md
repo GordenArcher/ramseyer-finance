@@ -2,29 +2,16 @@
 
 ## Purpose
 
-This checklist covers publishing a client-ready Windows release through GitHub. The goal is a single download link that requires no cloning, no Go installation, and no build steps on the client's side.
+This checklist covers publishing a client-ready release through GitHub. The goal is a normal
+`ramseyer-finance` command that requires no cloning, no Go installation, and no client build steps.
 
 ## Recommended Flow
 
-1. Push the latest code to GitHub
-2. On a Windows machine, pull or clone the latest version
-3. Build the Windows release package:
-
-   ```powershell
-   .\scripts\build_windows_bundle.ps1
-   ```
-
-4. Confirm the ZIP was produced:
-
-   ```text
-   dist\Ramseyer Finance-windows.zip
-   ```
-
-5. Launch the packaged `.exe` and run through the full smoke test list below
-6. Create a new GitHub Release
-7. Upload `dist\Ramseyer Finance-windows.zip` as a release asset
-8. Publish the release
-9. Send the client the release download link along with the installation notes
+1. Set `internal/appmeta/meta.go`'s `CurrentVersion` to the new tag (for example `v1.2.3`).
+2. Push the latest code and tag it: `git tag v1.2.3 && git push origin v1.2.3`.
+3. The **Release binaries** GitHub Actions workflow builds and publishes the release assets.
+4. Confirm the workflow and the GitHub Release both completed successfully.
+5. Install the release on a clean client machine and run the smoke test below.
 
 ## Pre-Publish Smoke Test
 
@@ -43,9 +30,12 @@ Run these checks on Windows using the packaged `.exe` (not `go run`):
 
 ## What to Upload
 
-**Required asset:**
+**Required Windows asset:**
 
-- `dist\Ramseyer Finance-windows.zip`
+- `ramseyer-finance-windows-amd64.zip`
+
+The workflow also publishes matching macOS and Linux archives. Do not rename the assets:
+the installer and `ramseyer-finance update` choose them by exact platform name.
 
 **Optional supporting assets:**
 
@@ -86,9 +76,8 @@ See the docs folder inside the package for installation and operations guides.
 
 The client should only need to:
 
-1. Open the GitHub Release link
-2. Download the Windows ZIP asset
-3. Extract it to any folder
-4. Double-click `Ramseyer Finance.exe`
+1. Run the one-line installer from the README once.
+2. Run `ramseyer-finance` whenever the app is needed; it opens the default browser.
+3. Run `ramseyer-finance update` when a new release is available.
 
-No cloning. No Go. No command line. No build steps.
+No cloning. No Go. No client build steps.

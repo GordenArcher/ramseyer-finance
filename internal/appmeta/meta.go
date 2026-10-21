@@ -12,7 +12,7 @@ const (
 	GitHubOwner = "GordenArcher"
 	GitHubRepo  = "ramseyer-finance"
 
-	// WindowsReleaseAssetName is the packaged bundle uploaded to GitHub Releases and consumed
-	// by the updater. The updater searches for this asset in the latest release.
-	WindowsReleaseAssetName = "Ramseyer Finance-windows.zip"
+	// WindowsReleaseAssetName is the CLI-installable Windows archive uploaded by the release
+	// workflow. Its stable name lets both the browser UI and terminal command identify a release.
+	WindowsReleaseAssetName = "ramseyer-finance-windows-amd64.zip"
 )

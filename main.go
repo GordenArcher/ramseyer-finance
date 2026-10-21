@@ -9,10 +9,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"ramseyer-finance/internal/appmeta"
+	"ramseyer-finance/internal/cli"
 	"ramseyer-finance/internal/db"
 	backupservice "ramseyer-finance/internal/handlers/backup"
 	"ramseyer-finance/internal/routes"
+	"runtime"
 	"strings"
 )
 
@@ -27,6 +31,10 @@ import (
 var staticFS embed.FS
 
 func main() {
+	openBrowser, err := commandMode(os.Args[1:])
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Resolve the database file path before doing anything else. The database is the
 	// application's durable state layer—authentication, transactions, settings, budgets,
 	// and audit history all live in SQLite. If the path can't be resolved or the database
@@ -99,9 +107,84 @@ func main() {
 	defer server.Close()
 
 	log.Printf("Server running on http://%s", listener.Addr().String())
+	if openBrowser {
+		if err := openURL("http://" + listener.Addr().String()); err != nil {
+			log.Printf("Could not open browser automatically: %v", err)
+		}
+	}
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+// commandMode handles the installed-binary interface. A normal client invocation controls the
+// managed background service; `serve` is deliberately reserved for that service and development.
+func commandMode(args []string) (bool, error) {
+	if len(args) == 0 || args[0] == "start" {
+		if err := cli.Start(); err != nil {
+			return false, err
+		}
+		os.Exit(0)
+	}
+	switch args[0] {
+	case "serve", "--no-browser":
+		return false, nil
+	case "enable":
+		if err := cli.Enable(); err != nil {
+			return false, err
+		}
+		os.Exit(0)
+	case "open":
+		if err := cli.EnsureRunning(); err != nil {
+			return false, err
+		}
+		if err := openURL(cli.LocalAppURL()); err != nil {
+			return false, fmt.Errorf("open browser: %w", err)
+		}
+		os.Exit(0)
+	case "stop":
+		if err := cli.Stop(); err != nil {
+			return false, err
+		}
+		os.Exit(0)
+	case "status":
+		if err := cli.Status(); err != nil {
+			return false, err
+		}
+		os.Exit(0)
+	case "health":
+		if err := cli.Health(); err != nil {
+			return false, err
+		}
+		os.Exit(0)
+	case "update":
+		if err := cli.Update(); err != nil {
+			return false, err
+		}
+		os.Exit(0)
+	case "version", "--version", "-v":
+		fmt.Println(appmeta.CurrentVersion)
+		os.Exit(0)
+	case "help", "--help", "-h":
+		fmt.Println("Usage: ramseyer-finance [start|open|stop|status|health|update|version]\n\n  start    Start the background app without opening a browser (default).\n  open     Start the app if needed, then open it in your default browser.\n  stop     Stop the background app.\n  status   Show whether the app is running.\n  health   Verify the local app is responding.\n  update   Install the latest GitHub Release, then start it.\n  version  Print the installed version.\n  serve    Run in the foreground (used by the background service).")
+		os.Exit(0)
+	default:
+		return false, fmt.Errorf("unknown command %q; run ramseyer-finance help", args[0])
+	}
+	return false, nil
+}
+
+func openURL(url string) error {
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		command = exec.Command("open", url)
+	case "windows":
+		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		command = exec.Command("xdg-open", url)
+	}
+	return command.Start()
 }
 
 // resolveDatabasePath determines where the SQLite database file should be stored.

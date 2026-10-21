@@ -1,16 +1,42 @@
 package routes
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func TestHealthEndpointUsesTheStandardResponseEnvelope(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, http.NotFoundHandler())
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("health status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	var payload map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode health response: %v", err)
+	}
+	for _, field := range []string{"status", "http_status", "message", "data", "errors", "code", "request_id"} {
+		if _, ok := payload[field]; !ok {
+			t.Fatalf("health response is missing %q: %#v", field, payload)
+		}
+	}
+	if payload["status"] != "success" || payload["code"] != "SERVICE_HEALTHY" {
+		t.Fatalf("unexpected health response: %#v", payload)
+	}
+}
 
 func TestRegisterOwnsEveryApplicationRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, http.NotFoundHandler())
 
 	paths := []string{
+		"/healthz",
 		"/login",
 		"/startup",
 		"/data-entry",

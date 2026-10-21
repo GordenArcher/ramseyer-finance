@@ -49,7 +49,7 @@ open "Ramseyer Finance.app"
 ### Development (any platform)
 
 ```bash
-go run main.go
+go run main.go serve
 ```
 
 ## Where Data Is Stored

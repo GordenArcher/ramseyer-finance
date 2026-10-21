@@ -1,0 +1,82 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Build Unix archive
+        if: matrix.goos != 'windows'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          ASSET: ramseyer-finance-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+        run: |
+          go build -trimpath -ldflags='-s -w' -o ramseyer-finance main.go
+          tar -czf "$ASSET" ramseyer-finance
+      - name: Build Windows archive
+        if: matrix.goos == 'windows'
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        shell: pwsh
+        run: |
+          go build -trimpath -ldflags='-s -w -H=windowsgui' -o ramseyer-finance.exe main.go
+          Compress-Archive -Path ramseyer-finance.exe -DestinationPath ramseyer-finance-windows-amd64.zip
+      - uses: actions/upload-artifact@v4
+        if: matrix.goos != 'windows'
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ramseyer-finance-*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.goos == 'windows'
+        with:
+          name: release-windows-amd64
+          path: ramseyer-finance-windows-amd64.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --generate-notes ./*
