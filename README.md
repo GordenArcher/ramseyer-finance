@@ -128,9 +128,15 @@ ramseyer-finance stop      # stops the background app
 ramseyer-finance status    # reports whether it is running
 ramseyer-finance health    # verifies the local server is responding
 ramseyer-finance update    # downloads the latest matching GitHub Release and restarts it
+ramseyer-finance update -f # reinstalls the current version to repair a broken install
 ramseyer-finance version   # prints the installed version
 ramseyer-finance serve     # starts without opening a browser
 ```
+
+The installers verify the downloadable archive against the GitHub Release checksum, stop any
+running instance before replacing the binary, and confirm the app answers `/healthz` before
+printing success. When an install is broken but no newer release exists, run
+`ramseyer-finance update --force` or run the installer again.
 
 The app listens only on `127.0.0.1:47823` by default. It is local to the client machine;
 the browser is its user interface. Installation creates a per-user background service that
