@@ -31,8 +31,21 @@ import (
 var staticFS embed.FS
 
 func main() {
+	// Attach to the parent console for CLI subcommands so output is not discarded by the
+	// GUI-subsystem Windows binary. The packaged build uses -H=windowsgui to stay silent at
+	// logon, but status, health, update, and help must print when launched from a terminal.
+	if len(os.Args) > 1 {
+		cli.AttachConsole()
+	}
+	// Mirror logs to a file because stdout/stderr are still lost for GUI-launched processes
+	// (scheduler, shortcut) and there is no other place to see why a start failed. The file
+	// path is logged only indirectly by telling the user in errors; see cli.LogFilePath.
+	cli.SetupLogging()
+
 	openBrowser, err := commandMode(os.Args[1:])
 	if err != nil {
+		// Log.Fatal writes to the logger (and therefore to the server log file). Using it
+		// keeps behavior consistent with existing code while ensuring the failure is recorded.
 		log.Fatal(err)
 	}
 	// Resolve the database file path before doing anything else. The database is the
