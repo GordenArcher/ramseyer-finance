@@ -59,7 +59,10 @@ if ($pathEntries -notcontains $installDir) {
 }
 $appPath = Join-Path $installDir 'ramseyer-finance.exe'
 Write-Host "Installed. Enabling automatic start..."
-& $appPath enable
+# The packaged binary is GUI subsystem, so PowerShell does not wait for a GUI process.
+# Start-Process -Wait keeps task registration from racing the health check and browser launch
+# that follow, and the new file logging makes any failure diagnosable.
+Start-Process -FilePath $appPath -ArgumentList 'enable' -Wait
 
 # The shortcut uses the explicit open command, so signing in never launches a browser while a
 # normal double-click always starts the service if needed and opens the app for the client.
@@ -74,5 +77,31 @@ $shortcut.IconLocation = "$appPath,0"
 $shortcut.Description = 'Open Ramseyer Finance'
 $shortcut.Save()
 
-Write-Host "A Ramseyer Finance shortcut was added to your Desktop. Opening the app for the first time..."
-& $appPath open
+Write-Host "A Ramseyer Finance shortcut was added to your Desktop. Starting the app..."
+Start-Process -FilePath $appPath -ArgumentList 'open' -Wait
+
+# A GUI-subsystem start can return before the HTTP listener is ready. Poll the health endpoint
+# directly because the process exit code is not observable in this host and the terminal must not
+# report success while http://127.0.0.1:47823 is unreachable.
+$healthy = $false
+$healthUri = 'http://127.0.0.1:47823/healthz'
+for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $healthUri -TimeoutSec 2
+        if ($response.StatusCode -eq 200) {
+            $healthy = $true
+            break
+        }
+    } catch {
+        # Ignore connection errors while the server is still starting.
+    }
+    Start-Sleep -Milliseconds 500
+}
+
+if (-not $healthy) {
+    $logPath = Join-Path $env:APPDATA 'ramseyer-financial-manager\logs\server.log'
+    throw "Ramseyer Finance did not respond on http://127.0.0.1:47823. Start it with `"$appPath`" serve and check the log at $logPath. If the log shows a scheduled task error the app should still start via the new direct-launch fallback."
+}
+
+Write-Host "Ramseyer Finance is running at http://127.0.0.1:47823"
+
