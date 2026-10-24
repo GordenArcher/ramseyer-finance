@@ -135,7 +135,9 @@ ramseyer-finance serve     # starts without opening a browser
 The app listens only on `127.0.0.1:47823` by default. It is local to the client machine;
 the browser is its user interface. Installation creates a per-user background service that
 starts silently when the client signs in. On Windows, the installer adds a **Ramseyer Finance**
-Desktop shortcut that opens the browser interface without showing a terminal window.
+Desktop shortcut that opens the browser interface without showing a terminal window. If the
+server fails to start silently, check `%APPDATA%\ramseyer-financial-manager\logs\server.log`
+(Windows) or `~/.config/ramseyer-financial-manager/logs/server.log` (Linux/macOS).
 
 ### Publishing the CLI releases
 
