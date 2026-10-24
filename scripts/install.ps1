@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $repo = 'GordenArcher/ramseyer-finance'
 # Printed so a support session can confirm which copy actually executed. The raw URL is CDN
 # cached, and a stale copy was previously mistaken for an unfixed script.
-$installerRevision = '2026-10-24-arch-null'
+$installerRevision = '2026-10-24-checksum-stop'
 Write-Host "Ramseyer Finance installer ($installerRevision)"
 
 # Architecture comes from the environment rather than RuntimeInformation.OSArchitecture because
@@ -29,9 +29,38 @@ if ($null -eq $download) { throw "The latest release does not include $asset." }
 $installDir = Join-Path $env:LOCALAPPDATA 'Ramseyer Finance\bin'
 $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ramseyer-finance-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Force -Path $installDir, $staging | Out-Null
+
+# A running executable is locked on Windows, so replacing it fails with a sharing violation.
+# End the logon task first, then kill whatever still owns the port by PID. The installed
+# binary's own stop command is deliberately not used: the version being replaced may be the
+# one with the broken stop path this installer exists to repair.
+Write-Host "Stopping any running Ramseyer Finance instance..."
+schtasks /End /TN ramseyer-finance 2>$null | Out-Null
+# Get-NetTCPConnection is absent on old Windows builds, so the image-name kill below is the
+# fallback rather than letting a missing cmdlet abort the install.
+if ($null -ne (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
+    Get-NetTCPConnection -LocalPort 47823 -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+}
+taskkill /IM ramseyer-finance.exe /T /F 2>$null | Out-Null
+Start-Sleep -Milliseconds 500
+
 try {
     $archive = Join-Path $staging $asset
     Invoke-WebRequest -Uri $download.browser_download_url -OutFile $archive
+    # GitHub publishes a sha256 digest per asset. Verifying it stops a truncated or swapped
+    # archive from being expanded and installed. Older releases have no digest, and those are
+    # accepted as before to avoid breaking an upgrade path that cannot be verified.
+    if (-not [string]::IsNullOrWhiteSpace("$($download.digest)")) {
+        $digestParts = "$($download.digest)".Split(':', 2)
+        if ($digestParts.Count -eq 2 -and $digestParts[0] -eq 'sha256') {
+            $actualDigest = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
+            if ($actualDigest -ne $digestParts[1].ToLowerInvariant()) {
+                throw "The downloaded archive failed checksum verification. Check your connection and run the installer again."
+            }
+        }
+    }
     Expand-Archive -Path $archive -DestinationPath $staging -Force
     Copy-Item (Join-Path $staging 'ramseyer-finance.exe') (Join-Path $installDir 'ramseyer-finance.exe') -Force
 } finally {
