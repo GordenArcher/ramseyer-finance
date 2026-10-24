@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,8 +18,12 @@ const (
 	healthURL            = "http://127.0.0.1:47823/healthz"
 	localAppURL          = "http://127.0.0.1:47823"
 	healthRequestTimeout = 1500 * time.Millisecond
-	serviceStartTimeout  = 5 * time.Second
-	healthRetryInterval  = 150 * time.Millisecond
+	// On first launch the database is created and seeded which can take longer than the
+	// previous five second window, especially on slower Windows machines or after a fresh
+	// install. A longer timeout keeps the installer and start commands from giving up before
+	// the server finishes initializing.
+	serviceStartTimeout = 20 * time.Second
+	healthRetryInterval = 250 * time.Millisecond
 )
 
 // LocalAppURL centralizes the browser address so command handlers cannot drift from health checks.
@@ -68,13 +73,37 @@ func Start() error {
 		return fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
 	}
 	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("start service: %w: %s", err, strings.TrimSpace(string(output)))
+		if runtime.GOOS == "windows" {
+			// The scheduled task may not exist (creation failed silently) or the logon task
+			// may refuse to run in the current context. Falling back to launching the server
+			// directly keeps the app usable, and the file log captures the schtasks error for
+			// debugging. The task can still be registered later with `enable`.
+			log.Printf("scheduled task start failed, launching directly: %v: %s", err, strings.TrimSpace(string(output)))
+			if spawnErr := spawnServe(); spawnErr != nil {
+				return fmt.Errorf("start service: %w: %s; direct start failed: %v", err, strings.TrimSpace(string(output)), spawnErr)
+			}
+		} else {
+			return fmt.Errorf("start service: %w: %s", err, strings.TrimSpace(string(output)))
+		}
 	}
 	if err := waitForHealth(serviceStartTimeout); err != nil {
 		return err
 	}
 	fmt.Println("Ramseyer Finance is running.")
 	return nil
+}
+
+func spawnServe() error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	command := exec.Command(executable, "serve")
+	command.SysProcAttr = detachedSysProcAttr()
+	command.Stdin = nil
+	command.Stdout = nil
+	command.Stderr = nil
+	return command.Start()
 }
 
 // EnsureRunning keeps desktop shortcuts quiet when the background service is already healthy.
