@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"ramseyer-finance/internal/cli/listener"
+	"ramseyer-finance/internal/cli/spawn"
 	"runtime"
 	"strconv"
 	"strings"
@@ -15,21 +17,37 @@ import (
 
 const (
 	serviceLabel         = "ramseyer-finance"
-	healthURL            = "http://127.0.0.1:47823/healthz"
-	localAppURL          = "http://127.0.0.1:47823"
+	loopbackHost         = "127.0.0.1"
+	appPort              = 47823
+	healthPath           = "/healthz"
 	healthRequestTimeout = 1500 * time.Millisecond
 	// On first launch the database is created and seeded which can take longer than the
 	// previous five second window, especially on slower Windows machines or after a fresh
 	// install. A longer timeout keeps the installer and start commands from giving up before
 	// the server finishes initializing.
 	serviceStartTimeout = 20 * time.Second
+	// Stopping has to cover processes the service manager never started, so the port is
+	// re-checked after the kill instead of trusting the manager's exit code.
+	serviceStopTimeout  = 10 * time.Second
 	healthRetryInterval = 250 * time.Millisecond
 )
+
+// AppPort reports the loopback port so the server defaults and the CLI cannot drift apart.
+// Both sides previously hard-coded 47823 in separate packages.
+func AppPort() int {
+	return appPort
+}
 
 // LocalAppURL centralizes the browser address so command handlers cannot drift from health checks.
 // Keeping both paths on the same loopback endpoint means a healthy service is the one the client sees.
 func LocalAppURL() string {
-	return localAppURL
+	return fmt.Sprintf("http://%s:%d", loopbackHost, appPort)
+}
+
+// healthEndpoint is derived from LocalAppURL so the health probe always hits the same host and
+// port the browser uses.
+func healthEndpoint() string {
+	return LocalAppURL() + healthPath
 }
 
 // Enable keeps the server in the user's session rather than registering a machine-wide service.
@@ -61,31 +79,28 @@ func Start() error {
 		fmt.Println("Ramseyer Finance is already running.")
 		return nil
 	}
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		command = exec.Command("launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), serviceLabel))
-	case "linux":
-		command = exec.Command("systemctl", "--user", "start", serviceLabel+".service")
-	case "windows":
-		command = exec.Command("schtasks", "/Run", "/TN", serviceLabel)
-	default:
-		return fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
+
+	command, err := startCommand()
+	if err != nil {
+		return err
 	}
-	if output, err := command.CombinedOutput(); err != nil {
-		if runtime.GOOS == "windows" {
-			// The scheduled task may not exist (creation failed silently) or the logon task
-			// may refuse to run in the current context. Falling back to launching the server
-			// directly keeps the app usable, and the file log captures the schtasks error for
-			// debugging. The task can still be registered later with `enable`.
-			log.Printf("scheduled task start failed, launching directly: %v: %s", err, strings.TrimSpace(string(output)))
-			if spawnErr := spawnServe(); spawnErr != nil {
-				return fmt.Errorf("start service: %w: %s; direct start failed: %v", err, strings.TrimSpace(string(output)), spawnErr)
-			}
-		} else {
-			return fmt.Errorf("start service: %w: %s", err, strings.TrimSpace(string(output)))
+	if err := runStartCommand(command); err != nil {
+		// The Windows logon task may be missing (creation failed silently) or refuse to run in
+		// the current context. Falling back to a direct launch keeps the app usable, and the
+		// file log captures the schtasks error. The task can still be registered with `enable`.
+		if runtime.GOOS != "windows" {
+			return err
+		}
+		log.Printf("scheduled task start failed, launching directly: %v", err)
+		executable, execErr := os.Executable()
+		if execErr != nil {
+			return fmt.Errorf("%w; direct start failed: %v", err, execErr)
+		}
+		if spawnErr := spawn.Detached(executable, "serve"); spawnErr != nil {
+			return fmt.Errorf("%w; direct start failed: %v", err, spawnErr)
 		}
 	}
+
 	if err := waitForHealth(serviceStartTimeout); err != nil {
 		return err
 	}
@@ -93,17 +108,56 @@ func Start() error {
 	return nil
 }
 
-func spawnServe() error {
-	executable, err := os.Executable()
-	if err != nil {
-		return err
+func startCommand() (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		// launchd keeps the agent alive with KeepAlive, so kickstart alone would restart a
+		// process that stop only signalled. Stop boots the agent out, therefore start has to
+		// bootstrap it again; kickstart then covers the already-loaded case.
+		return exec.Command("launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), serviceLabel)), nil
+	case "linux":
+		return exec.Command("systemctl", "--user", "start", serviceLabel+".service"), nil
+	case "windows":
+		return exec.Command("schtasks", "/Run", "/TN", serviceLabel), nil
+	default:
+		return nil, fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
 	}
-	command := exec.Command(executable, "serve")
-	command.SysProcAttr = detachedSysProcAttr()
-	command.Stdin = nil
-	command.Stdout = nil
-	command.Stderr = nil
-	return command.Start()
+}
+
+// runStartCommand first loads a booted-out launch agent and then starts it. Other platforms only
+// need the single service manager command.
+func runStartCommand(command *exec.Cmd) error {
+	if runtime.GOOS == "darwin" {
+		if err := bootstrapLaunchAgent(); err != nil {
+			return err
+		}
+	}
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("start service: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func bootstrapLaunchAgent() error {
+	homeDirectory, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home directory: %w", err)
+	}
+	plist := filepath.Join(homeDirectory, "Library", "LaunchAgents", serviceLabel+".plist")
+	if _, err := os.Stat(plist); err != nil {
+		return fmt.Errorf("locate launch agent: %w", err)
+	}
+	command := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plist)
+	if output, err := command.CombinedOutput(); err != nil {
+		// Bootstrap fails when the agent is already loaded, which is expected after a start or
+		// sign-in. Anything else means launchd refused the definition and must surface.
+		outputText := string(output)
+		if strings.Contains(outputText, "already") || strings.Contains(outputText, "service already loaded") {
+			return nil
+		}
+		return fmt.Errorf("load launch agent: %w: %s", err, strings.TrimSpace(outputText))
+	}
+	return nil
 }
 
 // EnsureRunning keeps desktop shortcuts quiet when the background service is already healthy.
@@ -116,32 +170,50 @@ func EnsureRunning() error {
 	return Start()
 }
 
-// Stop asks the service manager to stop the process so its restart policy remains in control.
-// Killing a process by name could stop an unrelated development instance or leave stale state.
+// Stop asks the service manager to stop first so its restart policy stays in control, then
+// verifies the port actually closed. The manager only knows about processes it launched, so a
+// server started directly (the start fallback, a manual `serve`, or a development build) would
+// otherwise keep answering the URL after stop printed success.
 func Stop() error {
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		command = exec.Command("launchctl", "kill", "SIGTERM", fmt.Sprintf("gui/%d/%s", os.Getuid(), serviceLabel))
-	case "linux":
-		command = exec.Command("systemctl", "--user", "stop", serviceLabel+".service")
-	case "windows":
-		command = exec.Command("schtasks", "/End", "/TN", serviceLabel)
-	default:
-		return fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
+	command, err := stopCommand()
+	if err != nil {
+		return err
 	}
 	if output, err := command.CombinedOutput(); err != nil {
-		return fmt.Errorf("stop service: %w: %s", err, strings.TrimSpace(string(output)))
+		// Not fatal on purpose. A directly started server is unknown to the manager, so a
+		// "task does not exist" style error is expected there and the port check below is the
+		// real source of truth for whether the app stopped.
+		log.Printf("service manager stop failed: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	listener.Release(appPort, serviceLabel, healthy)
+	if err := waitForPortClosed(serviceStopTimeout); err != nil {
+		return err
 	}
 	fmt.Println("Ramseyer Finance has stopped.")
 	return nil
 }
 
+func stopCommand() (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		// bootout unloads the agent instead of signalling it. KeepAlive would otherwise start
+		// the process again immediately, which is why stop appeared to work while the URL
+		// stayed reachable. The plist remains in LaunchAgents, so the next login loads it.
+		return exec.Command("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), serviceLabel)), nil
+	case "linux":
+		return exec.Command("systemctl", "--user", "stop", serviceLabel+".service"), nil
+	case "windows":
+		return exec.Command("schtasks", "/End", "/TN", serviceLabel), nil
+	default:
+		return nil, fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
+	}
+}
+
 func Health() error {
 	if !healthy() {
-		return fmt.Errorf("Ramseyer Finance is not responding at %s", healthURL)
+		return fmt.Errorf("Ramseyer Finance is not responding at %s", healthEndpoint())
 	}
-	fmt.Printf("Ramseyer Finance is healthy and responding at %s.\n", localAppURL)
+	fmt.Printf("Ramseyer Finance is healthy and responding at %s.\n", LocalAppURL())
 	return nil
 }
 
@@ -213,7 +285,7 @@ func writeServiceDefinition() error {
 
 func healthy() bool {
 	client := &http.Client{Timeout: healthRequestTimeout}
-	response, err := client.Get(healthURL)
+	response, err := client.Get(healthEndpoint())
 	if err != nil {
 		return false
 	}
@@ -230,6 +302,20 @@ func waitForHealth(timeout time.Duration) error {
 		time.Sleep(healthRetryInterval)
 	}
 	return fmt.Errorf("service started but did not become healthy within %s", strconv.Itoa(int(timeout.Seconds()))+" seconds")
+}
+
+// waitForPortClosed polls the health endpoint until it stops answering. The health probe is used
+// instead of a raw TCP dial because it proves the app released the port rather than another
+// process having taken it over mid-stop.
+func waitForPortClosed(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !healthy() {
+			return nil
+		}
+		time.Sleep(healthRetryInterval)
+	}
+	return fmt.Errorf("service stop failed: %d is still accepting connections", appPort)
 }
 
 func xmlEscape(value string) string {

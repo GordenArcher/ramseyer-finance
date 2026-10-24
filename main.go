@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"ramseyer-finance/internal/appmeta"
 	"ramseyer-finance/internal/cli"
+	"ramseyer-finance/internal/cli/console"
+	"ramseyer-finance/internal/cli/logging"
 	"ramseyer-finance/internal/db"
 	backupservice "ramseyer-finance/internal/handlers/backup"
 	"ramseyer-finance/internal/routes"
@@ -35,12 +37,12 @@ func main() {
 	// GUI-subsystem Windows binary. The packaged build uses -H=windowsgui to stay silent at
 	// logon, but status, health, update, and help must print when launched from a terminal.
 	if len(os.Args) > 1 {
-		cli.AttachConsole()
+		console.Attach()
 	}
 	// Mirror logs to a file because stdout/stderr are still lost for GUI-launched processes
 	// (scheduler, shortcut) and there is no other place to see why a start failed. The file
-	// path is logged only indirectly by telling the user in errors; see cli.LogFilePath.
-	cli.SetupLogging()
+	// path is logged only indirectly by telling the user in errors; see logging.FilePath.
+	logging.Setup()
 
 	openBrowser, err := commandMode(os.Args[1:])
 	if err != nil {
@@ -106,7 +108,9 @@ func main() {
 	}
 	port := os.Getenv("PORT")
 	if strings.TrimSpace(port) == "" {
-		port = "47823"
+		// The CLI health checks and service definitions use the same value, so the default
+		// lives in one place instead of being duplicated as a literal here.
+		port = fmt.Sprintf("%d", cli.AppPort())
 	}
 	addr := net.JoinHostPort(host, port)
 
