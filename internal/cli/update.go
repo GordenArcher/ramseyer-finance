@@ -34,13 +34,18 @@ type asset struct {
 // Update installs the matching asset from the latest public GitHub release, then starts it.
 // Releases are intentionally selected by exact OS/architecture name instead of by a URL guessed
 // from a tag, so a missing or wrongly named release fails safely.
-func Update() error {
+//
+// force skips the "already up to date" guard so a client can repair a broken install by
+// reinstalling the same version. Without it, a corrupt binary at the newest version has no
+// command-line recovery path.
+func Update(force bool) error {
 	rel, err := latestRelease()
 	if err != nil {
 		return err
 	}
-	if compareVersions(appmeta.CurrentVersion, rel.TagName) >= 0 {
+	if !force && compareVersions(appmeta.CurrentVersion, rel.TagName) >= 0 {
 		fmt.Printf("Ramseyer Finance %s is already up to date.\n", appmeta.CurrentVersion)
+		fmt.Println("Run `ramseyer-finance update --force` to reinstall it.")
 		return nil
 	}
 
@@ -99,7 +104,18 @@ func Update() error {
 		return fmt.Errorf("replace installed binary at %s: %w", current, err)
 	}
 	fmt.Printf("Updated to %s. Starting Ramseyer Finance...\n", rel.TagName)
-	return exec.Command(current, "start").Start()
+	if err := exec.Command(current, "start").Start(); err != nil {
+		return fmt.Errorf("start updated binary: %w", err)
+	}
+	// The updater must not report success until the new binary actually serves requests.
+	// Otherwise a bad release leaves the client stopped with a success message. Windows is
+	// excluded because its replacement is scheduled after this process exits, which is what
+	// releases the executable lock, so waiting here would deadlock the move.
+	if err := waitForHealth(serviceStartTimeout); err != nil {
+		return fmt.Errorf("updated but the app did not start: %w", err)
+	}
+	fmt.Println("Ramseyer Finance is running.")
+	return nil
 }
 
 func latestRelease() (release, error) {

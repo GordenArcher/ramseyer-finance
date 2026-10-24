@@ -175,7 +175,10 @@ func commandMode(args []string) (bool, error) {
 		}
 		os.Exit(0)
 	case "update":
-		if err := cli.Update(); err != nil {
+		// --force reinstalls the current version, which is the repair path when an install is
+		// broken but no newer release exists yet.
+		force := len(args) > 1 && (args[1] == "--force" || args[1] == "-f")
+		if err := cli.Update(force); err != nil {
 			return false, err
 		}
 		os.Exit(0)
@@ -183,7 +186,7 @@ func commandMode(args []string) (bool, error) {
 		fmt.Println(appmeta.CurrentVersion)
 		os.Exit(0)
 	case "help", "--help", "-h":
-		fmt.Println("Usage: ramseyer-finance [start|open|stop|status|health|update|version]\n\n  start    Start the background app without opening a browser (default).\n  open     Start the app if needed, then open it in your default browser.\n  stop     Stop the background app.\n  status   Show whether the app is running.\n  health   Verify the local app is responding.\n  update   Install the latest GitHub Release, then start it.\n  version  Print the installed version.\n  serve    Run in the foreground (used by the background service).")
+		fmt.Println("Usage: ramseyer-finance [start|open|stop|status|health|update|version]\n\n  start    Start the background app without opening a browser (default).\n  open     Start the app if needed, then open it in your default browser.\n  stop     Stop the background app.\n  status   Show whether the app is running.\n  health   Verify the local app is responding.\n  update   Install the latest GitHub Release, then start it (--force reinstalls the current version).\n  version  Print the installed version.\n  serve    Run in the foreground (used by the background service).")
 		os.Exit(0)
 	default:
 		return false, fmt.Errorf("unknown command %q; run ramseyer-finance help", args[0])
