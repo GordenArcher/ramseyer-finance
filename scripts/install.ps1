@@ -87,8 +87,8 @@ $healthy = $false
 $healthUri = 'http://127.0.0.1:47823/healthz'
 for ($attempt = 0; $attempt -lt 40; $attempt++) {
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $healthUri -TimeoutSec 2
-        if ($response.StatusCode -eq 200) {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $healthUri -TimeoutSec 2 -ErrorAction Stop
+        if ($null -ne $response -and $response.StatusCode -eq 200) {
             $healthy = $true
             break
         }
@@ -99,8 +99,15 @@ for ($attempt = 0; $attempt -lt 40; $attempt++) {
 }
 
 if (-not $healthy) {
-    $logPath = Join-Path $env:APPDATA 'ramseyer-financial-manager\logs\server.log'
-    throw "Ramseyer Finance did not respond on http://127.0.0.1:47823. Start it with `"$appPath`" serve and check the log at $logPath. If the log shows a scheduled task error the app should still start via the new direct-launch fallback."
+    $logPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $logPath = Join-Path $env:APPDATA 'ramseyer-financial-manager\logs\server.log'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($logPath)) {
+        throw "Ramseyer Finance did not respond on http://127.0.0.1:47823. Start it with `"$appPath`" serve and check the log at $logPath. If the log shows a scheduled task error the app should still start via the new direct-launch fallback."
+    } else {
+        throw "Ramseyer Finance did not respond on http://127.0.0.1:47823. Start it with `"$appPath`" serve and check logs in your user config directory (ramseyer-financial-manager/logs/server.log). If the log shows a scheduled task error the app should still start via the new direct-launch fallback."
+    }
 }
 
 Write-Host "Ramseyer Finance is running at http://127.0.0.1:47823"
