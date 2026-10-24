@@ -1,11 +1,25 @@
 # Installs the current release as a normal user command. It detects the CPU architecture,
 # configures PATH, and opens the app when done. Run from PowerShell:
-# irm https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.ps1 | iex
+# irm "https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.ps1?cb=$(Get-Random)" | iex
 $ErrorActionPreference = 'Stop'
 $repo = 'GordenArcher/ramseyer-finance'
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+# Printed so a support session can confirm which copy actually executed. The raw URL is CDN
+# cached, and a stale copy was previously mistaken for an unfixed script.
+$installerRevision = '2026-10-24-arch-null'
+Write-Host "Ramseyer Finance installer ($installerRevision)"
+
+# Architecture comes from the environment rather than RuntimeInformation.OSArchitecture because
+# that .NET property is absent on older Windows PowerShell runtimes. When absent it evaluates to
+# $null and the ToString() on it threw "cannot call a method on a null-valued expression".
+# Interpolation below always produces a string, so this path cannot hit that failure.
+$architecture = "$env:PROCESSOR_ARCHITECTURE".ToLowerInvariant()
+# A 32-bit shell on 64-bit Windows reports x86 above and keeps the real architecture here.
+# Preferring this value prevents serving the 32-bit archive to a 64-bit machine.
+if (-not [string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITEW6432)) {
+    $architecture = "$env:PROCESSOR_ARCHITEW6432".ToLowerInvariant()
+}
 switch ($architecture) {
-    'x64' { $asset = 'ramseyer-finance-windows-amd64.zip' }
+    'amd64' { $asset = 'ramseyer-finance-windows-amd64.zip' }
     default { throw "This Windows architecture ($architecture) is not supported by the current release." }
 }
 $release = Invoke-RestMethod -Headers @{ Accept = 'application/vnd.github+json' } "https://api.github.com/repos/$repo/releases/latest"

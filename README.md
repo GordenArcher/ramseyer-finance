@@ -106,14 +106,17 @@ or ZIP extraction is needed.
 **macOS / Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.sh | bash
+curl -fsSL "https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.sh?cb=$(date +%s)" | bash
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-irm https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.ps1 | iex
+irm "https://raw.githubusercontent.com/GordenArcher/ramseyer-finance/main/scripts/install.ps1?cb=$(Get-Random)" | iex
 ```
+
+The `cb` query parameter is a cache buster. Raw GitHub URLs are cached at the CDN for five
+minutes, so without it a client can execute a stale installer that predates a fix.
 
 Then use:
 
