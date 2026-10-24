@@ -24,9 +24,23 @@ try {
     Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue
 }
 
+# A user with no persisted Path returns $null here, and calling TrimEnd on $null throws.
+# Normalising to an empty string keeps the append logic below safe on a fresh Windows account.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if (($userPath -split ';') -notcontains $installDir) {
-    [Environment]::SetEnvironmentVariable('Path', (($userPath.TrimEnd(';') + ';' + $installDir).TrimStart(';')), 'User')
+if ([string]::IsNullOrWhiteSpace($userPath)) {
+    $userPath = ''
+}
+
+# Blank entries (from a trailing or doubled semicolon) are dropped so the joined value never
+# carries empty segments into the user's Path, and the containment check does not miss a match.
+$pathEntries = @(
+    $userPath -split ';' |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+)
+
+if ($pathEntries -notcontains $installDir) {
+    $newUserPath = (@($pathEntries) + $installDir) -join ';'
+    [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
     $env:Path += ";$installDir"
 }
 $appPath = Join-Path $installDir 'ramseyer-finance.exe'
