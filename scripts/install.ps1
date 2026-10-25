@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $repo = 'GordenArcher/ramseyer-finance'
 # Printed so a support session can confirm which copy actually executed. The raw URL is CDN
 # cached, and a stale copy was previously mistaken for an unfixed script.
-$installerRevision = '2026-10-24-checksum-stop'
+$installerRevision = '2026-10-25-native-stderr'
 Write-Host "Ramseyer Finance installer ($installerRevision)"
 
 # Architecture comes from the environment rather than RuntimeInformation.OSArchitecture because
@@ -35,7 +35,11 @@ New-Item -ItemType Directory -Force -Path $installDir, $staging | Out-Null
 # binary's own stop command is deliberately not used: the version being replaced may be the
 # one with the broken stop path this installer exists to repair.
 Write-Host "Stopping any running Ramseyer Finance instance..."
-schtasks /End /TN ramseyer-finance 2>$null | Out-Null
+# cmd owns the redirection on purpose. In Windows PowerShell 5.1, redirecting a native
+# command's stderr with 2>$null turns each stderr line into an error record, and the Stop
+# preference at the top of this script then aborts the installer. A missing task is the normal
+# case on a fresh or broken account, so this call must not be able to fail the run.
+& cmd /c "schtasks /End /TN ramseyer-finance >nul 2>&1"
 # Get-NetTCPConnection is absent on old Windows builds, so the image-name kill below is the
 # fallback rather than letting a missing cmdlet abort the install.
 if ($null -ne (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
@@ -43,7 +47,7 @@ if ($null -ne (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) 
         Select-Object -ExpandProperty OwningProcess -Unique |
         ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
 }
-taskkill /IM ramseyer-finance.exe /T /F 2>$null | Out-Null
+& cmd /c "taskkill /IM ramseyer-finance.exe /T /F >nul 2>&1"
 Start-Sleep -Milliseconds 500
 
 try {
