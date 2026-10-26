@@ -127,7 +127,7 @@ func TestBuildMarksUnknownLabelsUndecided(t *testing.T) {
 			name: "08MAR",
 			rows: [][]string{
 				{"", "1ST", "2ND", "TOTAL"},
-				{"DAY BORN", "500", "", "500"},
+				{"UNRECOGNISED COLLECTION", "500", "", "500"},
 				{"TOTAL", "500", "", "500"},
 			},
 		},
@@ -138,8 +138,8 @@ func TestBuildMarksUnknownLabelsUndecided(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	undecided := result.UndecidedLabels()
-	if len(undecided) != 1 || undecided[0].Key != "DAY BORN" {
-		t.Fatalf("undecided = %v, want DAY BORN", undecided)
+	if len(undecided) != 1 || undecided[0].Key != "UNRECOGNISED COLLECTION" {
+		t.Fatalf("undecided = %v, want UNRECOGNISED COLLECTION", undecided)
 	}
 }
 

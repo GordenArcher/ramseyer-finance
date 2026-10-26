@@ -38,8 +38,15 @@ func TestDefaultCategoryMarksAmbiguity(t *testing.T) {
 		t.Fatalf("KUTUNSE PROJECT = %q/%q, want Special Appeals/heuristic", category, source)
 	}
 
-	category, source = DefaultCategory("SCHOLARSHIP")
+	for _, key := range []string{"BIRTHDAY OFFERING", "SCHOLARSHIP", "DAY BORN", "SPEAKING"} {
+		category, source = DefaultCategory(key)
+		if category != "Special Appeals" || source != CategoryHeuristic {
+			t.Fatalf("%s = %q/%q, want Special Appeals/heuristic", key, category, source)
+		}
+	}
+
+	category, source = DefaultCategory("UNRECOGNISED COLLECTION")
 	if category != "" || source != CategoryUndecided {
-		t.Fatalf("SCHOLARSHIP = %q/%q, want empty/undecided", category, source)
+		t.Fatalf("UNRECOGNISED COLLECTION = %q/%q, want empty/undecided", category, source)
 	}
 }
