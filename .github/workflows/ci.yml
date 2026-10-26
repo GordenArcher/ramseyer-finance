@@ -132,6 +132,16 @@ jobs:
           .\ramseyer-finance.exe version
           .\ramseyer-finance.exe --help | Out-Null
 
+      - name: Test Windows updater handoff
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: go test ./internal/cli -run TestReplaceOnWindowsMovesStagedBinary -v
+
+      - name: Test Windows startup entry
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: go test ./internal/cli -run TestWriteServiceDefinitionCreatesStartupEntry -v
+
       - name: Boot server from local build
         if: runner.os != 'Windows'
         shell: bash

@@ -80,24 +80,25 @@ func Start() error {
 		return nil
 	}
 
-	command, err := startCommand()
-	if err != nil {
-		return err
-	}
-	if err := runStartCommand(command); err != nil {
-		// The Windows logon task may be missing (creation failed silently) or refuse to run in
-		// the current context. Falling back to a direct launch keeps the app usable, and the
-		// file log captures the schtasks error. The task can still be registered with `enable`.
-		if runtime.GOOS != "windows" {
+	if runtime.GOOS == "windows" {
+		// Windows starts the server directly instead of asking Task Scheduler to run it. The
+		// scheduled-task path needed permissions that locked-down accounts do not have, and the
+		// direct launch is already the fallback that keeps those installs usable. The per-user
+		// Startup entry calls this same command at login.
+		executable, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("locate installed binary: %w", err)
+		}
+		if err := spawn.Detached(executable, "serve"); err != nil {
+			return fmt.Errorf("start service: %w", err)
+		}
+	} else {
+		command, err := startCommand()
+		if err != nil {
 			return err
 		}
-		log.Printf("scheduled task start failed, launching directly: %v", err)
-		executable, execErr := os.Executable()
-		if execErr != nil {
-			return fmt.Errorf("%w; direct start failed: %v", err, execErr)
-		}
-		if spawnErr := spawn.Detached(executable, "serve"); spawnErr != nil {
-			return fmt.Errorf("%w; direct start failed: %v", err, spawnErr)
+		if err := runStartCommand(command); err != nil {
+			return err
 		}
 	}
 
@@ -117,8 +118,6 @@ func startCommand() (*exec.Cmd, error) {
 		return exec.Command("launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), serviceLabel)), nil
 	case "linux":
 		return exec.Command("systemctl", "--user", "start", serviceLabel+".service"), nil
-	case "windows":
-		return exec.Command("schtasks", "/Run", "/TN", serviceLabel), nil
 	default:
 		return nil, fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
 	}
@@ -170,21 +169,26 @@ func EnsureRunning() error {
 	return Start()
 }
 
-// Stop asks the service manager to stop first so its restart policy stays in control, then
-// verifies the port actually closed. The manager only knows about processes it launched, so a
-// server started directly (the start fallback, a manual `serve`, or a development build) would
-// otherwise keep answering the URL after stop printed success.
+// Stop asks the service manager to stop first on macOS and Linux so its restart policy stays
+// in control, then verifies the port actually closed. The manager only knows about processes it
+// launched, so a server started directly (a manual `serve` or a development build) would
+// otherwise keep answering the URL after stop printed success. Windows has no manager in this
+// design, so the port check is the only stop path there.
 func Stop() error {
-	command, err := stopCommand()
-	if err != nil {
-		return err
+	if runtime.GOOS != "windows" {
+		command, err := stopCommand()
+		if err != nil {
+			return err
+		}
+		if output, err := command.CombinedOutput(); err != nil {
+			// Not fatal on purpose. A directly started server is unknown to the manager, so a
+			// "task does not exist" style error is expected there and the port check below is
+			// the real source of truth for whether the app stopped.
+			log.Printf("service manager stop failed: %v: %s", err, strings.TrimSpace(string(output)))
+		}
 	}
-	if output, err := command.CombinedOutput(); err != nil {
-		// Not fatal on purpose. A directly started server is unknown to the manager, so a
-		// "task does not exist" style error is expected there and the port check below is the
-		// real source of truth for whether the app stopped.
-		log.Printf("service manager stop failed: %v: %s", err, strings.TrimSpace(string(output)))
-	}
+	// Windows has no service manager in this design. The server is a detached process, so
+	// releasing the listening port is the authoritative stop signal instead of a task command.
 	listener.Release(appPort, serviceLabel, healthy)
 	if err := waitForPortClosed(serviceStopTimeout); err != nil {
 		return err
@@ -202,8 +206,6 @@ func stopCommand() (*exec.Cmd, error) {
 		return exec.Command("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), serviceLabel)), nil
 	case "linux":
 		return exec.Command("systemctl", "--user", "stop", serviceLabel+".service"), nil
-	case "windows":
-		return exec.Command("schtasks", "/End", "/TN", serviceLabel), nil
 	default:
 		return nil, fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
 	}
@@ -270,14 +272,20 @@ func writeServiceDefinition() error {
 		}
 		return nil
 	case "windows":
-		// A per-user scheduled task avoids an administrator prompt while still starting at login.
-		// A Windows service would run outside the user's profile and risk using the wrong data path.
-		arguments := fmt.Sprintf(`"%s" serve`, executable)
-		command := exec.Command("schtasks", "/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", serviceLabel, "/TR", arguments)
-		if output, err := command.CombinedOutput(); err != nil {
-			return fmt.Errorf("create startup task: %w: %s", err, strings.TrimSpace(string(output)))
+		// A per-user Startup entry needs no Task Scheduler permissions. The scheduled-task
+		// path returned "Access is denied" on locked-down accounts, and a Windows service
+		// would run outside the user's profile and risk using the wrong data path. The entry
+		// calls `start`, so an already healthy server is left alone and login never opens a
+		// browser.
+		config, err := os.UserConfigDir()
+		if err != nil {
+			return err
 		}
-		return nil
+		directory := filepath.Join(config, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(directory, serviceLabel+".cmd"), []byte(windowsStartupScript(executable)), 0o644)
 	default:
 		return fmt.Errorf("automatic service management is not supported on %s", runtime.GOOS)
 	}

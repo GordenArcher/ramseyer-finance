@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"ramseyer-finance/internal/appmeta"
+	"ramseyer-finance/internal/cli/spawn"
 	"runtime"
 	"strings"
 	"time"
@@ -65,7 +66,15 @@ func Update(force bool) error {
 	if err != nil {
 		return fmt.Errorf("create update staging directory: %w", err)
 	}
-	defer os.RemoveAll(stage)
+	// Windows hands the staged binary to a detached helper that runs after this process exits.
+	// Removing the staging directory here would delete the replacement before the helper can
+	// move it, so the helper owns cleanup on that path.
+	cleanupStage := true
+	defer func() {
+		if cleanupStage {
+			_ = os.RemoveAll(stage)
+		}
+	}()
 	archivePath := filepath.Join(stage, download.Name)
 	if err := fetch(download.URL, archivePath); err != nil {
 		return err
@@ -98,7 +107,11 @@ func Update(force bool) error {
 		return fmt.Errorf("resolve installed binary: %w", err)
 	}
 	if runtime.GOOS == "windows" {
-		return replaceOnWindows(current, newBinary)
+		if err := replaceOnWindows(current, newBinary, stage); err != nil {
+			return err
+		}
+		cleanupStage = false
+		return nil
 	}
 	if err := os.Rename(newBinary, current); err != nil {
 		return fmt.Errorf("replace installed binary at %s: %w", current, err)
@@ -271,12 +284,25 @@ func copyToFile(source io.Reader, target string) error {
 	return file.Sync()
 }
 
-func replaceOnWindows(current, replacement string) error {
-	// A running Windows executable cannot overwrite itself. cmd starts after this process exits,
-	// replaces the file, and launches the normal command without leaving a terminal window open.
-	command := fmt.Sprintf(`ping 127.0.0.1 -n 2 > nul & move /Y "%s" "%s" > nul & start "" "%s"`, replacement, current, current)
-	if err := exec.Command("cmd", "/C", command).Start(); err != nil {
-		return fmt.Errorf("schedule Windows replacement: %w", err)
+func replaceOnWindows(current, replacement, stage string) error {
+	// A running Windows executable cannot overwrite itself. The helper is a batch file instead
+	// of a quoted cmd one-liner because cmd.exe has its own argument parsing rules, and nesting
+	// quoted paths inside exec.Command turns backslashes into stray arguments on some installs.
+	helperDir, err := os.MkdirTemp("", "ramseyer-finance-updater-*")
+	if err != nil {
+		return fmt.Errorf("create Windows updater directory: %w", err)
+	}
+	scriptPath := filepath.Join(helperDir, "apply-update.cmd")
+	if err := os.WriteFile(scriptPath, []byte(windowsUpdateScript(current, replacement, stage)), 0o600); err != nil {
+		_ = os.RemoveAll(helperDir)
+		return fmt.Errorf("write Windows updater script: %w", err)
+	}
+	// The helper has to outlive this process so the installed executable is no longer locked.
+	// spawn.Detached hides the console and discards the helper streams, which keeps the client
+	// from seeing a command window during the handoff.
+	if err := spawn.Detached("cmd.exe", "/C", "call", scriptPath); err != nil {
+		_ = os.RemoveAll(helperDir)
+		return fmt.Errorf("launch Windows updater: %w", err)
 	}
 	fmt.Println("Update downloaded. Ramseyer Finance will restart in a moment.")
 	return nil
