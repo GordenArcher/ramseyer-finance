@@ -14,6 +14,7 @@ Ramseyer Finance is a web-based finance manager for church operations. It runs a
 - Uses the updated PCG standard chart of accounts and Notes 3–28 from the congregation workbook
 - Carries account openings, fixed-asset openings, depreciation, and accumulated-fund roll-forwards into year-end reports
 - Supports transaction editing, deletion, pagination, and audit history
+- Imports the Sunday offertory workbook through a reconciliation preview and per-label account mapping, replacing the previous batch for that year only after confirmation
 - Supports manual backup, restore, scheduled auto-backup, and export
 - Replaces visible native dropdowns with reusable in-app searchable selectors
 - Can be installed as a `ramseyer-finance` command and updated from GitHub Releases
@@ -27,10 +28,13 @@ Ramseyer Finance is a web-based finance manager for church operations. It runs a
 - `internal/appmeta/`: embedded version and release-channel metadata
 - `internal/routes/`: the complete HTTP route table and middleware composition
 - `internal/handlers/finance/`: clearly named statement, transaction, dashboard, category, and settings handlers
+- `internal/handlers/imports/`: workbook upload, preview, and confirmation routes
 - `internal/handlers/auth/`: PIN authentication and route middleware
 - `internal/handlers/backup/`: backup routes, scheduling, history, file storage, and restore-library services
 - `internal/handlers/updates/`: GitHub Release update checks for the web interface
 - `internal/handlers/viewmodels/`: shared presentation models used across report handlers
+- `internal/imports/`: workbook reading, sheet parsing, and confirmed batch import
+- `internal/transactions/audit/`: shared transaction audit snapshot and record contract
 - `internal/webui/`: shared rendering with templates grouped into `auth/`, `pages/`, `reports/`, and `partials/`
 - `scripts/`: client installation, update, version, and asset maintenance scripts
 - `static/scripts/`: shared page behavior, charts, and reusable JavaScript components

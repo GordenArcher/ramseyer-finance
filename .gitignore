@@ -1,4 +1,5 @@
 .DS_Store
+*.xlsx
 build/
 dist/
 downloads/

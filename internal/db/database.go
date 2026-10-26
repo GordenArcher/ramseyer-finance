@@ -211,6 +211,19 @@ func migrateTransactions() error {
 		return fmt.Errorf("backfill updated_at column: %w", err)
 	}
 
+	// Workbook imports are tracked as batches so replacing a re-uploaded file can remove the
+	// previous run instead of appending a second copy of the same collections. The link is
+	// nullable because manually entered transactions never belong to an import batch.
+	importBatchExists, err := columnExists("transactions", "import_batch_id")
+	if err != nil {
+		return err
+	}
+	if !importBatchExists {
+		if _, err := DB.Exec("ALTER TABLE transactions ADD COLUMN import_batch_id INTEGER REFERENCES import_batches(id)"); err != nil {
+			return fmt.Errorf("add import_batch_id column: %w", err)
+		}
+	}
+
 	// Index definitions use IF NOT EXISTS so they're safe to run on every startup. The
 	// compound index on (type, date) accelerates the primary dashboard view filtered by
 	// income or expenditure in date order. The category_id indexes support aggregation by
@@ -221,6 +234,7 @@ func migrateTransactions() error {
 		"CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(category_id, date)",
 		"CREATE INDEX IF NOT EXISTS idx_transactions_updated_at ON transactions(updated_at)",
+		"CREATE INDEX IF NOT EXISTS idx_transactions_import_batch_id ON transactions(import_batch_id)",
 	}
 	for _, stmt := range indexes {
 		if _, err := DB.Exec(stmt); err != nil {

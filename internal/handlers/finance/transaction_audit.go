@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"ramseyer-finance/internal/db"
+	transactionsaudit "ramseyer-finance/internal/transactions/audit"
 	"time"
 )
 
 // TransactionAuditEntry represents a single row in the transaction audit log, formatted
 // for display in the register page's recent activity sidebar. It carries the audit record's
 // own ID and timestamp, the target transaction's ID, the action performed ("created",
-// "updated", or "deleted"), the actor identifier (always "local operator" in this
-// single-user application), and the key display fields extracted from the stored JSON
+// "updated", or "deleted"), the actor identifier ("local operator" for a manual edit or
+// "workbook import" for a batch), and the key display fields extracted from the stored JSON
 // snapshot: category name, transaction type, description, and amount. By decoding these
 // fields from the snapshot rather than joining against the live transactions table, the
 // audit trail remains accurate even if the original transaction has been modified further
@@ -29,90 +30,27 @@ type TransactionAuditEntry struct {
 	Amount        float64
 }
 
-// transactionSnapshot captures the complete state of a single transaction row at a specific
-// point in time. It is serialised to JSON and stored in the transaction_audit_log table's
-// snapshot_json column, and later deserialised for display in the audit sidebar. The struct
-// includes every meaningful column from the transactions table—including category metadata
-// and timestamps—so that the audit trail is a self-contained record that does not depend on
-// the current state of the transactions or categories tables. The JSON tags use snake_case
-// for readability in the stored payload.
-type transactionSnapshot struct {
-	ID            int64   `json:"id"`
-	Date          string  `json:"date"`
-	Type          string  `json:"type"`
-	Category      string  `json:"category"`
-	CategoryID    int64   `json:"category_id"`
-	PaymentMethod string  `json:"payment_method"`
-	NoteRef       string  `json:"note_ref"`
-	Description   string  `json:"description"`
-	Amount        float64 `json:"amount"`
-	UpdatedAt     string  `json:"updated_at"`
-}
+// localOperatorActor names the person or process that made a register change. This app has
+// no user accounts, so manual edits are attributed to the person at the machine. The
+// importer passes a different actor so its rows are distinguishable in the audit trail.
+const localOperatorActor = "local operator"
 
-// loadTransactionSnapshot retrieves the current state of a single transaction from the
-// database and returns it as a transactionSnapshot struct. All nullable columns are
-// COALESCE'd to sensible zero values (empty strings for text, 0 for the category ID) so
-// the snapshot is always a complete, serialisable record. The updated_at field falls back
-// to created_at when no update has occurred, ensuring the timestamp is never empty. This
-// function is called before updates (to record the new state) and before deletes (to
-// record what was removed), and it serves as the single point of truth for what
-// constitutes a transaction's auditable state.
-func loadTransactionSnapshot(transactionID int64) (transactionSnapshot, error) {
+// loadTransactionSnapshot reads the current state of one transaction through the shared
+// audit package. The register and the workbook importer must store the same shape, so the
+// snapshot struct lives in one place instead of being duplicated here.
+func loadTransactionSnapshot(transactionID int64) (transactionsaudit.Snapshot, error) {
 	// I snapshot the stored row shape instead of a looser DTO because audit history should reflect
 	// exactly what the transaction looked like at that moment, including note mapping metadata.
-	var snapshot transactionSnapshot
-	err := db.DB.QueryRow(`
-		SELECT t.id, t.date, t.type, t.category, COALESCE(t.category_id, 0),
-			COALESCE(NULLIF(t.payment_method, ''), 'cash'),
-			COALESCE(t.note_ref, ''), COALESCE(t.description, ''), t.amount,
-			COALESCE(t.updated_at, t.created_at, '')
-		FROM transactions t
-		WHERE t.id = ?
-	`, transactionID).Scan(
-		&snapshot.ID,
-		&snapshot.Date,
-		&snapshot.Type,
-		&snapshot.Category,
-		&snapshot.CategoryID,
-		&snapshot.PaymentMethod,
-		&snapshot.NoteRef,
-		&snapshot.Description,
-		&snapshot.Amount,
-		&snapshot.UpdatedAt,
-	)
-	if err != nil {
-		return transactionSnapshot{}, err
-	}
-	return snapshot, nil
+	return transactionsaudit.Load(db.DB, transactionID)
 }
 
-// recordTransactionAudit serialises the given transaction snapshot to JSON and inserts a
-// new row into the transaction_audit_log table with the action type, actor identifier, and
-// the full JSON payload. The snapshot captures the transaction's state at the moment the
-// action occurred—after an update, the snapshot reflects the new values; before a delete,
-// the snapshot reflects the final values that were removed. Storing the full JSON snapshot
-// rather than individual columns means the audit table's schema does not need to change
-// when the transactions table evolves, and the audit trail preserves a complete, immutable
-// record that can be inspected even if the original row no longer exists.
-func recordTransactionAudit(action string, snapshot transactionSnapshot) error {
+// recordTransactionAudit appends the snapshot to the audit log. The action must be one of
+// the shared constants so a typo cannot reach the table's CHECK constraint, and the full
+// JSON payload keeps history readable after the original transaction is changed or removed.
+func recordTransactionAudit(action string, snapshot transactionsaudit.Snapshot) error {
 	// I write the full snapshot at the time of the action instead of trying to reconstruct history later.
 	// That keeps the register audit trail defensible even after categories or note references change.
-	payload, err := json.Marshal(snapshot)
-	if err != nil {
-		return fmt.Errorf("marshal transaction audit snapshot: %w", err)
-	}
-
-	// The actor is hard-coded as "local operator" because this is a single-user desktop
-	// application with no multi-user authentication. If user accounts are added in the
-	// future, this would be replaced with the authenticated user's identifier.
-	if _, err := db.DB.Exec(`
-		INSERT INTO transaction_audit_log (transaction_id, action, actor, snapshot_json)
-		VALUES (?, ?, 'local operator', ?)
-	`, snapshot.ID, action, string(payload)); err != nil {
-		return fmt.Errorf("insert transaction audit log: %w", err)
-	}
-
-	return nil
+	return transactionsaudit.Record(db.DB, localOperatorActor, action, snapshot)
 }
 
 // loadRecentTransactionAuditEntries retrieves the most recent audit log entries (up to the
@@ -121,7 +59,7 @@ func recordTransactionAudit(action string, snapshot transactionSnapshot) error {
 // description, and amount for display, and reformats the created_at timestamp into a
 // human-readable form. Because the display fields come from the immutable snapshot rather
 // than a JOIN against the current transactions table, the audit sidebar correctly shows
-// what a transaction looked like at the time of the action—even if the transaction has
+// what a transaction looked like at the time of the action, even if the transaction has
 // since been updated again or deleted entirely.
 func loadRecentTransactionAuditEntries(limit int) ([]TransactionAuditEntry, error) {
 	// I decode the stored snapshot back into display fields here so the register can show useful
@@ -142,7 +80,7 @@ func loadRecentTransactionAuditEntries(limit int) ([]TransactionAuditEntry, erro
 		var (
 			entry       TransactionAuditEntry
 			snapshotRaw string
-			snapshot    transactionSnapshot
+			snapshot    transactionsaudit.Snapshot
 			createdAt   string
 		)
 		if err := rows.Scan(&entry.ID, &entry.TransactionID, &entry.Action, &entry.Actor, &snapshotRaw, &createdAt); err != nil {
@@ -182,15 +120,15 @@ func loadRecentTransactionAuditEntries(limit int) ([]TransactionAuditEntry, erro
 // can use errors.Is(err, sql.ErrNoRows) to decide whether to show a "Transaction not
 // found" message or a server error. The function returns sql.ErrNoRows unwrapped so that
 // callers can check it directly with errors.Is.
-func lookupExistingTransaction(transactionID int64) (transactionSnapshot, error) {
+func lookupExistingTransaction(transactionID int64) (transactionsaudit.Snapshot, error) {
 	// I wrap the snapshot lookup because update and delete flows both need the same "load or
 	// distinguish not-found" behavior before they mutate the row.
 	snapshot, err := loadTransactionSnapshot(transactionID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return transactionSnapshot{}, err
+			return transactionsaudit.Snapshot{}, err
 		}
-		return transactionSnapshot{}, fmt.Errorf("lookup existing transaction: %w", err)
+		return transactionsaudit.Snapshot{}, fmt.Errorf("lookup existing transaction: %w", err)
 	}
 	return snapshot, nil
 }

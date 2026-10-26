@@ -1,6 +1,16 @@
 package db
 
 const schema = `
+CREATE TABLE IF NOT EXISTS import_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_name TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    row_count INTEGER NOT NULL DEFAULT 0,
+    total_amount REAL NOT NULL DEFAULT 0,
+    imported_at TEXT DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL,
@@ -12,9 +22,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     description TEXT DEFAULT '',
     amount REAL NOT NULL,
     note_ref TEXT DEFAULT '',
+    import_batch_id INTEGER,
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime')),
-    FOREIGN KEY (category_id) REFERENCES categories(id)
+    FOREIGN KEY (category_id) REFERENCES categories(id),
+    FOREIGN KEY (import_batch_id) REFERENCES import_batches(id)
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -132,6 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_category_id_date ON transactions(cat
 CREATE INDEX IF NOT EXISTS idx_dashboard_greetings_active_sort ON dashboard_greetings(is_active, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_transaction_audit_log_transaction_id ON transaction_audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_backup_events_created_at ON backup_events(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_import_batches_year ON import_batches(year);
 CREATE INDEX IF NOT EXISTS idx_trial_balance_entries_year_sort ON trial_balance_entries(year, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_trial_balance_entries_year_note ON trial_balance_entries(year, note_ref, account_type);
 `

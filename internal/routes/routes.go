@@ -7,6 +7,7 @@ import (
 	authhandlers "ramseyer-finance/internal/handlers/auth"
 	backuphandlers "ramseyer-finance/internal/handlers/backup"
 	financehandlers "ramseyer-finance/internal/handlers/finance"
+	importhandlers "ramseyer-finance/internal/handlers/imports"
 	startuphandlers "ramseyer-finance/internal/handlers/startup"
 	updatehandlers "ramseyer-finance/internal/handlers/updates"
 )
@@ -67,6 +68,10 @@ func Register(mux *http.ServeMux, staticHandler http.Handler) {
 	mux.HandleFunc("/api/transaction/update", authhandlers.WithAuth(financehandlers.UpdateTransaction))
 	mux.HandleFunc("/api/transaction/delete", authhandlers.WithAuth(financehandlers.DeleteTransaction))
 	mux.HandleFunc("/api/transactions/export", authhandlers.WithAuth(financehandlers.ExportTransactions))
+
+	mux.HandleFunc("/import", authhandlers.WithAuth(importhandlers.Page))
+	mux.HandleFunc("/api/import/preview", authhandlers.WithAuth(importhandlers.PreviewUpload))
+	mux.HandleFunc("/api/import/commit", authhandlers.WithAuth(importhandlers.CommitImport))
 
 	mux.HandleFunc("/monthly", authhandlers.WithAuth(financehandlers.MonthlyReport))
 	mux.HandleFunc("/quarterly", authhandlers.WithAuth(financehandlers.QuarterlyReport))

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	transactionsaudit "ramseyer-finance/internal/transactions/audit"
 	"strconv"
 	"strings"
 	"time"
@@ -170,7 +171,7 @@ func AddTransaction(w http.ResponseWriter, r *http.Request) {
 	transactionID, err := result.LastInsertId()
 	if err == nil {
 		if snapshot, snapshotErr := loadTransactionSnapshot(transactionID); snapshotErr == nil {
-			_ = recordTransactionAudit("created", snapshot)
+			_ = recordTransactionAudit(transactionsaudit.ActionCreated, snapshot)
 		}
 	}
 

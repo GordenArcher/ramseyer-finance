@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"ramseyer-finance/internal/db"
+	transactionsaudit "ramseyer-finance/internal/transactions/audit"
 	"strconv"
 	"strings"
 	"time"
@@ -327,7 +328,7 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 	// Load the full updated row for the audit trail. The snapshot includes all columns
 	// so the audit entry is a complete record of the transaction's state after the edit.
 	if snapshot, err := loadTransactionSnapshot(transactionID); err == nil {
-		_ = recordTransactionAudit("updated", snapshot)
+		_ = recordTransactionAudit(transactionsaudit.ActionUpdated, snapshot)
 	}
 
 	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Entry updated and reports recalculated")
@@ -373,7 +374,7 @@ func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	_ = recordTransactionAudit("deleted", snapshot)
+	_ = recordTransactionAudit(transactionsaudit.ActionDeleted, snapshot)
 
 	redirectWithMessage(w, r, sanitizeReturnTo(r.FormValue("return_to"), "/transactions"), "Entry deleted and reports recalculated")
 }

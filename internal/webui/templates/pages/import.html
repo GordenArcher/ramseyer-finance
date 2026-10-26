@@ -1,0 +1,190 @@
+{{template "layout" .}}
+{{define "content"}}
+<div class="page-header reveal">
+    <h2>Workbook Import</h2>
+    <p class="period">Read the Sunday offertory workbook, check every sheet, and map the collection labels before saving.</p>
+</div>
+
+{{if .Message}}
+<div class="alert alert-{{.MessageTone}} alert-float" data-auto-dismiss-alert>{{.Message}}</div>
+{{end}}
+
+<div class="card reveal">
+    <h3>Choose a workbook</h3>
+    <p class="section-copy">
+        The import reads dated weekly sheets and fills missing weeks from the dated summary. Pledge lists, fund ledgers, and undated duplicates are reported but never imported. The cash, cheque, and mobile-money analysis is not imported, so every transaction uses the register's cash flag.
+    </p>
+    <form method="POST" action="/api/import/preview" enctype="multipart/form-data" data-loading-form>
+        <div class="form-grid">
+            <div class="form-group form-group-span">
+                <label for="import-workbook">Excel workbook</label>
+                <input id="import-workbook" type="file" name="workbook" accept=".xlsx" required />
+            </div>
+            <div class="form-group">
+                <label for="import-year">Year</label>
+                <input id="import-year" type="number" name="year" value="{{.Year}}" placeholder="Detect from workbook" />
+                <small>Leave blank to use the dated summary. If you enter a different year, the sheet dates still win and the preview explains why.</small>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Preview Workbook</button>
+        </div>
+    </form>
+</div>
+
+{{if .Preview}}
+<div class="stats-grid reveal">
+    <div class="stat-card">
+        <span class="stat-label">Detected year</span>
+        <span class="stat-value">{{.Preview.Plan.Year}}</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-label">Rows to import</span>
+        <span class="stat-value">{{len .Preview.Plan.Rows}}</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-label">Collection total</span>
+        <span class="stat-value">{{.Preview.Plan.Total | formatMoney}}</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-label">Collection labels</span>
+        <span class="stat-value">{{len .Preview.Labels}}</span>
+    </div>
+</div>
+
+<div class="card reveal">
+    <div class="card-header">
+        <div>
+            <h3>{{.Preview.Plan.FileName}}</h3>
+            <p>{{len .Preview.Plan.Rows}} rows from {{len .Preview.Plan.Sheets}} worksheets.</p>
+        </div>
+    </div>
+    <p class="section-copy">File fingerprint: <small>{{.Preview.Plan.FileHash}}</small></p>
+</div>
+
+{{if .Preview.ExistingBatch}}
+<div class="alert alert-warning reveal">
+    <strong>{{.Preview.Plan.Year}} already has an imported batch.</strong>
+    <p>
+        It came from {{.Preview.ExistingBatch.FileName}} on {{.Preview.ExistingBatch.ImportedAt}} with {{.Preview.ExistingBatch.RowCount}} rows totalling {{.Preview.ExistingBatch.Total | formatMoney}}.
+        Confirming this preview will delete those rows and insert the workbook above instead. Manual entries are not touched.
+    </p>
+</div>
+{{end}}
+
+{{if .Preview.Warnings}}
+<div class="card reveal">
+    <h3>Review before saving</h3>
+    <ul>
+        {{range .Preview.Warnings}}
+        <li>{{.}}</li>
+        {{end}}
+    </ul>
+</div>
+{{end}}
+
+<div class="card table-card reveal">
+    <div class="card-header">
+        <div>
+            <h3>Sheet report</h3>
+            <p>Every worksheet is listed so skipped data is visible, not silently dropped.</p>
+        </div>
+    </div>
+    <div class="table-scroll">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Sheet</th>
+                    <th>Treatment</th>
+                    <th class="text-right">Rows</th>
+                    <th class="text-right">Imported</th>
+                    <th class="text-right">Workbook total</th>
+                    <th>Check</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Preview.Plan.Sheets}}
+                <tr>
+                    <td>{{.Name}}</td>
+                    <td>
+                        {{if eq .Kind "weekly"}}Weekly sheet
+                        {{else if eq .Kind "summary"}}Dated summary
+                        {{else if eq .Kind "pledge"}}Person-level pledge list
+                        {{else if eq .Kind "fund"}}Fund ledger
+                        {{else if eq .Kind "undated-summary"}}Undated summary
+                        {{else}}Unrecognised{{end}}
+                    </td>
+                    <td class="text-right">{{.Rows}}</td>
+                    <td class="text-right">{{if gt .Rows 0}}{{.Total | formatMoney}}{{else}}—{{end}}</td>
+                    <td class="text-right">{{if gt .Expected 0.0}}{{.Expected | formatMoney}}{{else}}—{{end}}</td>
+                    <td>
+                        {{if and (or (eq .Kind "weekly") (eq .Kind "summary")) (gt .Rows 0) (gt .Expected 0.0)}}
+                            {{if .Reconciles}}OK{{else}}<span class="warning">Mismatch</span>{{end}}
+                        {{else if .Note}}
+                            {{.Note}}
+                        {{else}}
+                            Not imported
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<form method="POST" action="/api/import/commit" data-loading-form>
+    <input type="hidden" name="token" value="{{.Preview.Token}}" />
+    <div class="card table-card reveal">
+        <div class="card-header">
+            <div>
+                <h3>Account mapping</h3>
+                <p>One account is applied to every row with the same workbook label. The choices are saved for the next import.</p>
+            </div>
+        </div>
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Collection label</th>
+                        <th class="text-right">Rows</th>
+                        <th class="text-right">Total</th>
+                        <th>Income account</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $label := .Preview.Labels}}
+                    <tr>
+                        <td>{{$label.Display}}</td>
+                        <td class="text-right">{{$label.Rows}}</td>
+                        <td class="text-right">{{$label.Total | formatMoney}}</td>
+                        <td>
+                            <select name="mapping[{{$label.Key}}]" aria-label="Income account for {{$label.Display}}" required>
+                                <option value="">Choose an account</option>
+                                {{range $.Preview.Categories}}
+                                <option value="{{.ID}}" {{if eq .ID $label.CategoryID}}selected{{end}}>{{.Label}}</option>
+                                {{end}}
+                            </select>
+                        </td>
+                        <td>
+                            {{if eq $label.CategoryID 0}}<span class="warning">Needs account</span>
+                            {{else if eq $label.Source "heuristic"}}<span class="warning">Review</span>
+                            {{else}}Matched{{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary" {{if eq (len .Preview.Plan.Rows) 0}}disabled{{end}}>Confirm Import</button>
+            <a href="/import" class="btn btn-secondary" data-nav-loading>Choose another workbook</a>
+        </div>
+        {{if gt (len .Preview.Unresolved) 0}}
+        <p class="warning">Choose an account for every collection label before saving.</p>
+        {{end}}
+    </div>
+</form>
+{{end}}
+{{end}}

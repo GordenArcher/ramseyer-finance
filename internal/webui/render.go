@@ -31,6 +31,7 @@ var templateFolders = map[string]string{
 	"dashboard":     "pages",
 	"data-entry":    "pages",
 	"fixed-assets":  "reports",
+	"import":        "pages",
 	"monthly":       "reports",
 	"notes":         "reports",
 	"quarterly":     "reports",
