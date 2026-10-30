@@ -78,6 +78,7 @@ func Register(mux *http.ServeMux, staticHandler http.Handler) {
 	mux.HandleFunc("/annual", authhandlers.WithAuth(financehandlers.AnnualReport))
 	mux.HandleFunc("/trial-balance", authhandlers.WithAuth(financehandlers.TrialBalance))
 	mux.HandleFunc("/api/report/pdf", authhandlers.WithAuth(financehandlers.ExportReportPDF))
+	mux.HandleFunc("/api/report/excel", authhandlers.WithAuth(financehandlers.ExportReportExcel))
 	mux.HandleFunc("/balance-sheet", authhandlers.WithAuth(financehandlers.BalanceSheet))
 	mux.HandleFunc("/cash-flow", authhandlers.WithAuth(financehandlers.CashFlowStatement))
 	mux.HandleFunc("/fixed-assets", authhandlers.WithAuth(financehandlers.FixedAssetSchedule))

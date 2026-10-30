@@ -1520,6 +1520,63 @@ function showReportPDFStatus(button, message, tone) {
 // initStatementPrinting asks the Go server to generate the PDF and save it directly into
 // Downloads. window.print() is intentionally avoided because macOS WKWebView and Windows
 // WebView2 do not expose a consistent print dialog to this lightweight desktop shell.
+function initReportExcelExport() {
+  qsa("[data-report-excel]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (button.dataset.exporting === "true") return;
+
+      button.dataset.exporting = "true";
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = "Creating Excel…";
+      startPageLoading();
+      try {
+        const query = new URLSearchParams({
+          report: button.dataset.reportExcel,
+          year: button.dataset.reportYear,
+        });
+        const response = await fetch(`/api/report/excel?${query.toString()}`, {
+          credentials: "same-origin",
+        });
+        if (!response.ok) {
+          throw new Error((await response.text()).trim() || "Excel creation failed.");
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('Content-Disposition');
+        let filename = 'report.xls';
+        if (disposition) {
+          const match = disposition.match(/filename="?([^"]+)"?/);
+          if (match) filename = match[1];
+        }
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        if (typeof showReportPDFStatus === "function") {
+          showReportPDFStatus(button, "Excel downloaded", "success");
+        }
+      } catch (error) {
+        if (typeof showReportPDFStatus === "function") {
+          showReportPDFStatus(
+            button,
+            error instanceof Error ? error.message : "Excel creation failed.",
+            "danger",
+          );
+        }
+      } finally {
+        button.dataset.exporting = "false";
+        button.disabled = false;
+        button.textContent = originalLabel;
+        stopPageLoading();
+      }
+    });
+  });
+}
+
 function initStatementPrinting() {
   qsa("[data-report-pdf]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1556,13 +1613,17 @@ function initStatementPrinting() {
         a.click();
         a.remove();
         window.URL.revokeObjectURL(url);
-        showReportPDFStatus(button, "PDF downloaded", "success");
+        if (typeof showReportPDFStatus === "function") {
+          showReportPDFStatus(button, "PDF downloaded", "success");
+        }
       } catch (error) {
-        showReportPDFStatus(
-          button,
-          error instanceof Error ? error.message : "PDF creation failed.",
-          "danger",
-        );
+        if (typeof showReportPDFStatus === "function") {
+          showReportPDFStatus(
+            button,
+            error instanceof Error ? error.message : "PDF creation failed.",
+            "danger",
+          );
+        }
       } finally {
         button.dataset.exporting = "false";
         button.disabled = false;
@@ -1585,6 +1646,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initNavigationLoading();
   initCustomSelects();
   initPinScreens();
+  initReportExcelExport();
   initStatementPrinting();
   initExportForms();
   initRestoreForms();

@@ -1217,6 +1217,32 @@ func TestExportReportPDFReturnsARealDocument(t *testing.T) {
 	}
 }
 
+func TestExportReportExcelReturnsASpreadsheet(t *testing.T) {
+	setupTestDB(t)
+	insertTransaction(t, "2026-02-01", "income", "Offerings", categoryID(t, "income", "Offerings"), 100)
+
+	for _, report := range []string{"trial-balance", "annual", "balance-sheet", "cash-flow", "fixed-assets", "notes"} {
+		t.Run(report, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/report/excel?report="+report+"&year=2026", nil)
+			recorder := httptest.NewRecorder()
+			ExportReportExcel(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("report Excel status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if contentType := recorder.Header().Get("Content-Type"); contentType != "application/vnd.ms-excel" {
+				t.Fatalf("report Excel content type = %q", contentType)
+			}
+			if !strings.Contains(recorder.Header().Get("Content-Disposition"), ".xls") {
+				t.Fatalf("report Excel content disposition = %q", recorder.Header().Get("Content-Disposition"))
+			}
+			if !strings.Contains(recorder.Body.String(), "<Workbook") {
+				t.Fatalf("report response is not a SpreadsheetML document")
+			}
+		})
+	}
+}
+
 func amountForBalanceLine(lines []BalanceLine, name string) float64 {
 	for _, line := range lines {
 		if line.Name == name {
