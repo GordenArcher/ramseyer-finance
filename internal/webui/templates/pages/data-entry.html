@@ -8,167 +8,146 @@
 <div class="alert alert-success">{{.Message}}</div>
 {{end}}
 
-<div class="tabs">
-    <button class="tab active" onclick="showTab(event, 'income')">Income</button>
-    <button class="tab" onclick="showTab(event, 'expenditure')">Expenditure</button>
-    <button class="tab" onclick="showTab(event, 'asset')">Asset</button>
-    <button class="tab" onclick="showTab(event, 'liability')">Liability</button>
+<div class="tabs" data-tabs>
+    <button class="tab active" data-tab="income" onclick="showTab(event, 'income')">Income</button>
+    <button class="tab" data-tab="expenditure" onclick="showTab(event, 'expenditure')">Expenditure</button>
+    <button class="tab" data-tab="asset" onclick="showTab(event, 'asset')">Asset</button>
+    <button class="tab" data-tab="liability" onclick="showTab(event, 'liability')">Liability</button>
 </div>
 
-<form
-    id="income"
-    class="tab-content active"
-    method="POST"
-    action="/api/transaction/add"
->
+<div class="card" style="margin-bottom:1.5rem;">
+    <div class="card-header">
+        <div>
+            <h3>Bulk Import (Excel)</h3>
+            <p class="section-copy">Upload an Excel file to add multiple entries at once.</p>
+        </div>
+    </div>
+    <div style="padding:1rem 1.25rem; display:flex; flex-direction:column; gap:1rem;">
+        <div style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center;">
+            <a class="btn btn-secondary" href="/api/data-entry/template?type=income" download>Download Income Template</a>
+            <a class="btn btn-secondary" href="/api/data-entry/template?type=expenditure" download>Download Expenditure Template</a>
+            <a class="btn btn-secondary" href="/api/data-entry/template?type=asset" download>Download Asset Template</a>
+            <a class="btn btn-secondary" href="/api/data-entry/template?type=liability" download>Download Liability Template</a>
+        </div>
+        <details>
+            <summary style="cursor:pointer; font-weight:500;">How the Excel should look</summary>
+            <div style="margin-top:0.75rem; overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date (YYYY-MM-DD)</th>
+                            <th>Amount</th>
+                            <th>Description</th>
+                            <th>Category</th>
+                            <th>Payment Method (cash/momo/cheque/bank)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>2026-01-05</td>
+                            <td>100.00</td>
+                            <td>Offering</td>
+                            <td>Offerings</td>
+                            <td>cash</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="section-copy" style="margin-top:0.5rem;">Category must match an existing category name for the selected type. Payment method is optional (defaults to cash).</p>
+            </div>
+        </details>
+        <form method="POST" action="/api/data-entry/bulk-import" enctype="multipart/form-data" style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:end;">
+            <input type="hidden" name="type" id="bulk-type" value="income" />
+            <div class="form-group" style="margin:0; min-width:200px;">
+                <label>Type</label>
+                <select id="bulk-type-select" onchange="document.getElementById('bulk-type').value=this.value">
+                    <option value="income">Income</option>
+                    <option value="expenditure">Expenditure</option>
+                    <option value="asset">Asset</option>
+                    <option value="liability">Liability</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin:0; min-width:250px;">
+                <label>Excel File (.xlsx or .xls)</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required />
+            </div>
+            <button type="submit" class="btn btn-primary">Upload & Import</button>
+        </form>
+    </div>
+</div>
+
+<form id="income" class="tab-content active card" style="padding:1.25rem;" method="POST" action="/api/transaction/add">
     <input type="hidden" name="type" value="income" />
-    <div class="form-group">
-        <label>Date</label>
-        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    <input type="hidden" name="return_to" value="/data-entry" />
+    <div class="form-grid">
+        <div class="form-group"><label>Date</label><input type="date" name="date" value="{{$.CurrentDate}}" required /></div>
+        <div class="form-group"><label>Category</label><select name="category_id" required><option value="">Select category</option>{{range $.IncomeCats}}<option value="{{.ID}}">{{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}</option>{{end}}</select></div>
+        <div class="form-group"><label>Payment method (optional)</label><select name="payment_method">{{template "payment-method-options"}}</select></div>
+        <div class="form-group form-group-span"><label>Description</label><input type="text" name="description" placeholder="Optional details" /></div>
+        <div class="form-group"><label>Amount (GH¢)</label><input type="number" step="0.01" name="amount" required /></div>
+        <div class="form-group form-group-span"><label class="checkbox-row"><input type="checkbox" name="allow_duplicate" value="1" /><span>Allow intentional duplicate entry</span></label></div>
     </div>
-    <div class="form-group">
-        <label>Category</label>
-        <select name="category_id" required>
-            <option value="">Select category</option>
-            {{range $.IncomeCats}}
-            <option value="{{.ID}}">
-                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
-            </option>
-            {{end}}
-        </select>
-    </div>
-    <div class="form-group">
-        <label>Description</label>
-        <input type="text" name="description" placeholder="Optional details" />
-    </div>
-    <div class="form-group">
-            <label>Amount (GH¢)</label>
-            <input type="number" step="0.01" name="amount" required />
-    </div>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Add Income</button>
-        <button type="reset" class="btn btn-secondary">Clear</button>
-    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Add Income</button><button type="reset" class="btn btn-secondary">Clear</button></div>
 </form>
 
-<form
-    id="expenditure"
-    class="tab-content"
-    method="POST"
-    action="/api/transaction/add"
->
+<form id="expenditure" class="tab-content card" style="padding:1.25rem;" method="POST" action="/api/transaction/add">
     <input type="hidden" name="type" value="expenditure" />
-    <div class="form-group">
-        <label>Date</label>
-        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    <input type="hidden" name="return_to" value="/data-entry" />
+    <div class="form-grid">
+        <div class="form-group"><label>Date</label><input type="date" name="date" value="{{$.CurrentDate}}" required /></div>
+        <div class="form-group"><label>Category</label><select name="category_id" required><option value="">Select category</option>{{range $.ExpenseCats}}<option value="{{.ID}}">{{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}</option>{{end}}</select></div>
+        <div class="form-group"><label>Payment method (optional)</label><select name="payment_method">{{template "payment-method-options"}}</select></div>
+        <div class="form-group form-group-span"><label>Description</label><input type="text" name="description" placeholder="Optional details" /></div>
+        <div class="form-group"><label>Amount (GH¢)</label><input type="number" step="0.01" name="amount" required /></div>
+        <div class="form-group form-group-span"><label class="checkbox-row"><input type="checkbox" name="allow_duplicate" value="1" /><span>Allow intentional duplicate entry</span></label></div>
     </div>
-    <div class="form-group">
-        <label>Category</label>
-        <select name="category_id" required>
-            <option value="">Select category</option>
-            {{range $.ExpenseCats}}
-            <option value="{{.ID}}">
-                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
-            </option>
-            {{end}}
-        </select>
-    </div>
-    <div class="form-group">
-        <label>Description</label>
-        <input type="text" name="description" placeholder="Optional details" />
-    </div>
-    <div class="form-group">
-            <label>Amount (GH¢)</label>
-        <input type="number" step="0.01" name="amount" required />
-    </div>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Add Expenditure</button>
-        <button type="reset" class="btn btn-secondary">Clear</button>
-    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Add Expenditure</button><button type="reset" class="btn btn-secondary">Clear</button></div>
 </form>
 
-<form
-    id="asset"
-    class="tab-content"
-    method="POST"
-    action="/api/transaction/add"
->
+<form id="asset" class="tab-content card" style="padding:1.25rem;" method="POST" action="/api/transaction/add">
     <input type="hidden" name="type" value="asset" />
-    <div class="form-group">
-        <label>Date</label>
-        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    <input type="hidden" name="return_to" value="/data-entry" />
+    <div class="form-grid">
+        <div class="form-group"><label>Date</label><input type="date" name="date" value="{{$.CurrentDate}}" required /></div>
+        <div class="form-group"><label>Asset account</label><select name="category_id" required><option value="">Select asset</option>{{range $.AssetCats}}<option value="{{.ID}}">{{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}</option>{{end}}</select></div>
+        <div class="form-group"><label>Payment method (optional)</label><select name="payment_method">{{template "payment-method-options"}}</select></div>
+        <div class="form-group form-group-span"><label>Description</label><input type="text" name="description" placeholder="Explain the asset movement" required /></div>
+        <div class="form-group"><label>Movement amount (GH¢)</label><input type="number" step="0.01" name="amount" placeholder="Positive increase; negative decrease" required /></div>
+        <div class="form-group form-group-span"><label class="checkbox-row"><input type="checkbox" name="allow_duplicate" value="1" /><span>Allow intentional duplicate entry</span></label></div>
     </div>
-    <div class="form-group">
-        <label>Category</label>
-        <select name="category_id" required>
-            <option value="">Select category</option>
-            {{range $.AssetCats}}
-            <option value="{{.ID}}">
-                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
-            </option>
-            {{end}}
-        </select>
-    </div>
-    <div class="form-group">
-        <label>Description</label>
-        <input type="text" name="description" placeholder="Optional details" />
-    </div>
-    <div class="form-group">
-            <label>Movement Amount (GH¢)</label>
-            <input type="number" step="0.01" name="amount" placeholder="Positive increases; negative decreases" required />
-    </div>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Add Asset</button>
-        <button type="reset" class="btn btn-secondary">Clear</button>
-    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save Asset Entry</button><button type="reset" class="btn btn-secondary">Clear</button></div>
 </form>
 
-<form
-    id="liability"
-    class="tab-content"
-    method="POST"
-    action="/api/transaction/add"
->
+<form id="liability" class="tab-content card" style="padding:1.25rem;" method="POST" action="/api/transaction/add">
     <input type="hidden" name="type" value="liability" />
-    <div class="form-group">
-        <label>Date</label>
-        <input type="date" name="date" value="{{$.CurrentDate}}" required />
+    <input type="hidden" name="return_to" value="/data-entry" />
+    <div class="form-grid">
+        <div class="form-group"><label>Date</label><input type="date" name="date" value="{{$.CurrentDate}}" required /></div>
+        <div class="form-group"><label>Liability account</label><select name="category_id" required><option value="">Select liability</option>{{range $.LiabilityCats}}<option value="{{.ID}}">{{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}</option>{{end}}</select></div>
+        <div class="form-group"><label>Payment method (optional)</label><select name="payment_method">{{template "payment-method-options"}}</select></div>
+        <div class="form-group form-group-span"><label>Description</label><input type="text" name="description" placeholder="Explain the liability movement" required /></div>
+        <div class="form-group"><label>Movement amount (GH¢)</label><input type="number" step="0.01" name="amount" placeholder="Positive increase; negative repayment" required /></div>
+        <div class="form-group form-group-span"><label class="checkbox-row"><input type="checkbox" name="allow_duplicate" value="1" /><span>Allow intentional duplicate entry</span></label></div>
     </div>
-    <div class="form-group">
-        <label>Category</label>
-        <select name="category_id" required>
-            <option value="">Select category</option>
-            {{range $.LiabilityCats}}
-            <option value="{{.ID}}">
-                {{if eq .Indent 1}}&nbsp;&nbsp;{{end}}{{.Name}}
-            </option>
-            {{end}}
-        </select>
-    </div>
-    <div class="form-group">
-        <label>Description</label>
-        <input type="text" name="description" placeholder="Optional details" />
-    </div>
-    <div class="form-group">
-            <label>Movement Amount (GH¢)</label>
-            <input type="number" step="0.01" name="amount" placeholder="Positive increases; negative repayments" required />
-    </div>
-    <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Add Liability</button>
-        <button type="reset" class="btn btn-secondary">Clear</button>
-    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save Liability Entry</button><button type="reset" class="btn btn-secondary">Clear</button></div>
 </form>
 
 <script>
     function showTab(event, name) {
-        document
-            .querySelectorAll(".tab-content")
-            .forEach((el) => el.classList.remove("active"));
-        document
-            .querySelectorAll(".tab")
-            .forEach((el) => el.classList.remove("active"));
-        document.getElementById(name).classList.add("active");
-        event.target.classList.add("active");
+        document.querySelectorAll(".tab-content").forEach((el) => el.classList.remove("active"));
+        document.querySelectorAll(".tab").forEach((el) => el.classList.remove("active"));
+        const target = document.getElementById(name);
+        if (target) target.classList.add("active");
+        if (event && event.target) event.target.classList.add("active");
+    }
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab) {
+        const btn = document.querySelector('.tab[data-tab="' + tab + '"]');
+        if (btn) {
+            btn.click();
+            document.getElementById('bulk-type').value = tab;
+            document.getElementById('bulk-type-select').value = tab;
+        }
     }
 </script>
 {{end}}

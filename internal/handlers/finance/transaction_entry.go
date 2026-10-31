@@ -23,28 +23,15 @@ type CatOption struct {
 	Indent int
 }
 
-// DataEntryPage serves the data entry view, which is essentially the dashboard with the
-// transaction entry modal pre-opened. Rather than maintaining a separate page template
-// with duplicated category lists and balance displays, this handler reuses the dashboard
-// data builder and template, overriding the active navigation tab to "data-entry" and
-// forcing the single "transaction-entry" modal to be open on page load. This design keeps the entry
-// form, category dropdowns, and balance summaries in one consistent code path.
+// DataEntryPage serves the data entry page with manual entry forms per transaction type
+// and bulk Excel import for each type.
 func DataEntryPage(w http.ResponseWriter, r *http.Request) {
-	// I continue rendering transaction entry through the dashboard shell because the modal launchers
-	// and category lists already live there, and keeping one shared shell avoids duplicate UI logic.
-	openModal := r.URL.Query().Get("open")
-	if strings.TrimSpace(openModal) == "" {
-		// Transaction Entry is now the only financial input surface, so the dedicated route opens
-		// that one console directly instead of asking the operator to choose between competing flows.
-		openModal = "transaction-entry"
-	}
-
-	data, err := buildDashboardData(time.Now(), "data-entry", r.URL.Query().Get("msg"), openModal)
+	data, err := buildDashboardData(time.Now(), "data-entry", r.URL.Query().Get("msg"), "")
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	RenderTemplate(w, "dashboard", data)
+	RenderTemplate(w, "data-entry", data)
 }
 
 // AddTransaction handles POST requests to create a new transaction. It validates the form

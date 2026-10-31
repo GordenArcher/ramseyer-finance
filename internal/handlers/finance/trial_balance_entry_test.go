@@ -44,8 +44,6 @@ func TestDataEntryRendersScrollableTransactionModalAndGlobalLogout(t *testing.T)
 	}
 	body := recorder.Body.String()
 	for _, expected := range []string{
-		`class="modal-panel modal-panel-assets modal-panel-transaction"`,
-		`data-auto-open-modal="transaction-entry"`,
 		`action="/api/auth/logout"`,
 		`class="sidebar-logout"`,
 		"Sign Out",
