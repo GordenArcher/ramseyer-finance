@@ -951,6 +951,56 @@ button {
     margin-top: 22px;
 }
 
+.bulk-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.data-entry-excel {
+    margin-top: 18px;
+}
+
+.data-entry-excel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.bulk-entry-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+}
+
+.bulk-entry-form .form-group {
+    margin-bottom: 0;
+}
+
+.bulk-entry-file {
+    flex: 1 1 280px;
+}
+
+.bulk-entry-guide summary {
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.bulk-entry-table {
+    margin-top: 12px;
+    overflow-x: auto;
+}
+
+.bulk-entry-note {
+    margin-top: 8px;
+}
+
+.data-entry-error-list {
+    margin: 0;
+    padding-left: 18px;
+}
+
 .checkbox-row {
     display: inline-flex;
     align-items: center;

@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-// ExportReportExcel builds a SpreadsheetML Excel document on the Go side.
+// ExportReportExcel serves the editable copy of a financial report. The PDF remains the
+// filing and print copy, but the client reconciles figures in Excel, so this export keeps
+// the same rows as the statements instead of forcing them to retype the numbers.
 func ExportReportExcel(w http.ResponseWriter, r *http.Request) {
 	year, err := parseReportYear(r.URL.Query().Get("year"))
 	if err != nil {
@@ -30,6 +32,10 @@ func ExportReportExcel(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(content)
 }
 
+// buildReportExcel turns each report into SpreadsheetML instead of a zipped workbook
+// because the rest of the export path already writes that dialect. Sharing the row writer
+// with the transaction export keeps every downloaded file readable by the same Excel
+// versions, including the older installs used on the church office machines.
 func buildReportExcel(report string, year int) ([]byte, string, error) {
 	switch report {
 	case "trial-balance":

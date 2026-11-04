@@ -3,6 +3,7 @@ package finance
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
 	transactionsaudit "ramseyer-finance/internal/transactions/audit"
@@ -23,15 +24,65 @@ type CatOption struct {
 	Indent int
 }
 
-// DataEntryPage serves the data entry page with manual entry forms per transaction type
-// and bulk Excel import for each type.
+// DataEntryPage serves the data entry page with a manual form and an Excel upload for each
+// transaction type.
 func DataEntryPage(w http.ResponseWriter, r *http.Request) {
 	data, err := buildDashboardData(time.Now(), "data-entry", r.URL.Query().Get("msg"), "")
 	if err != nil {
 		serverError(w, err)
 		return
 	}
+	// The bulk importer redirects with the type it just imported. Reconciling it here keeps
+	// the page on the same tab after the round trip, which is where the operator needs to
+	// read the import report.
+	data.ActiveTab = dataEntryTab(r.URL.Query().Get("tab"))
+	data.DataEntryExcel = dataEntryExcelControls(data.CurrentYear)
+	if summary, ok := bulkResultStore.Get(r.URL.Query().Get("bulk")); ok {
+		data.BulkImport = &summary
+	}
 	RenderTemplate(w, "data-entry", data)
+}
+
+// dataEntryExcelControls builds the upload, template, and export links for each type. Only
+// expenditure has a saved-workbook export because that is the client workbook the church
+// office shares; the other types export through the transaction register.
+func dataEntryExcelControls(year int) map[string]DataEntryExcelControl {
+	controls := make(map[string]DataEntryExcelControl, 4)
+	for _, entry := range []struct {
+		Type       string
+		Label      string
+		LowerLabel string
+	}{
+		{Type: "income", Label: "Income", LowerLabel: "income"},
+		{Type: "expenditure", Label: "Expenditure", LowerLabel: "expenditure"},
+		{Type: "asset", Label: "Asset", LowerLabel: "asset"},
+		{Type: "liability", Label: "Liability", LowerLabel: "liability"},
+	} {
+		control := DataEntryExcelControl{
+			Type:        entry.Type,
+			Label:       entry.Label,
+			LowerLabel:  entry.LowerLabel,
+			Year:        year,
+			TemplateURL: fmt.Sprintf("/api/data-entry/template?type=%s&year=%d", entry.Type, year),
+		}
+		if entry.Type == "expenditure" {
+			control.ExportURL = fmt.Sprintf("/api/data-entry/export?type=expenditure&year=%d", year)
+		}
+		controls[entry.Type] = control
+	}
+	return controls
+}
+
+// dataEntryTab normalises the requested tab so an unknown query value cannot leave every
+// panel hidden.
+func dataEntryTab(requested string) string {
+	tab := strings.TrimSpace(requested)
+	switch tab {
+	case "expenditure", "asset", "liability":
+		return tab
+	default:
+		return "income"
+	}
 }
 
 // AddTransaction handles POST requests to create a new transaction. It validates the form

@@ -1,0 +1,105 @@
+{{define "data-entry-excel"}}
+<div class="card data-entry-excel">
+    <div class="card-header">
+        <div>
+            <h3>Import {{.Label}} from Excel</h3>
+            <p class="section-copy">Upload a workbook to save many {{.LowerLabel}} entries at once. Rows are matched to existing accounts; uploads never create new accounts.</p>
+        </div>
+        <div class="data-entry-excel-actions">
+            <a class="btn btn-secondary" href="{{.TemplateURL}}" download>Download Template</a>
+            {{if .ExportURL}}<a class="btn btn-secondary" href="{{.ExportURL}}" download>Save as Excel</a>{{end}}
+        </div>
+    </div>
+    <div class="bulk-entry">
+        <form class="bulk-entry-form" method="POST" action="/api/data-entry/bulk-import" enctype="multipart/form-data">
+            <input type="hidden" name="type" value="{{.Type}}" />
+            <div class="form-group bulk-entry-file">
+                <label>Excel File (.xlsx or .xlsm)</label>
+                <input type="file" name="file" accept=".xlsx,.xlsm" required />
+            </div>
+            <button type="submit" class="btn btn-primary">Upload &amp; Import</button>
+        </form>
+        <details class="bulk-entry-guide">
+            <summary>How the Excel should look</summary>
+            {{if eq .Type "expenditure"}}
+            <div class="bulk-entry-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Row</th>
+                            <th>A</th>
+                            <th>B</th>
+                            <th>C</th>
+                            <th>D</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>1</td>
+                            <td colspan="4">Leave the first row blank</td>
+                        </tr>
+                        <tr>
+                            <td>2</td>
+                            <td></td>
+                            <td>DESCRIP TION</td>
+                            <td>AMOUNT</td>
+                            <td>(category)</td>
+                        </tr>
+                        <tr>
+                            <td>3</td>
+                            <td>04/01/2026</td>
+                            <td>Plan of work</td>
+                            <td>456.00</td>
+                            <td>Printing &amp; Stationery</td>
+                        </tr>
+                        <tr>
+                            <td>4</td>
+                            <td>04/01/2026</td>
+                            <td>Water</td>
+                            <td>400.00</td>
+                            <td>Utilities-Manse</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="section-copy bulk-entry-note">
+                Use the EXPENSES {{.Year}} sheet. The importer reads that sheet and ignores the
+                bank book tabs. Dates can be real Excel dates or <code>YYYY-MM-DD</code>. The
+                account name goes in column D and must match an existing expenditure account;
+                uploading never creates one. Blank rows, subtotals, and opening or closing
+                balance lines are skipped.
+            </p>
+            {{else}}
+            <div class="bulk-entry-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                            <th>Category</th>
+                            <th>Payment Method</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>2026-01-04</td>
+                            <td>Example entry</td>
+                            <td>100.00</td>
+                            <td>An existing {{.LowerLabel}} account</td>
+                            <td>cash</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="section-copy bulk-entry-note">
+                The importer reads the header row, so the columns can be in any order. Dates
+                can be real Excel dates or <code>YYYY-MM-DD</code>. Category must match an
+                existing {{.LowerLabel}} account name; uploading never creates one. Payment
+                method is optional and defaults to cash. Blank rows and subtotals are ignored.
+            </p>
+            {{end}}
+        </details>
+    </div>
+</div>
+{{end}}

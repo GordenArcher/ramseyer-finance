@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
+	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
 	"ramseyer-finance/internal/handlers/viewmodels"
 	"time"
 )
@@ -15,6 +16,9 @@ import (
 // transactions for the activity feed, and the chart data for the monthly income-vs-expense
 // bar chart with a surplus trend line. The OpenModal field allows redirects to pre-open
 // a specific modal (e.g., the "add transaction" form) after a form submission or navigation.
+// ActiveTab carries the transaction type a redirect wants open on the data-entry page, so a
+// bulk import lands back on the tab the operator uploaded for instead of always reopening
+// income.
 type DashboardData struct {
 	Active            string
 	Message           string
@@ -48,8 +52,23 @@ type DashboardData struct {
 	ExpenseCats       []CatOption
 	AssetCats         []CatOption
 	LiabilityCats     []CatOption
+	ActiveTab         string
+	BulkImport        *dataentrybulk.ImportSummary
+	DataEntryExcel    map[string]DataEntryExcelControl
 	DailyTransactions []RecentTx
 	Chart             viewmodels.ChartData
+}
+
+// DataEntryExcelControl carries the per-type Excel controls rendered inside each data-entry panel.
+// The page uses the type as the map key so a panel asks for its own template and export
+// links without duplicating the URL strings in the template.
+type DataEntryExcelControl struct {
+	Type        string
+	Label       string
+	LowerLabel  string
+	Year        int
+	TemplateURL string
+	ExportURL   string
 }
 
 // RecentTx represents a single row in the dashboard's recent transaction feed. It carries
