@@ -37,6 +37,11 @@ func DataEntryPage(w http.ResponseWriter, r *http.Request) {
 	// read the import report.
 	data.ActiveTab = dataEntryTab(r.URL.Query().Get("tab"))
 	data.DataEntryExcel = dataEntryExcelControls(data.CurrentYear)
+	// A rejected form redirects here with tone=warning so the message is not styled like a
+	// saved entry. Anything else keeps the default success tone from the shared builder.
+	if r.URL.Query().Get("tone") == "warning" {
+		data.MessageTone = "warning"
+	}
 	if summary, ok := bulkResultStore.Get(r.URL.Query().Get("bulk")); ok {
 		data.BulkImport = &summary
 	}

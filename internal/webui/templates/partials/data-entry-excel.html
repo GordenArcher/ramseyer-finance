@@ -19,8 +19,8 @@
             </div>
             <button type="submit" class="btn btn-primary">Upload &amp; Import</button>
         </form>
-        <details class="bulk-entry-guide">
-            <summary>How the Excel should look</summary>
+        <div class="bulk-entry-guide">
+            <p class="bulk-entry-guide-title">How the Excel should look</p>
             {{if eq .Type "expenditure"}}
             <div class="bulk-entry-table">
                 <table class="data-table">
@@ -99,7 +99,7 @@
                 method is optional and defaults to cash. Blank rows and subtotals are ignored.
             </p>
             {{end}}
-        </details>
+        </div>
     </div>
 </div>
 {{end}}

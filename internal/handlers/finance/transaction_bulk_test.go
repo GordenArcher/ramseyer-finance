@@ -101,6 +101,71 @@ func uploadWorkbook(t *testing.T, workbook *excelize.File, transactionType strin
 	return recorder
 }
 
+// combinedWorkbook builds the one-sheet all-types layout: Date, Type, Description, Amount,
+// Category, Payment Method. The Type cell is what routes each row to the right namespace.
+func combinedWorkbook(t *testing.T, rows [][]any) *excelize.File {
+	t.Helper()
+
+	workbook := excelize.NewFile()
+	const sheet = "All Entries"
+	_ = workbook.SetSheetName(workbook.GetSheetName(0), sheet)
+
+	headers := []string{"Date", "Type", "Description", "Amount", "Category", "Payment Method"}
+	for index, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(index+1, 1)
+		_ = workbook.SetCellValue(sheet, cell, header)
+	}
+
+	for index, row := range rows {
+		rowNumber := index + 2
+		for column, value := range row {
+			cell, err := excelize.CoordinatesToCellName(column+1, rowNumber)
+			if err != nil {
+				t.Fatalf("coordinates for row %d: %v", rowNumber, err)
+			}
+			if value == nil {
+				continue
+			}
+			_ = workbook.SetCellValue(sheet, cell, value)
+		}
+	}
+
+	return workbook
+}
+
+func writeWorkbookPart(t *testing.T, writer *multipart.Writer, field, filename string, workbook *excelize.File) {
+	t.Helper()
+
+	var workbookBytes bytes.Buffer
+	if err := workbook.Write(&workbookBytes); err != nil {
+		t.Fatalf("write workbook: %v", err)
+	}
+	part, err := writer.CreateFormFile(field, filename)
+	if err != nil {
+		t.Fatalf("create %s part: %v", field, err)
+	}
+	if _, err := part.Write(workbookBytes.Bytes()); err != nil {
+		t.Fatalf("write %s part: %v", field, err)
+	}
+}
+
+func uploadCombinedWorkbook(t *testing.T, workbook *excelize.File) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	writeWorkbookPart(t, writer, "file", "all-entries.xlsx", workbook)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/data-entry/bulk-import-all", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	BulkImportAllTransactions(recorder, request)
+	return recorder
+}
+
 func TestBulkImportReadsTheClientLedgerSheet(t *testing.T) {
 	setupTestDB(t)
 	stationery := categoryID(t, "expenditure", "Printing & Stationery")
@@ -205,6 +270,115 @@ func TestBulkImportSkipsTheSecondUploadOfTheSameFile(t *testing.T) {
 
 	if got := countTransactionsForCategory(t, stationery); got != 1 {
 		t.Fatalf("stationery rows after re-upload = %d, want 1", got)
+	}
+}
+
+func TestBulkImportAllUploadsEveryTypeFromOneSheet(t *testing.T) {
+	setupTestDB(t)
+	tithes := categoryID(t, "income", "Tithes")
+	stationery := categoryID(t, "expenditure", "Printing & Stationery")
+
+	workbook := combinedWorkbook(t, [][]any{
+		{"2026-01-04", "income", "Sunday offering", 1000, "Tithes", "cash"},
+		{"2026-01-04", "expenditure", "Plan of work", 456, "Printing & Stationery", "bank"},
+	})
+	recorder := uploadCombinedWorkbook(t, workbook)
+	workbook.Close()
+
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("all-types import status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := countTransactionsForCategory(t, tithes); got != 1 {
+		t.Fatalf("income rows = %d, want 1", got)
+	}
+	if got := countTransactionsForCategory(t, stationery); got != 1 {
+		t.Fatalf("expenditure rows = %d, want 1", got)
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("all-types summary was not stored")
+	}
+	if summary.Imported != 2 {
+		t.Fatalf("imported rows = %d, want 2", summary.Imported)
+	}
+	if len(summary.Sections) != 2 {
+		t.Fatalf("sections = %d, want 2", len(summary.Sections))
+	}
+	if summary.Sections[0].Type != "income" || summary.Sections[1].Type != "expenditure" {
+		t.Fatalf("sections = %+v, want income then expenditure", summary.Sections)
+	}
+}
+
+func TestBulkImportAllRequiresAFile(t *testing.T) {
+	setupTestDB(t)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/data-entry/bulk-import-all", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	BulkImportAllTransactions(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("empty all-types upload status = %d, want 400", recorder.Code)
+	}
+}
+
+func TestBulkImportAllRefusesAnUnknownTypeAndKeepsTheRest(t *testing.T) {
+	setupTestDB(t)
+	stationery := categoryID(t, "expenditure", "Printing & Stationery")
+
+	workbook := combinedWorkbook(t, [][]any{
+		{"2026-01-04", "donation", "MYSTERY ITEM", 100, "Tithes", "cash"},
+		{"2026-01-04", "expenditure", "Plan of work", 456, "Printing & Stationery", "cash"},
+	})
+	recorder := uploadCombinedWorkbook(t, workbook)
+	workbook.Close()
+
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("all-types import status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := countTransactionsForCategory(t, stationery); got != 1 {
+		t.Fatalf("expenditure rows = %d, want 1 after an unknown type", got)
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("all-types summary was not stored")
+	}
+	if summary.Imported != 1 {
+		t.Fatalf("imported rows = %d, want 1", summary.Imported)
+	}
+	if len(summary.Errors) == 0 {
+		t.Fatalf("the unknown type produced no explanation")
+	}
+}
+
+func TestDownloadDataEntryTemplateBuildsTheCombinedSheet(t *testing.T) {
+	setupTestDB(t)
+
+	recorder := httptest.NewRecorder()
+	DownloadDataEntryTemplate(recorder, httptest.NewRequest(http.MethodGet, "/api/data-entry/template?type=all&year=2026", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("combined template status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	workbook, err := excelize.OpenReader(bytes.NewReader(recorder.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("open combined template: %v", err)
+	}
+	defer workbook.Close()
+
+	if names := workbook.GetSheetList(); len(names) == 0 || names[0] != "All Entries" {
+		t.Fatalf("combined template sheets = %v, want All Entries first", names)
+	}
+	if header, _ := workbook.GetCellValue("All Entries", "B1"); header != "Type" {
+		t.Fatalf("combined template type header = %q, want Type", header)
 	}
 }
 

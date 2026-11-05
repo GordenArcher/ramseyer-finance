@@ -17,7 +17,7 @@ import (
 func DownloadDataEntryTemplate(w http.ResponseWriter, r *http.Request) {
 	transactionType := strings.TrimSpace(r.URL.Query().Get("type"))
 	switch transactionType {
-	case "income", "expenditure", "asset", "liability":
+	case "income", "expenditure", "asset", "liability", "all":
 	default:
 		transactionType = "expenditure"
 	}
@@ -28,20 +28,22 @@ func DownloadDataEntryTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	categories, err := loadBulkCategories(transactionType)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-
 	var workbook *excelize.File
-	if transactionType == "expenditure" {
-		workbook, err = dataentrybulk.BuildExpenseWorkbook(year, nil)
-		if err == nil {
-			err = dataentrybulk.AddEntryTemplateInstructions(workbook, transactionType, categories)
-		}
+	if transactionType == "all" {
+		workbook, err = dataentrybulk.BuildCombinedTemplate()
 	} else {
-		workbook, err = dataentrybulk.BuildEntryTemplate(transactionType, categories)
+		var categories []dataentrybulk.Category
+		categories, err = loadBulkCategories(transactionType)
+		if err == nil {
+			if transactionType == "expenditure" {
+				workbook, err = dataentrybulk.BuildExpenseWorkbook(year, nil)
+				if err == nil {
+					err = dataentrybulk.AddEntryTemplateInstructions(workbook, transactionType, categories)
+				}
+			} else {
+				workbook, err = dataentrybulk.BuildEntryTemplate(transactionType, categories)
+			}
+		}
 	}
 	if err != nil {
 		serverError(w, err)

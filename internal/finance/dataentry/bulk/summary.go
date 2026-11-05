@@ -31,15 +31,43 @@ type ImportSummary struct {
 	Imported int
 	Skipped  int
 	Errors   []string
+	// Sections is populated only by the all-types upload. Each entry is one type's share
+	// of the submission, so the operator can tell which workbook landed and which one still
+	// needs attention without opening four separate reports.
+	Sections []ImportSection
+}
+
+// ImportSection is one transaction type's result inside an all-types upload. Errors stays
+// on the section until the handler folds it into the combined report with the type label,
+// which is what keeps "Row 4" from being ambiguous when four files were submitted.
+type ImportSection struct {
+	Type     string
+	Label    string
+	Sheet    string
+	Imported int
+	Skipped  int
+	Errors   []string
 }
 
 // AppendRowError records one refusal with the row number the operator sees in Excel.
 func (s *ImportSummary) AppendRowError(rowIndex int, message string) {
-	if len(s.Errors) >= RowErrorLimit {
-		return
+	s.Errors = appendRowError(s.Errors, rowIndex, message)
+}
+
+// AppendRowError mirrors the summary method so a section can collect its own refusals
+// before the combined report is assembled.
+func (s *ImportSection) AppendRowError(rowIndex int, message string) {
+	s.Errors = appendRowError(s.Errors, rowIndex, message)
+}
+
+// appendRowError is the one place the row limit and the 1 based row label live. Both the
+// single-type and all-types reports route through it so their messages cannot drift apart.
+func appendRowError(errors []string, rowIndex int, message string) []string {
+	if len(errors) >= RowErrorLimit {
+		return errors
 	}
 	// Row numbers are reported 1 based because that is what the operator sees in Excel.
-	s.Errors = append(s.Errors, "Row "+strconv.Itoa(rowIndex+1)+": "+message)
+	return append(errors, "Row "+strconv.Itoa(rowIndex+1)+": "+message)
 }
 
 // storedResult is one import report waiting to be read by the data-entry page.

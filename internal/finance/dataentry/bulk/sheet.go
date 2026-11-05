@@ -39,9 +39,10 @@ var expenseSheetMarkers = []string{"expense", "expenditure"}
 // miss both.
 var headerAliases = map[string][]string{
 	"date":        {"date", "day"},
+	"type":        {"type", "transaction type", "entry type"},
 	"description": {"descr", "particular", "designation", "narration", "details", "item"},
 	"amount":      {"amount", "amt", "ghc", "value", "total"},
-	"category":    {"category", "account", "head", "type"},
+	"category":    {"category", "account", "head"},
 	"payment":     {"payment", "method", "mode"},
 }
 
@@ -49,6 +50,7 @@ var headerAliases = map[string][]string{
 // field was not found, so the importer infers it from the data rows.
 type ColumnLayout struct {
 	Date            int
+	TransactionType int
 	Description     int
 	Amount          int
 	Category        int
@@ -60,12 +62,13 @@ type ColumnLayout struct {
 // NewColumnLayout returns a layout with every column unset.
 func NewColumnLayout() ColumnLayout {
 	return ColumnLayout{
-		Date:        -1,
-		Description: -1,
-		Amount:      -1,
-		Category:    -1,
-		Payment:     -1,
-		HeaderRow:   -1,
+		Date:            -1,
+		TransactionType: -1,
+		Description:     -1,
+		Amount:          -1,
+		Category:        -1,
+		Payment:         -1,
+		HeaderRow:       -1,
 	}
 }
 
@@ -235,6 +238,10 @@ func DetectHeader(row []string) ColumnLayout {
 				if layout.Date < 0 {
 					layout.Date = index
 				}
+			case "type":
+				if layout.TransactionType < 0 {
+					layout.TransactionType = index
+				}
 			case "description":
 				if layout.Description < 0 {
 					layout.Description = index
@@ -276,7 +283,7 @@ func inferDateColumn(rows [][]string, layout ColumnLayout) int {
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
 		row := rows[index]
 		for column := range row {
-			if column == layout.Description || column == layout.Amount || column == layout.Category || column == layout.Payment {
+			if column == layout.Description || column == layout.Amount || column == layout.Category || column == layout.Payment || column == layout.TransactionType {
 				continue
 			}
 			if _, ok := ParseDate(Cell(row, column)); ok {
@@ -311,7 +318,7 @@ func inferCategoryColumn(rows [][]string, layout ColumnLayout) int {
 		textHits := 0
 		numericHits := 0
 		for index := layout.HeaderRow + 1; index < sampleLimit; index++ {
-			if column == layout.Description || column == layout.Payment || column == layout.Date {
+			if column == layout.Description || column == layout.Payment || column == layout.Date || column == layout.TransactionType {
 				continue
 			}
 			value := strings.TrimSpace(Cell(rows[index], column))

@@ -3,6 +3,7 @@ package finance
 import (
 	"bytes"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
@@ -40,10 +41,8 @@ func BulkImportTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	transactionType := strings.TrimSpace(r.FormValue("type"))
-	switch transactionType {
-	case "income", "expenditure", "asset", "liability":
-	default:
+	transactionType, ok := normalizeBulkTransactionType(r.FormValue("type"))
+	if !ok {
 		badRequest(w, "Invalid transaction type")
 		return
 	}
@@ -55,43 +54,97 @@ func BulkImportTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	workbook, err := openUploadedWorkbook(file, header)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	defer workbook.Close()
+
+	sheet, err := parseBulkSheet(workbook, strings.TrimSpace(r.FormValue("sheet")), transactionType)
+	if err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+
+	summary, err := importParsedSheet(transactionType, sheet)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+
+	token := bulkResultStore.Put(summary)
+	http.Redirect(w, r, "/data-entry?bulk="+token+"&tab="+transactionType, http.StatusSeeOther)
+}
+
+// normalizeBulkTransactionType keeps the whitelist in one place. Both upload handlers and
+// any future caller must agree on the four namespaces, because the category lookup and the
+// business rules are keyed by them.
+func normalizeBulkTransactionType(raw string) (string, bool) {
+	transactionType := strings.TrimSpace(raw)
+	switch transactionType {
+	case "income", "expenditure", "asset", "liability":
+		return transactionType, true
+	default:
+		return "", false
+	}
+}
+
+// openUploadedWorkbook reads one multipart file into a workbook. Every failure here is
+// caused by the file the operator chose, so the returned error is already phrased for the
+// page instead of being wrapped for the log.
+func openUploadedWorkbook(file multipart.File, header *multipart.FileHeader) (*excelize.File, error) {
 	// excelize reads the Office Open XML formats only. Accepting a legacy .xls here would
 	// pass the extension check and then fail as an unreadable workbook, so the message names
 	// exactly what this parser can actually open.
 	switch strings.ToLower(filepath.Ext(header.Filename)) {
 	case ".xlsx", ".xlsm":
 	default:
-		badRequest(w, "Only .xlsx or .xlsm files are supported")
-		return
+		return nil, fmt.Errorf("only .xlsx or .xlsm files are supported")
 	}
 
 	var buffer bytes.Buffer
 	if _, err := buffer.ReadFrom(file); err != nil {
-		badRequest(w, "Unable to read the uploaded file")
-		return
+		return nil, fmt.Errorf("unable to read the uploaded file")
 	}
 	workbook, err := excelize.OpenReader(bytes.NewReader(buffer.Bytes()))
 	if err != nil {
-		badRequest(w, "Unable to open the workbook")
-		return
+		return nil, fmt.Errorf("unable to open the workbook")
 	}
-	defer workbook.Close()
+	return workbook, nil
+}
 
-	sheetName, layout, rows, err := dataentrybulk.ChooseSheet(workbook, strings.TrimSpace(r.FormValue("sheet")), transactionType)
+// parsedSheet is one worksheet resolved into the layout the importer understands. Both the
+// single-type upload and the all-types upload hand this to importParsedSheet, so the row
+// rules stay identical no matter how many files the operator submitted at once.
+type parsedSheet struct {
+	Name   string
+	Layout dataentrybulk.ColumnLayout
+	Rows   [][]string
+}
+
+// parseBulkSheet resolves the worksheet and layout for one type. Errors returned here come
+// from the uploaded workbook, so the handler can show them to the operator directly.
+func parseBulkSheet(workbook *excelize.File, requestedSheet, transactionType string) (parsedSheet, error) {
+	name, layout, rows, err := dataentrybulk.ChooseSheet(workbook, requestedSheet, transactionType)
 	if err != nil {
-		badRequest(w, err.Error())
-		return
+		return parsedSheet{}, err
 	}
+	return parsedSheet{Name: name, Layout: layout, Rows: rows}, nil
+}
 
+// importParsedSheet writes the parsed rows through the same insert, duplicate, and audit
+// path as manual entry. Errors returned here are internal failures, not row-level refusals;
+// row-level refusals are recorded in the summary so one bad row never discards the rest.
+func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk.ImportSummary, error) {
 	categories, err := loadBulkCategories(transactionType)
 	if err != nil {
-		serverError(w, err)
-		return
+		return dataentrybulk.ImportSummary{}, err
 	}
 
-	summary := dataentrybulk.ImportSummary{Sheet: sheetName}
-	for index := layout.HeaderRow + 1; index < len(rows); index++ {
-		row := rows[index]
+	summary := dataentrybulk.ImportSummary{Sheet: sheet.Name}
+	for index := sheet.Layout.HeaderRow + 1; index < len(sheet.Rows); index++ {
+		row := sheet.Rows[index]
 		if dataentrybulk.RowIsBlank(row) {
 			continue
 		}
@@ -104,14 +157,14 @@ func BulkImportTransaction(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		dateValue, ok := dataentrybulk.DateValue(row, layout.Date)
+		dateValue, ok := dataentrybulk.DateValue(row, sheet.Layout.Date)
 		if !ok {
 			summary.Skipped++
 			summary.AppendRowError(index, "date is missing or not a real date")
 			continue
 		}
 
-		amount, ok := dataentrybulk.AmountValue(row, layout.Amount)
+		amount, ok := dataentrybulk.AmountValue(row, sheet.Layout.Amount)
 		if !ok {
 			summary.Skipped++
 			summary.AppendRowError(index, "amount is missing or not a number")
@@ -130,73 +183,75 @@ func BulkImportTransaction(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		description := strings.TrimSpace(dataentrybulk.Cell(row, layout.Description))
-		categoryLabel := strings.TrimSpace(dataentrybulk.Cell(row, layout.Category))
-		categoryID, matched := dataentrybulk.MatchCategory(categories, categoryLabel)
-		if !matched {
-			// Uploading must never create an account as a side effect. An unknown label is
-			// reported so the chart of accounts stays an explicit operator decision.
+		description := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Description))
+		categoryLabel := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Category))
+		paymentMethod := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Payment))
+		if reason := saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod, amount, categories); reason != "" {
 			summary.Skipped++
-			if categoryLabel == "" {
-				summary.AppendRowError(index, "category is missing; add a category column or name the account")
-			} else {
-				summary.AppendRowError(index, "category \""+categoryLabel+"\" does not match an existing account")
-			}
+			summary.AppendRowError(index, reason)
 			continue
-		}
-
-		categoryMeta, err := lookupTransactionCategoryMeta(categoryID, transactionType)
-		if err != nil {
-			summary.Skipped++
-			summary.AppendRowError(index, "matched account is no longer available")
-			continue
-		}
-
-		paymentMethod, err := normalizePaymentMethod(strings.TrimSpace(dataentrybulk.Cell(row, layout.Payment)))
-		if err != nil {
-			summary.Skipped++
-			summary.AppendRowError(index, "payment method must be cash, momo, cheque, or bank")
-			continue
-		}
-
-		// Running the same rule check as manual entry means uploading one workbook twice
-		// refuses the second pass instead of double posting every row.
-		if err := validateTransactionBusinessRules(0, dateValue, transactionType, categoryID, description, amount, false); err != nil {
-			summary.Skipped++
-			summary.AppendRowError(index, err.Error())
-			continue
-		}
-
-		result, err := db.DB.Exec(
-			`INSERT INTO transactions (date, type, category, category_id, payment_method, description, amount, note_ref, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
-			dateValue,
-			transactionType,
-			categoryMeta.Name,
-			categoryID,
-			paymentMethod,
-			description,
-			amount,
-			categoryMeta.NoteRef,
-		)
-		if err != nil {
-			summary.Skipped++
-			summary.AppendRowError(index, "could not be saved")
-			continue
-		}
-
-		// Bulk rows share the audit trail with typed rows so the register can still explain
-		// where a posting came from after an import.
-		if transactionID, idErr := result.LastInsertId(); idErr == nil {
-			if snapshot, snapshotErr := loadTransactionSnapshot(transactionID); snapshotErr == nil {
-				_ = recordTransactionAudit(transactionsaudit.ActionCreated, snapshot)
-			}
 		}
 		summary.Imported++
 	}
 
-	token := bulkResultStore.Put(summary)
-	http.Redirect(w, r, "/data-entry?bulk="+token+"&tab="+transactionType, http.StatusSeeOther)
+	return summary, nil
+}
+
+// saveImportedRow validates and inserts one parsed row. An empty return means the row was
+// saved; anything else is the operator-facing reason it was refused. Keeping the insert,
+// duplicate, and audit rules in one function is what stops the per-type upload and the
+// all-types upload from posting different results for the same row.
+func saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod string, amount float64, categories []dataentrybulk.Category) string {
+	categoryID, matched := dataentrybulk.MatchCategory(categories, categoryLabel)
+	if !matched {
+		// Uploading must never create an account as a side effect. An unknown label is
+		// reported so the chart of accounts stays an explicit operator decision.
+		if categoryLabel == "" {
+			return "category is missing; add a category column or name the account"
+		}
+		return "category \"" + categoryLabel + "\" does not match an existing account"
+	}
+
+	categoryMeta, err := lookupTransactionCategoryMeta(categoryID, transactionType)
+	if err != nil {
+		return "matched account is no longer available"
+	}
+
+	normalizedPayment, err := normalizePaymentMethod(strings.TrimSpace(paymentMethod))
+	if err != nil {
+		return "payment method must be cash, momo, cheque, or bank"
+	}
+
+	// Running the same rule check as manual entry means uploading one workbook twice
+	// refuses the second pass instead of double posting every row.
+	if err := validateTransactionBusinessRules(0, dateValue, transactionType, categoryID, description, amount, false); err != nil {
+		return err.Error()
+	}
+
+	result, err := db.DB.Exec(
+		`INSERT INTO transactions (date, type, category, category_id, payment_method, description, amount, note_ref, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
+		dateValue,
+		transactionType,
+		categoryMeta.Name,
+		categoryID,
+		normalizedPayment,
+		description,
+		amount,
+		categoryMeta.NoteRef,
+	)
+	if err != nil {
+		return "could not be saved"
+	}
+
+	// Bulk rows share the audit trail with typed rows so the register can still explain
+	// where a posting came from after an import.
+	if transactionID, idErr := result.LastInsertId(); idErr == nil {
+		if snapshot, snapshotErr := loadTransactionSnapshot(transactionID); snapshotErr == nil {
+			_ = recordTransactionAudit(transactionsaudit.ActionCreated, snapshot)
+		}
+	}
+	return ""
 }
 
 // loadBulkCategories reads every active account of one type once, so a three hundred row

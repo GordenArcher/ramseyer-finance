@@ -5,12 +5,19 @@
 </div>
 
 {{if .Message}}
-<div class="alert alert-success">{{.Message}}</div>
+<div class="alert alert-{{.MessageTone}}">{{.Message}}</div>
 {{end}}
 
 {{if .BulkImport}}
 <div class="alert alert-{{if .BulkImport.Errors}}warning{{else}}success{{end}}">
+    {{if .BulkImport.Sections}}
+    <strong>Upload all types: {{.BulkImport.Imported}} saved{{if .BulkImport.Skipped}}, {{.BulkImport.Skipped}} skipped{{end}}.</strong>
+    <ul class="section-copy data-entry-import-sections">
+        {{range .BulkImport.Sections}}<li>{{.Label}}{{if .Sheet}} ({{.Sheet}}){{end}}: {{.Imported}} saved{{if .Skipped}}, {{.Skipped}} skipped{{end}}</li>{{end}}
+    </ul>
+    {{else}}
     <strong>Import from {{.BulkImport.Sheet}}: {{.BulkImport.Imported}} saved{{if .BulkImport.Skipped}}, {{.BulkImport.Skipped}} skipped{{end}}.</strong>
+    {{end}}
 </div>
 {{if .BulkImport.Errors}}
 <div class="card">
@@ -26,6 +33,68 @@
 </div>
 {{end}}
 {{end}}
+
+<section class="card data-entry-excel data-entry-all">
+    <div class="card-header">
+        <div>
+            <h3>Upload the whole sheet at once</h3>
+            <p class="section-copy">One sheet with every transaction type. Each row is saved under the type in its Type column. The individual uploads inside each tab still work for one type at a time.</p>
+        </div>
+        <div class="data-entry-excel-actions">
+            <a class="btn btn-secondary" href="/api/data-entry/template?type=all&year={{.CurrentYear}}" download>Download Template</a>
+        </div>
+    </div>
+    <div class="bulk-entry">
+        <form class="bulk-entry-form bulk-entry-all-form" method="POST" action="/api/data-entry/bulk-import-all" enctype="multipart/form-data">
+            <div class="form-group bulk-entry-file">
+                <label>Excel File (.xlsx or .xlsm)</label>
+                <input type="file" name="file" accept=".xlsx,.xlsm" required />
+            </div>
+            <button type="submit" class="btn btn-primary">Upload &amp; Import</button>
+        </form>
+        <p class="bulk-entry-all-error" data-bulk-all-error hidden>Choose an Excel file before uploading.</p>
+        <div class="bulk-entry-guide">
+            <p class="bulk-entry-guide-title">How the Excel should look</p>
+            <div class="bulk-entry-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                            <th>Amount</th>
+                            <th>Category</th>
+                            <th>Payment Method</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>2026-01-04</td>
+                            <td>income</td>
+                            <td>Sunday offering</td>
+                            <td>1000.00</td>
+                            <td>Tithes</td>
+                            <td>cash</td>
+                        </tr>
+                        <tr>
+                            <td>2026-01-04</td>
+                            <td>expenditure</td>
+                            <td>Plan of work</td>
+                            <td>456.00</td>
+                            <td>Printing &amp; Stationery</td>
+                            <td>cash</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="section-copy bulk-entry-note">
+                Type must be income, expenditure, asset, or liability. Category must already
+                exist under that type; uploading never creates one. Payment method is optional
+                and defaults to cash. Blank rows and subtotals are skipped.
+            </p>
+        </div>
+    </div>
+</section>
 
 <div data-page-tabs>
 <div class="page-tabs reveal" role="tablist" aria-label="Data entry transaction types">

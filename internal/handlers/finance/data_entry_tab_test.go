@@ -52,4 +52,13 @@ func TestDataEntryPageOpensTheRequestedTab(t *testing.T) {
 			t.Fatalf("the %s panel has no template link", transactionType)
 		}
 	}
+	if !strings.Contains(body, "/api/data-entry/bulk-import-all") {
+		t.Fatalf("the all-types upload form is missing")
+	}
+	if !strings.Contains(body, "bulk-entry-guide-title") {
+		t.Fatalf("the Excel guide is not rendered inline")
+	}
+	if strings.Contains(body, `<details class="bulk-entry-guide"`) {
+		t.Fatalf("the Excel guide is still collapsible")
+	}
 }

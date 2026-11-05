@@ -64,6 +64,7 @@ func Register(mux *http.ServeMux, staticHandler http.Handler) {
 	mux.HandleFunc("/", authhandlers.WithAuth(financehandlers.Dashboard))
 	mux.HandleFunc("/data-entry", authhandlers.WithAuth(financehandlers.DataEntryPage))
 	mux.HandleFunc("/api/data-entry/bulk-import", authhandlers.WithAuth(financehandlers.BulkImportTransaction))
+	mux.HandleFunc("/api/data-entry/bulk-import-all", authhandlers.WithAuth(financehandlers.BulkImportAllTransactions))
 	mux.HandleFunc("/api/data-entry/template", authhandlers.WithAuth(financehandlers.DownloadDataEntryTemplate))
 	mux.HandleFunc("/api/data-entry/export", authhandlers.WithAuth(financehandlers.ExportDataEntryExcel))
 	mux.HandleFunc("/transactions", authhandlers.WithAuth(financehandlers.TransactionsPage))

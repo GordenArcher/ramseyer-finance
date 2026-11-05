@@ -22,6 +22,7 @@ import (
 type DashboardData struct {
 	Active            string
 	Message           string
+	MessageTone       string
 	OpenModal         string
 	GreetingIntro     string
 	GreetingMessage   string
@@ -133,6 +134,7 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	data := DashboardData{
 		Active:          active,
 		Message:         message,
+		MessageTone:     "success",
 		OpenModal:       openModal,
 		CurrentMonth:    now.Format("January 2006"),
 		CurrentYear:     now.Year(),

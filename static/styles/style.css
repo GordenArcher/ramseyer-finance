@@ -982,9 +982,9 @@ button {
     flex: 1 1 280px;
 }
 
-.bulk-entry-guide summary {
-    cursor: pointer;
-    font-weight: 500;
+.bulk-entry-guide-title {
+    margin: 0 0 4px;
+    font-weight: 700;
 }
 
 .bulk-entry-table {
@@ -994,6 +994,23 @@ button {
 
 .bulk-entry-note {
     margin-top: 8px;
+}
+
+.bulk-entry-all-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    align-items: end;
+}
+
+.bulk-entry-all-error {
+    margin: 12px 0 0;
+    color: #b42318;
+    font-weight: 700;
+}
+
+.data-entry-import-sections {
+    margin: 8px 0 0;
+    padding-left: 18px;
 }
 
 .data-entry-error-list {

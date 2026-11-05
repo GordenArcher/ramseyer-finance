@@ -1634,6 +1634,34 @@ function initStatementPrinting() {
   });
 }
 
+// The all-types form posts one workbook, but the browser's required check is not enough on
+// its own once the input is handled by other scripts. This guard keeps an empty submit on
+// the page and points at the file field instead of navigating to the endpoint.
+function initAllTypesUpload() {
+  const form = document.querySelector(".bulk-entry-all-form");
+  if (!form) return;
+
+  const inputs = qsa("input[type='file']", form);
+  const error = form.parentElement.querySelector("[data-bulk-all-error]");
+  if (!error) return;
+
+  const clear = () => {
+    error.hidden = true;
+  };
+  inputs.forEach((input) => input.addEventListener("change", clear));
+
+  form.addEventListener("submit", (event) => {
+    const hasFile = inputs.some((input) => input.files && input.files.length > 0);
+    if (hasFile) {
+      clear();
+      return;
+    }
+    event.preventDefault();
+    error.hidden = false;
+    if (inputs.length > 0) inputs[0].focus();
+  });
+}
+
 // The DOMContentLoaded handler kicks off all initialisation functions when the page
 // is ready. Each init function is independent and self-contained—they query the DOM
 // for their relevant elements and set up event listeners. Functions that find no
@@ -1657,4 +1685,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initUpdateCenter();
   initCategoryEditor();
   initModals();
+  initAllTypesUpload();
 });
