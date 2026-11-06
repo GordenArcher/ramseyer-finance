@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"database/sql"
 	"fmt"
 	"ramseyer-finance/internal/db"
 	"strings"
@@ -10,8 +11,9 @@ import (
 // the expenditure chart: the cash book uses short names like "T&T" that mean nothing to the
 // main chart, and inventing an account for each one would make the two books disagree.
 type ImprestCategory struct {
-	ID   int64
-	Name string
+	ID         int64
+	Name       string
+	EntryCount int
 }
 
 // ImprestEntry is one saved imprest payment shown on the imprest page.
@@ -23,12 +25,30 @@ type ImprestEntry struct {
 	Amount      float64
 }
 
+// EditableImprestEntry holds the current values of an imprest payment being edited. Loaded
+// distinguishes an intentionally empty form from a failed lookup so the template only opens
+// the edit modal when there is a real row to change.
+type EditableImprestEntry struct {
+	Loaded      bool
+	ID          int64
+	Date        string
+	CategoryID  int64
+	Description string
+	Amount      float64
+}
+
 // loadImprestCategories reads the active imprest heads in seed order so the dropdown and
-// the upload matcher see the same list.
+// the upload matcher see the same list. EntryCount is loaded with the list rather than per
+// row so the head manager can show usage without a query for every head.
 func loadImprestCategories() ([]ImprestCategory, error) {
-	rows, err := db.DB.Query(
-		`SELECT id, name FROM imprest_categories WHERE COALESCE(is_active, 1) = 1 ORDER BY id`,
-	)
+	rows, err := db.DB.Query(`
+		SELECT c.id, c.name, COUNT(e.id)
+		FROM imprest_categories c
+		LEFT JOIN imprest_expenses e ON e.category_id = c.id
+		WHERE COALESCE(c.is_active, 1) = 1
+		GROUP BY c.id, c.name
+		ORDER BY c.id
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("load imprest categories: %w", err)
 	}
@@ -37,7 +57,7 @@ func loadImprestCategories() ([]ImprestCategory, error) {
 	var categories []ImprestCategory
 	for rows.Next() {
 		var category ImprestCategory
-		if err := rows.Scan(&category.ID, &category.Name); err != nil {
+		if err := rows.Scan(&category.ID, &category.Name, &category.EntryCount); err != nil {
 			return nil, fmt.Errorf("scan imprest category: %w", err)
 		}
 		categories = append(categories, category)
@@ -126,19 +146,36 @@ func loadMonthlyImprestTotals(year int) (map[int]float64, error) {
 	return totals, nil
 }
 
-// loadImprestEntries lists the selected year's imprest payments newest first. The page is a
-// working list, not a report, so a bounded result is enough and keeps the render cheap.
-func loadImprestEntries(year, limit int) ([]ImprestEntry, error) {
+// loadImprestEntries lists one page of the selected year's imprest payments newest first,
+// plus the total row count so the caller can build pagination links. Paging in SQL keeps the
+// page cheap even when the cash book holds hundreds of payments for the year.
+func loadImprestEntries(year, page, pageSize int) ([]ImprestEntry, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 1
+	}
+
 	startDate, endDate := yearBounds(year)
+	var total int
+	if err := db.DB.QueryRow(
+		`SELECT COUNT(*) FROM imprest_expenses WHERE date >= ? AND date < ?`,
+		startDate,
+		endDate,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count imprest entries: %w", err)
+	}
+
 	rows, err := db.DB.Query(`
 		SELECT id, date, category, description, amount
 		FROM imprest_expenses
 		WHERE date >= ? AND date < ?
 		ORDER BY date DESC, id DESC
-		LIMIT ?
-	`, startDate, endDate, limit)
+		LIMIT ? OFFSET ?
+	`, startDate, endDate, pageSize, (page-1)*pageSize)
 	if err != nil {
-		return nil, fmt.Errorf("load imprest entries: %w", err)
+		return nil, 0, fmt.Errorf("load imprest entries: %w", err)
 	}
 	defer rows.Close()
 
@@ -146,19 +183,36 @@ func loadImprestEntries(year, limit int) ([]ImprestEntry, error) {
 	for rows.Next() {
 		var entry ImprestEntry
 		if err := rows.Scan(&entry.ID, &entry.Date, &entry.Category, &entry.Description, &entry.Amount); err != nil {
-			return nil, fmt.Errorf("scan imprest entry: %w", err)
+			return nil, 0, fmt.Errorf("scan imprest entry: %w", err)
 		}
 		entries = append(entries, entry)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate imprest entries: %w", err)
+		return nil, 0, fmt.Errorf("iterate imprest entries: %w", err)
 	}
-	return entries, nil
+	return entries, total, nil
+}
+
+// loadEditableImprestEntry retrieves one payment for the edit modal. It returns only the
+// editable fields; the denormalised category name is refreshed from the selected head on
+// save so a rename and its saved payments cannot drift apart.
+func loadEditableImprestEntry(entryID int64) (EditableImprestEntry, error) {
+	var entry EditableImprestEntry
+	err := db.DB.QueryRow(`
+		SELECT id, date, category_id, COALESCE(description, ''), amount
+		FROM imprest_expenses
+		WHERE id = ?
+	`, entryID).Scan(&entry.ID, &entry.Date, &entry.CategoryID, &entry.Description, &entry.Amount)
+	if err != nil {
+		return EditableImprestEntry{}, err
+	}
+	entry.Loaded = true
+	return entry, nil
 }
 
 // insertImprestExpense stores one imprest payment. The category name is denormalised so a
-// later rename cannot rewrite history, matching how the main transactions table keeps the
-// account name it posted under.
+// later rename can update history in one place, matching how the main transactions table
+// keeps the account name it posted under.
 func insertImprestExpense(date string, category ImprestCategory, description string, amount float64) error {
 	_, err := db.DB.Exec(
 		`INSERT INTO imprest_expenses (date, category_id, category, description, amount, updated_at)
@@ -171,6 +225,141 @@ func insertImprestExpense(date string, category ImprestCategory, description str
 	)
 	if err != nil {
 		return fmt.Errorf("insert imprest expense: %w", err)
+	}
+	return nil
+}
+
+// updateImprestExpense changes one saved payment. Both category_id and the denormalised
+// category name are written together so the ledger, head list, and usage counts agree.
+func updateImprestExpense(entryID int64, date string, category ImprestCategory, description string, amount float64) error {
+	result, err := db.DB.Exec(`
+		UPDATE imprest_expenses
+		SET date = ?, category_id = ?, category = ?, description = ?, amount = ?,
+			updated_at = datetime('now','localtime')
+		WHERE id = ?
+	`, date, category.ID, category.Name, description, amount, entryID)
+	if err != nil {
+		return fmt.Errorf("update imprest expense: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check updated imprest expense: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// deleteImprestExpense removes one saved payment.
+func deleteImprestExpense(entryID int64) error {
+	result, err := db.DB.Exec(`DELETE FROM imprest_expenses WHERE id = ?`, entryID)
+	if err != nil {
+		return fmt.Errorf("delete imprest expense: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check deleted imprest expense: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// imprestCategoryNameTaken reports whether another head already uses the same name. The
+// comparison ignores case and surrounding space because upload matching is case-insensitive,
+// so two heads that differ only by case would make every upload ambiguous.
+func imprestCategoryNameTaken(name string, exceptID int64) (bool, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM imprest_categories
+		WHERE LOWER(TRIM(name)) = LOWER(?) AND id <> ?
+	`, strings.TrimSpace(name), exceptID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check imprest category name: %w", err)
+	}
+	return count > 0, nil
+}
+
+// createImprestCategory adds an operator-defined head beyond the workbook's original list.
+func createImprestCategory(name string) error {
+	if _, err := db.DB.Exec(
+		`INSERT INTO imprest_categories (name, is_active) VALUES (?, 1)`,
+		strings.TrimSpace(name),
+	); err != nil {
+		return fmt.Errorf("create imprest category: %w", err)
+	}
+	return nil
+}
+
+// renameImprestCategory renames a head and rewrites the denormalised category name on every
+// saved payment that used it. Both writes share one transaction so history never points at
+// a head name the head list no longer contains.
+func renameImprestCategory(categoryID int64, name string) error {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("begin imprest category rename: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
+		`UPDATE imprest_categories SET name = ? WHERE id = ?`,
+		strings.TrimSpace(name),
+		categoryID,
+	)
+	if err != nil {
+		return fmt.Errorf("rename imprest category: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check renamed imprest category: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE imprest_expenses
+		SET category = ?, updated_at = datetime('now','localtime')
+		WHERE category_id = ?
+	`, strings.TrimSpace(name), categoryID); err != nil {
+		return fmt.Errorf("update imprest payment head names: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit imprest category rename: %w", err)
+	}
+	return nil
+}
+
+// imprestCategoryUsage counts the saved payments that still reference a head. Deletion is
+// refused while this is non-zero so existing history cannot be orphaned.
+func imprestCategoryUsage(categoryID int64) (int, error) {
+	var count int
+	if err := db.DB.QueryRow(
+		`SELECT COUNT(*) FROM imprest_expenses WHERE category_id = ?`,
+		categoryID,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count imprest category usage: %w", err)
+	}
+	return count, nil
+}
+
+// deleteImprestCategory removes an unused head. The caller checks usage first and reports
+// the rename alternative when payments still depend on it.
+func deleteImprestCategory(categoryID int64) error {
+	result, err := db.DB.Exec(`DELETE FROM imprest_categories WHERE id = ?`, categoryID)
+	if err != nil {
+		return fmt.Errorf("delete imprest category: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check deleted imprest category: %w", err)
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }

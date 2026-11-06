@@ -32,6 +32,7 @@ func ResetFinancialRecords() error {
 		"fund_rollforwards",
 		"account_opening_balances",
 		"fixed_asset_openings",
+		"imprest_expenses",
 		"transactions",
 	}
 	for _, table := range financialTables {
@@ -45,7 +46,7 @@ func ResetFinancialRecords() error {
 	// continue to reference after the standard chart is preserved.
 	if _, err := tx.Exec(`
 		DELETE FROM sqlite_sequence
-		WHERE name IN ('transactions', 'transaction_audit_log', 'budgets', 'opening_balances', 'trial_balance_entries')
+		WHERE name IN ('transactions', 'transaction_audit_log', 'budgets', 'opening_balances', 'trial_balance_entries', 'imprest_expenses')
 	`); err != nil {
 		return fmt.Errorf("reset financial record counters: %w", err)
 	}

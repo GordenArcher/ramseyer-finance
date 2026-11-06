@@ -23,13 +23,22 @@ var defaultImprestCategories = []string{
 	"SECURITY",
 }
 
-// seedImprestCategories creates the imprest book's head list on startup. INSERT OR IGNORE
-// keeps operator-added heads and any rename intact, so this only fills the gaps a fresh or
-// upgraded database is missing.
+// seedImprestCategories creates the imprest book's head list on startup, but only while the
+// table is empty. An operator may rename or delete a seeded head, and re-inserting the
+// defaults on every launch would undo that work. The empty check keeps a fresh database
+// usable without making the seed authoritative after the first run.
 func seedImprestCategories() error {
+	var count int
+	if err := DB.QueryRow("SELECT COUNT(*) FROM imprest_categories").Scan(&count); err != nil {
+		return fmt.Errorf("count imprest categories: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
 	for _, name := range defaultImprestCategories {
 		if _, err := DB.Exec(
-			"INSERT OR IGNORE INTO imprest_categories (name, is_active) VALUES (?, 1)",
+			"INSERT INTO imprest_categories (name, is_active) VALUES (?, 1)",
 			name,
 		); err != nil {
 			return fmt.Errorf("seed imprest category %s: %w", name, err)

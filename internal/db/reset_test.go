@@ -36,6 +36,7 @@ func TestResetFinancialRecordsClearsLedgerAndPreservesAppState(t *testing.T) {
 		{"fund roll-forward", `INSERT INTO fund_rollforwards (year, opening_balance) VALUES (2026, 50)`, nil},
 		{"account opening", `INSERT INTO account_opening_balances (year, category_id, amount) VALUES (2026, ?, 50)`, []any{categoryID}},
 		{"fixed-asset opening", `INSERT INTO fixed_asset_openings (year, category_id, opening_cost) VALUES (2026, ?, 50)`, []any{categoryID}},
+		{"imprest expense", `INSERT INTO imprest_expenses (date, category_id, category, description, amount) VALUES ('2026-01-01', (SELECT id FROM imprest_categories ORDER BY id LIMIT 1), 'T&T', 'Reset fixture', 20)`, nil},
 		{"Trial Balance year", `INSERT INTO trial_balance_years (year) VALUES (2026)`, nil},
 		{"Trial Balance entry", `INSERT INTO trial_balance_entries (year, account_type, account_name, debit) VALUES (2026, 'asset', 'Test asset', 50)`, nil},
 		{"auth setting", `INSERT OR REPLACE INTO settings (key, value) VALUES ('auth.pin_hash', 'keep-me')`, nil},
@@ -59,6 +60,7 @@ func TestResetFinancialRecordsClearsLedgerAndPreservesAppState(t *testing.T) {
 		"fund_rollforwards",
 		"account_opening_balances",
 		"fixed_asset_openings",
+		"imprest_expenses",
 		"trial_balance_years",
 		"trial_balance_entries",
 	} {
@@ -76,6 +78,7 @@ func TestResetFinancialRecordsClearsLedgerAndPreservesAppState(t *testing.T) {
 		query string
 	}{
 		{"categories", `SELECT COUNT(*) FROM categories`},
+		{"imprest heads", `SELECT COUNT(*) FROM imprest_categories`},
 		{"PIN setting", `SELECT COUNT(*) FROM settings WHERE key = 'auth.pin_hash' AND value = 'keep-me'`},
 		{"backup history", `SELECT COUNT(*) FROM backup_events WHERE note = 'keep-me'`},
 	} {

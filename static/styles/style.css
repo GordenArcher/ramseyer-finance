@@ -633,6 +633,35 @@ button {
     display: inline-flex;
 }
 
+.imprest-head-add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.imprest-head-add .form-group {
+    flex: 1 1 280px;
+    margin-bottom: 0;
+}
+
+.imprest-head-table {
+    min-width: 620px;
+}
+
+.imprest-head-rename {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.imprest-head-rename .form-group {
+    flex: 1 1 200px;
+    margin-bottom: 0;
+}
+
 .table-card.is-table-loading {
     min-height: 280px;
 }

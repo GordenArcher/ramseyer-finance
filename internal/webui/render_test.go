@@ -44,7 +44,7 @@ func TestStartupBackupStepExplainsResetAndRecoveryLifetime(t *testing.T) {
 	for _, expected := range []string{
 		"Would you like a safety backup first?",
 		"expire automatically after three days",
-		"Starting fresh clears transactions, Trial Balances, budgets, opening balances",
+		"Starting fresh clears transactions, imprest payments, Trial Balances, budgets, opening balances",
 		`name="safety_backup" value="yes" checked`,
 	} {
 		if !strings.Contains(body, expected) {

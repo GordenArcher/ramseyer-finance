@@ -2,6 +2,7 @@ package finance
 
 import (
 	"bytes"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,16 @@ func insertImprestFixture(t *testing.T, date, category, description string, amou
 	if err := insertImprestExpense(date, imprestCategoryByName(t, category), description, amount); err != nil {
 		t.Fatalf("insert imprest fixture: %v", err)
 	}
+}
+
+func postImprestForm(t *testing.T, path string, form url.Values, handler http.HandlerFunc) *httptest.ResponseRecorder {
+	t.Helper()
+
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+	handler(recorder, request)
+	return recorder
 }
 
 func TestImprestCategoriesSeedWithTheCashBookHeads(t *testing.T) {
@@ -383,6 +394,8 @@ func TestImprestPageRendersSeparateTotalsAndEntries(t *testing.T) {
 		"Total Expenditure",
 		"TNT to Pay tier 2",
 		"/api/imprest/bulk-import",
+		"/api/imprest/category/save",
+		"/api/imprest/category/delete",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("imprest page missing %q", marker)
@@ -496,5 +509,294 @@ func TestBulkImportImprestSavesMatchesAndReportsUnknownHeads(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("main transaction count = %d, want imprest kept out of the register", rows)
+	}
+}
+
+func TestUpdateImprestExpenseChangesTheSavedPayment(t *testing.T) {
+	setupTestDB(t)
+
+	insertImprestFixture(t, "2026-03-03", "T&T", "Old description", 30)
+
+	var entryID int64
+	if err := db.DB.QueryRow(`SELECT id FROM imprest_expenses`).Scan(&entryID); err != nil {
+		t.Fatalf("load imprest fixture id: %v", err)
+	}
+	category := imprestCategoryByName(t, "REFRESHMENT")
+	recorder := postImprestForm(t, "/api/imprest/update", url.Values{
+		"id":          {strconv.FormatInt(entryID, 10)},
+		"date":        {"2026-04-02"},
+		"category_id": {strconv.FormatInt(category.ID, 10)},
+		"description": {"Bags of satchet water"},
+		"amount":      {"60.25"},
+		"return_to":   {"/imprest?page=2"},
+	}, UpdateImprestExpense)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", recorder.Code)
+	}
+	location := recorder.Header().Get("Location")
+	if !strings.Contains(location, "/imprest?page=2") || strings.Contains(location, "tone=warning") {
+		t.Fatalf("update redirect = %q, want the preserved page without a warning", location)
+	}
+
+	var (
+		date         string
+		categoryName string
+		description  string
+		amount       float64
+	)
+	if err := db.DB.QueryRow(
+		`SELECT date, category, description, amount FROM imprest_expenses WHERE id = ?`,
+		entryID,
+	).Scan(&date, &categoryName, &description, &amount); err != nil {
+		t.Fatalf("load updated imprest payment: %v", err)
+	}
+	if date != "2026-04-02" || categoryName != "REFRESHMENT" || description != "Bags of satchet water" || amount != 60.25 {
+		t.Fatalf("updated imprest payment = %s/%s/%s/%.2f", date, categoryName, description, amount)
+	}
+}
+
+func TestDeleteImprestExpenseRemovesTheSavedPayment(t *testing.T) {
+	setupTestDB(t)
+
+	insertImprestFixture(t, "2026-03-03", "T&T", "TNT to Pay tier 2", 30)
+
+	var entryID int64
+	if err := db.DB.QueryRow(`SELECT id FROM imprest_expenses`).Scan(&entryID); err != nil {
+		t.Fatalf("load imprest fixture id: %v", err)
+	}
+	recorder := postImprestForm(t, "/api/imprest/delete", url.Values{
+		"id":        {strconv.FormatInt(entryID, 10)},
+		"return_to": {"/imprest"},
+	}, DeleteImprestExpense)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", recorder.Code)
+	}
+	if location := recorder.Header().Get("Location"); strings.Contains(location, "tone=warning") {
+		t.Fatalf("valid delete redirected as a warning: %q", location)
+	}
+
+	var rows int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM imprest_expenses`).Scan(&rows); err != nil {
+		t.Fatalf("count imprest rows after delete: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("imprest rows = %d, want the payment removed", rows)
+	}
+}
+
+func TestRenameImprestHeadUpdatesSavedPayments(t *testing.T) {
+	setupTestDB(t)
+
+	insertImprestFixture(t, "2026-03-03", "T&T", "TNT to Pay tier 2", 30)
+	category := imprestCategoryByName(t, "T&T")
+
+	recorder := postImprestForm(t, "/api/imprest/category/save", url.Values{
+		"id":        {strconv.FormatInt(category.ID, 10)},
+		"name":      {"TRANSPORT"},
+		"return_to": {"/imprest"},
+	}, SaveImprestCategory)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", recorder.Code)
+	}
+	if location := recorder.Header().Get("Location"); strings.Contains(location, "tone=warning") {
+		t.Fatalf("valid rename redirected as a warning: %q", location)
+	}
+
+	var (
+		headName     string
+		paymentHead  string
+		paymentCount int
+	)
+	if err := db.DB.QueryRow(`SELECT name FROM imprest_categories WHERE id = ?`, category.ID).Scan(&headName); err != nil {
+		t.Fatalf("load renamed head: %v", err)
+	}
+	if err := db.DB.QueryRow(`SELECT category, COUNT(*) FROM imprest_expenses GROUP BY category`).Scan(&paymentHead, &paymentCount); err != nil {
+		t.Fatalf("load renamed payment head: %v", err)
+	}
+	if headName != "TRANSPORT" || paymentHead != "TRANSPORT" || paymentCount != 1 {
+		t.Fatalf("rename result = head %q payment %q count %d, want both TRANSPORT and one payment", headName, paymentHead, paymentCount)
+	}
+}
+
+func TestAddImprestHeadRejectsDuplicatesAndSavesNewNames(t *testing.T) {
+	setupTestDB(t)
+
+	var before int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM imprest_categories`).Scan(&before); err != nil {
+		t.Fatalf("count imprest heads before add: %v", err)
+	}
+
+	duplicate := postImprestForm(t, "/api/imprest/category/save", url.Values{
+		"name":      {"  t&t  "},
+		"return_to": {"/imprest"},
+	}, SaveImprestCategory)
+	if duplicate.Code != http.StatusSeeOther {
+		t.Fatalf("duplicate add status = %d, want 303", duplicate.Code)
+	}
+	if location := duplicate.Header().Get("Location"); !strings.Contains(location, "tone=warning") {
+		t.Fatalf("duplicate head redirect = %q, want a warning", location)
+	}
+	var after int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM imprest_categories`).Scan(&after); err != nil {
+		t.Fatalf("count imprest heads after duplicate: %v", err)
+	}
+	if after != before {
+		t.Fatalf("imprest head count = %d, want the duplicate refused at %d", after, before)
+	}
+
+	added := postImprestForm(t, "/api/imprest/category/save", url.Values{
+		"name":      {"TRANSPORT"},
+		"return_to": {"/imprest"},
+	}, SaveImprestCategory)
+	if added.Code != http.StatusSeeOther {
+		t.Fatalf("new head status = %d, want 303", added.Code)
+	}
+	if location := added.Header().Get("Location"); strings.Contains(location, "tone=warning") {
+		t.Fatalf("new head redirect = %q, want a save", location)
+	}
+	var addedID int64
+	if err := db.DB.QueryRow(`SELECT id FROM imprest_categories WHERE name = 'TRANSPORT'`).Scan(&addedID); err != nil {
+		t.Fatalf("load added head: %v", err)
+	}
+}
+
+func TestDeleteImprestHeadRefusesWhilePaymentsUseIt(t *testing.T) {
+	setupTestDB(t)
+
+	insertImprestFixture(t, "2026-03-03", "T&T", "TNT to Pay tier 2", 30)
+	used := imprestCategoryByName(t, "T&T")
+
+	refused := postImprestForm(t, "/api/imprest/category/delete", url.Values{
+		"id":        {strconv.FormatInt(used.ID, 10)},
+		"return_to": {"/imprest"},
+	}, DeleteImprestCategory)
+	if refused.Code != http.StatusSeeOther {
+		t.Fatalf("used head delete status = %d, want 303", refused.Code)
+	}
+	if location := refused.Header().Get("Location"); !strings.Contains(location, "tone=warning") {
+		t.Fatalf("used head delete redirect = %q, want a warning", location)
+	}
+	var stillThere int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM imprest_categories WHERE id = ?`, used.ID).Scan(&stillThere); err != nil {
+		t.Fatalf("count used head after refusal: %v", err)
+	}
+	if stillThere != 1 {
+		t.Fatalf("used head count = %d, want the head kept", stillThere)
+	}
+
+	added := postImprestForm(t, "/api/imprest/category/save", url.Values{
+		"name":      {"TRANSPORT"},
+		"return_to": {"/imprest"},
+	}, SaveImprestCategory)
+	if location := added.Header().Get("Location"); strings.Contains(location, "tone=warning") {
+		t.Fatalf("unused head setup = %q, want a save", location)
+	}
+	unused := imprestCategoryByName(t, "TRANSPORT")
+
+	deleted := postImprestForm(t, "/api/imprest/category/delete", url.Values{
+		"id":        {strconv.FormatInt(unused.ID, 10)},
+		"return_to": {"/imprest"},
+	}, DeleteImprestCategory)
+	if location := deleted.Header().Get("Location"); strings.Contains(location, "tone=warning") {
+		t.Fatalf("unused head delete = %q, want a save", location)
+	}
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM imprest_categories WHERE id = ?`, unused.ID).Scan(&stillThere); err != nil {
+		t.Fatalf("count unused head after delete: %v", err)
+	}
+	if stillThere != 0 {
+		t.Fatalf("unused head count = %d, want the head removed", stillThere)
+	}
+}
+
+func TestImprestEntriesPaginateBeyondTheOldHundredRowLimit(t *testing.T) {
+	setupTestDB(t)
+
+	category := imprestCategoryByName(t, "T&T")
+	rowCount := imprestPageSize + 5
+	for index := 1; index <= rowCount; index++ {
+		if err := insertImprestExpense(
+			"2026-03-03",
+			category,
+			fmt.Sprintf("Imprest row %03d", index),
+			1,
+		); err != nil {
+			t.Fatalf("insert imprest row %d: %v", index, err)
+		}
+	}
+
+	firstPage, total, err := loadImprestEntries(2026, 1, imprestPageSize)
+	if err != nil {
+		t.Fatalf("load first imprest page: %v", err)
+	}
+	if total != rowCount || len(firstPage) != imprestPageSize {
+		t.Fatalf("first page total = %d rows = %d, want %d and %d", total, len(firstPage), rowCount, imprestPageSize)
+	}
+	secondPage, _, err := loadImprestEntries(2026, 2, imprestPageSize)
+	if err != nil {
+		t.Fatalf("load second imprest page: %v", err)
+	}
+	if len(secondPage) != 5 {
+		t.Fatalf("second page rows = %d, want the remaining 5", len(secondPage))
+	}
+	if firstPage[0].Description != fmt.Sprintf("Imprest row %03d", rowCount) {
+		t.Fatalf("newest row = %q, want row %03d first", firstPage[0].Description, rowCount)
+	}
+	if secondPage[len(secondPage)-1].Description != "Imprest row 001" {
+		t.Fatalf("oldest row = %q, want row 001 last", secondPage[len(secondPage)-1].Description)
+	}
+
+	recorder := httptest.NewRecorder()
+	ImprestPage(recorder, httptest.NewRequest(http.MethodGet, "/imprest", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("first page status = %d, want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, fmt.Sprintf("Imprest row %03d", rowCount)) {
+		t.Fatalf("first page missing the newest row")
+	}
+	if strings.Contains(body, "Imprest row 001") {
+		t.Fatalf("first page rendered a row that belongs on the second page")
+	}
+	if !strings.Contains(body, "/imprest?page=2") {
+		t.Fatalf("first page missing the next-page link")
+	}
+
+	recorder = httptest.NewRecorder()
+	ImprestPage(recorder, httptest.NewRequest(http.MethodGet, "/imprest?page=2", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("second page status = %d, want 200", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "Imprest row 001") {
+		t.Fatalf("second page missing the oldest row")
+	}
+}
+
+func TestImprestPageOpensTheEditModalForATargetEntry(t *testing.T) {
+	setupTestDB(t)
+
+	insertImprestFixture(t, "2026-03-03", "T&T", "TNT to Pay tier 2", 30)
+
+	var entryID int64
+	if err := db.DB.QueryRow(`SELECT id FROM imprest_expenses`).Scan(&entryID); err != nil {
+		t.Fatalf("load imprest fixture id: %v", err)
+	}
+	recorder := httptest.NewRecorder()
+	ImprestPage(recorder, httptest.NewRequest(
+		http.MethodGet,
+		"/imprest?edit="+strconv.FormatInt(entryID, 10),
+		nil,
+	))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, marker := range []string{
+		`id="edit-imprest-modal"`,
+		"/api/imprest/update",
+		"TNT to Pay tier 2",
+	} {
+		if !strings.Contains(body, marker) {
+			t.Fatalf("edit page missing %q", marker)
+		}
 	}
 }
