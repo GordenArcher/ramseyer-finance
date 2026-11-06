@@ -16,6 +16,14 @@
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalIncome}}">{{formatCompactMoney .TotalIncome}}</div>
     </div>
     <div class="stat-card">
+        <div class="stat-label">Total Main Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalMainExpense}}">{{formatCompactMoney .TotalMainExpense}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Imprest Expenses</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalImprest}}">{{formatCompactMoney .TotalImprest}}</div>
+    </div>
+    <div class="stat-card">
         <div class="stat-label">Total Expenditure</div>
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalExpense}}">{{formatCompactMoney .TotalExpense}}</div>
     </div>
@@ -49,7 +57,9 @@
             <tr>
                 <th>Quarter</th>
                 <th class="text-right">Income (GHC)</th>
-                <th class="text-right">Expenditure (GHC)</th>
+                <th class="text-right">Main Expenditure (GHC)</th>
+                <th class="text-right">Imprest (GHC)</th>
+                <th class="text-right">Total Expenditure (GHC)</th>
                 <th class="text-right">Surplus (GHC)</th>
             </tr>
         </thead>
@@ -58,7 +68,9 @@
             <tr>
                 <td>{{.Quarter}}</td>
                 <td class="text-right">{{formatMoney .Income}}</td>
-                <td class="text-right">{{formatMoney .Expense}}</td>
+                <td class="text-right">{{formatMoney .MainExpense}}</td>
+                <td class="text-right">{{formatMoney .Imprest}}</td>
+                <td class="text-right">{{formatMoney .TotalExpense}}</td>
                 <td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td>
             </tr>
             {{end}}
@@ -67,6 +79,8 @@
             <tr class="total-row">
                 <td>Total</td>
                 <td class="text-right">{{formatMoney .TotalIncome}}</td>
+                <td class="text-right">{{formatMoney .TotalMainExpense}}</td>
+                <td class="text-right">{{formatMoney .TotalImprest}}</td>
                 <td class="text-right">{{formatMoney .TotalExpense}}</td>
                 <td class="text-right {{if lt .TotalSurplus 0.0}}negative{{end}}">{{formatMoney .TotalSurplus}}</td>
             </tr>

@@ -35,12 +35,18 @@ type DashboardData struct {
 	CurrentDayLabel   string
 	MonthIncome       float64
 	MonthExpense      float64
+	MonthImprest      float64
+	MonthTotalExpense float64
 	MonthSurplus      float64
 	YearIncome        float64
 	YearExpense       float64
+	YearImprest       float64
+	YearTotalExpense  float64
 	YearSurplus       float64
 	DailyIncome       float64
 	DailyExpense      float64
+	DailyImprest      float64
+	DailyTotalExpense float64
 	DailyAsset        float64
 	DailyLiability    float64
 	DailyNetIncome    float64
@@ -165,12 +171,22 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	if err := loadIncomeExpenseTotals(monthStart, monthEnd, &data.MonthIncome, &data.MonthExpense); err != nil {
 		return DashboardData{}, fmt.Errorf("load monthly totals: %w", err)
 	}
-	data.MonthSurplus = data.MonthIncome - data.MonthExpense
+	data.MonthImprest, err = loadImprestTotal(monthStart, monthEnd)
+	if err != nil {
+		return DashboardData{}, fmt.Errorf("load monthly imprest total: %w", err)
+	}
+	data.MonthTotalExpense = data.MonthExpense + data.MonthImprest
+	data.MonthSurplus = data.MonthIncome - data.MonthTotalExpense
 
 	if err := loadIncomeExpenseTotals(yearStart, yearEnd, &data.YearIncome, &data.YearExpense); err != nil {
 		return DashboardData{}, fmt.Errorf("load yearly totals: %w", err)
 	}
-	data.YearSurplus = data.YearIncome - data.YearExpense
+	data.YearImprest, err = loadImprestTotal(yearStart, yearEnd)
+	if err != nil {
+		return DashboardData{}, fmt.Errorf("load yearly imprest total: %w", err)
+	}
+	data.YearTotalExpense = data.YearExpense + data.YearImprest
+	data.YearSurplus = data.YearIncome - data.YearTotalExpense
 
 	// I keep the daily summary separate from the monthly and yearly figures because the client asked
 	// for a place to see "today so far" without mentally subtracting values from broader periods.
@@ -179,7 +195,7 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	if err := loadDailyDashboardTotals(dayStart, dayEnd, &data); err != nil {
 		return DashboardData{}, fmt.Errorf("load daily totals: %w", err)
 	}
-	data.DailyNetIncome = data.DailyIncome - data.DailyExpense
+	data.DailyNetIncome = data.DailyIncome - data.DailyTotalExpense
 
 	// Payment method is only a label on a transaction. These dashboard cards group the same
 	// saved amounts by that label; they do not create asset accounts or subtract from anything.
@@ -273,10 +289,11 @@ func buildDashboardData(now time.Time, active, message, openModal string) (Dashb
 	var surplusSeries []float64
 	for monthNumber, label := range chartLabels {
 		totals := monthlyTotals[monthNumber+1]
+		totalExpense := totals.Expense + totals.Imprest
 		data.Chart.Labels = append(data.Chart.Labels, label)
 		incomeSeries = append(incomeSeries, totals.Income)
-		expenseSeries = append(expenseSeries, totals.Expense)
-		surplusSeries = append(surplusSeries, totals.Income-totals.Expense)
+		expenseSeries = append(expenseSeries, totalExpense)
+		surplusSeries = append(surplusSeries, totals.Income-totalExpense)
 	}
 	// Three datasets are rendered: income as gold bars, expense as green bars, and surplus
 	// as a red line overlaid on top. The bar+line combination makes it easy to see both
@@ -344,8 +361,20 @@ func loadDailyDashboardTotals(startDate, endDate string, data *DashboardData) er
 			data.DailyLiability = total
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
-	return rows.Err()
+	// Imprest is a separate table, so it never appears in the grouped transaction query
+	// above. Adding it here keeps the day's net income equal to income minus every payment,
+	// not just the ones the main register knows about.
+	imprest, err := loadImprestTotal(startDate, endDate)
+	if err != nil {
+		return err
+	}
+	data.DailyImprest = imprest
+	data.DailyTotalExpense = data.DailyExpense + data.DailyImprest
+	return nil
 }
 
 // loadIncomeExpenseTotals queries the total income and total expenditure within a given

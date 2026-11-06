@@ -104,6 +104,10 @@ func openLocked() error {
 		Close()
 		return fmt.Errorf("failed to seed dashboard greetings: %w", err)
 	}
+	if err := seedImprestCategories(); err != nil {
+		Close()
+		return fmt.Errorf("failed to seed imprest categories: %w", err)
+	}
 
 	if err := backfillTransactionCategoryIDs(); err != nil {
 		Close()

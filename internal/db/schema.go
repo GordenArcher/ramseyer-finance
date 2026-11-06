@@ -40,6 +40,24 @@ CREATE TABLE IF NOT EXISTS categories (
     UNIQUE(type, name, parent_id)
 );
 
+CREATE TABLE IF NOT EXISTS imprest_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    is_active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS imprest_expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    category_id INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    amount REAL NOT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (category_id) REFERENCES imprest_categories(id)
+);
+
 CREATE TABLE IF NOT EXISTS budgets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year INTEGER NOT NULL,
@@ -147,4 +165,6 @@ CREATE INDEX IF NOT EXISTS idx_backup_events_created_at ON backup_events(created
 CREATE UNIQUE INDEX IF NOT EXISTS idx_import_batches_year ON import_batches(year);
 CREATE INDEX IF NOT EXISTS idx_trial_balance_entries_year_sort ON trial_balance_entries(year, sort_order, id);
 CREATE INDEX IF NOT EXISTS idx_trial_balance_entries_year_note ON trial_balance_entries(year, note_ref, account_type);
+CREATE INDEX IF NOT EXISTS idx_imprest_expenses_date ON imprest_expenses(date);
+CREATE INDEX IF NOT EXISTS idx_imprest_expenses_category_id ON imprest_expenses(category_id);
 `

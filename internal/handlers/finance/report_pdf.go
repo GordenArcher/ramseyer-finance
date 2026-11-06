@@ -94,7 +94,7 @@ func buildReportPDFLines(report string, year int) (string, []string, error) {
 		}
 		lines := []string{
 			"CASH FLOW REVIEW", "",
-			pdfAmountLine("Income entries", data.IncomeEntries), pdfAmountLine("Expenditure entries", data.ExpenditureEntries), pdfAmountLine("Income less expenditure", data.IncomeLessExpenditure), "",
+			pdfAmountLine("Income entries", data.IncomeEntries), pdfAmountLine("Main expenditure entries", data.ExpenditureEntries), pdfAmountLine("Imprest expenses", data.ImprestEntries), pdfAmountLine("Total expenditure", data.TotalExpenditure), pdfAmountLine("Income less expenditure", data.IncomeLessExpenditure), "",
 			pdfAmountLine("PPE entries", data.PPEEntries), pdfAmountLine("Investment entries", data.InvestmentEntries), pdfAmountLine("Intangible asset entries", data.IntangibleAssetEntries), pdfAmountLine("All asset entries", data.AssetEntries), "",
 			pdfAmountLine("All liability entries", data.LiabilityEntries),
 		}

@@ -33,7 +33,15 @@
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalIncome}}">{{formatCompactMoney .TotalIncome}}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">{{.Year}} Expenditure</div>
+        <div class="stat-label">{{.Year}} Main Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalMainExpense}}">{{formatCompactMoney .TotalMainExpense}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">{{.Year}} Imprest Expenses</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalImprest}}">{{formatCompactMoney .TotalImprest}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">{{.Year}} Total Expenditure</div>
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .TotalExpense}}">{{formatCompactMoney .TotalExpense}}</div>
     </div>
     <div class="stat-card">
@@ -139,6 +147,8 @@
         </thead>
         <tbody>
             <tr><td>Total Income</td><td class="text-right">{{formatMoney .TotalPriorIncome}}</td><td class="text-right">{{formatMoney .TotalIncome}}</td></tr>
+            <tr><td>Main Expenditure</td><td class="text-right">{{formatMoney .TotalPriorMainExpense}}</td><td class="text-right">{{formatMoney .TotalMainExpense}}</td></tr>
+            <tr><td>Imprest Expenses</td><td class="text-right">{{formatMoney .TotalPriorImprest}}</td><td class="text-right">{{formatMoney .TotalImprest}}</td></tr>
             <tr><td>Total Expenditure</td><td class="text-right">{{formatMoney .TotalPriorExpense}}</td><td class="text-right">{{formatMoney .TotalExpense}}</td></tr>
             <tr class="total-row"><td>Surplus / (Deficit)</td><td class="text-right {{if lt .PriorSurplus 0.0}}negative{{end}}">{{formatMoney .PriorSurplus}}</td><td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td></tr>
         </tbody>

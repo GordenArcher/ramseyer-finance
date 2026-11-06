@@ -202,6 +202,14 @@ func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk
 // duplicate, and audit rules in one function is what stops the per-type upload and the
 // all-types upload from posting different results for the same row.
 func saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod string, amount float64, categories []dataentrybulk.Category) string {
+	// The client's main expenditure book carries 11 GHS 1,000 IMPREST lines. Those are float
+	// top-ups, not payments: the imprest cash book already records what the float bought.
+	// Refusing the label here stops the top-up from being counted as expenditure if someone
+	// later adds an IMPREST account to the chart.
+	if transactionType == "expenditure" && strings.EqualFold(strings.TrimSpace(categoryLabel), "imprest") {
+		return "IMPREST lines are float top-ups, not expenditure; upload the imprest cash book on the Imprest Expenses page"
+	}
+
 	categoryID, matched := dataentrybulk.MatchCategory(categories, categoryLabel)
 	if !matched {
 		// Uploading must never create an account as a side effect. An unknown label is

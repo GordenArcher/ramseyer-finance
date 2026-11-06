@@ -16,8 +16,16 @@
         <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDIncome}}">{{formatCompactMoney .YTDIncome}}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Year to Date Expenditure</div>
-        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDExpense}}">{{formatCompactMoney .YTDExpense}}</div>
+        <div class="stat-label">Year to Date Main Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDMainExpense}}">{{formatCompactMoney .YTDMainExpense}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Year to Date Imprest Expenses</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDImprest}}">{{formatCompactMoney .YTDImprest}}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Year to Date Total Expenditure</div>
+        <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .YTDTotalExpense}}">{{formatCompactMoney .YTDTotalExpense}}</div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Year to Date Surplus</div>
@@ -49,7 +57,9 @@
             <tr>
                 <th>Month</th>
                 <th class="text-right">Income (GHC)</th>
-                <th class="text-right">Expenditure (GHC)</th>
+                <th class="text-right">Main Expenditure (GHC)</th>
+                <th class="text-right">Imprest (GHC)</th>
+                <th class="text-right">Total Expenditure (GHC)</th>
                 <th class="text-right">Surplus (GHC)</th>
             </tr>
         </thead>
@@ -58,7 +68,9 @@
             <tr>
                 <td>{{.Month}}</td>
                 <td class="text-right">{{formatMoney .Income}}</td>
-                <td class="text-right">{{formatMoney .Expense}}</td>
+                <td class="text-right">{{formatMoney .MainExpense}}</td>
+                <td class="text-right">{{formatMoney .Imprest}}</td>
+                <td class="text-right">{{formatMoney .TotalExpense}}</td>
                 <td class="text-right {{if lt .Surplus 0.0}}negative{{end}}">{{formatMoney .Surplus}}</td>
             </tr>
             {{end}}
@@ -67,7 +79,9 @@
             <tr class="total-row">
                 <td>Year to Date</td>
                 <td class="text-right">{{formatMoney .YTDIncome}}</td>
-                <td class="text-right">{{formatMoney .YTDExpense}}</td>
+                <td class="text-right">{{formatMoney .YTDMainExpense}}</td>
+                <td class="text-right">{{formatMoney .YTDImprest}}</td>
+                <td class="text-right">{{formatMoney .YTDTotalExpense}}</td>
                 <td class="text-right {{if lt .YTDSurplus 0.0}}negative{{end}}">{{formatMoney .YTDSurplus}}</td>
             </tr>
         </tfoot>

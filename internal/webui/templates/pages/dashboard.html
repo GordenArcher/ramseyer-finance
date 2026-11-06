@@ -65,8 +65,16 @@
             <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MonthIncome}}">{{formatCompactMoney .MonthIncome}}</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">Expense This Month</div>
+            <div class="stat-label">Main Expenditure This Month</div>
             <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MonthExpense}}">{{formatCompactMoney .MonthExpense}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Imprest This Month</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MonthImprest}}">{{formatCompactMoney .MonthImprest}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Total Expenditure This Month</div>
+            <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .MonthTotalExpense}}">{{formatCompactMoney .MonthTotalExpense}}</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Bank Total This Year</div>
@@ -104,8 +112,16 @@
                 <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyIncome}}">{{formatCompactMoney .DailyIncome}}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Expenditure Today</div>
+                <div class="stat-label">Main Expenditure Today</div>
                 <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyExpense}}">{{formatCompactMoney .DailyExpense}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Imprest Today</div>
+                <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyImprest}}">{{formatCompactMoney .DailyImprest}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Expenditure Today</div>
+                <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyTotalExpense}}">{{formatCompactMoney .DailyTotalExpense}}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Net Income Today</div>
@@ -120,7 +136,7 @@
                 <div class="stat-value compact-money" data-money-value="{{formatMoneyRaw .DailyLiability}}">{{formatCompactMoney .DailyLiability}}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Transactions Posted Today</div>
+                <div class="stat-label">Main Ledger Postings Today</div>
                 <div class="stat-value">{{.DailyPostedCount}}</div>
             </div>
         </div>
@@ -149,7 +165,7 @@
             <div class="card-header">
                 <div>
                     <h3>Today's Accumulated Transactions</h3>
-                    <p>Every posting captured so far for {{.CurrentDayLabel}}.</p>
+                    <p>Main ledger postings captured so far for {{.CurrentDayLabel}}. Imprest payments are on the Imprest Expenses page.</p>
                 </div>
                 <a href="/transactions?year={{.CurrentYear}}" data-nav-loading class="btn btn-sm btn-secondary">Open Register</a>
             </div>
@@ -195,6 +211,10 @@
             <div class="mini-metric">
                 <span>Transactions Posted</span>
                 <strong>{{.DailyPostedCount}}</strong>
+            </div>
+            <div class="mini-metric">
+                <span>Imprest Today</span>
+                <strong class="compact-money" data-money-value="{{formatMoneyRaw .DailyImprest}}">{{formatCompactMoney .DailyImprest}}</strong>
             </div>
             <div class="mini-metric">
                 <span>Daily Net Income</span>

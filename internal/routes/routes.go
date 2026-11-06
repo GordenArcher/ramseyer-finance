@@ -63,6 +63,9 @@ func Register(mux *http.ServeMux, staticHandler http.Handler) {
 	// security and release reviews.
 	mux.HandleFunc("/", authhandlers.WithAuth(financehandlers.Dashboard))
 	mux.HandleFunc("/data-entry", authhandlers.WithAuth(financehandlers.DataEntryPage))
+	mux.HandleFunc("/imprest", authhandlers.WithAuth(financehandlers.ImprestPage))
+	mux.HandleFunc("/api/imprest/add", authhandlers.WithAuth(financehandlers.AddImprestExpense))
+	mux.HandleFunc("/api/imprest/bulk-import", authhandlers.WithAuth(financehandlers.BulkImportImprest))
 	mux.HandleFunc("/api/data-entry/bulk-import", authhandlers.WithAuth(financehandlers.BulkImportTransaction))
 	mux.HandleFunc("/api/data-entry/bulk-import-all", authhandlers.WithAuth(financehandlers.BulkImportAllTransactions))
 	mux.HandleFunc("/api/data-entry/template", authhandlers.WithAuth(financehandlers.DownloadDataEntryTemplate))

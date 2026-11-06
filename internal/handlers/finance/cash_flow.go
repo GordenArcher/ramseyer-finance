@@ -16,6 +16,8 @@ type CashFlowData struct {
 	Years                  []int
 	IncomeEntries          float64
 	ExpenditureEntries     float64
+	ImprestEntries         float64
+	TotalExpenditure       float64
 	IncomeLessExpenditure  float64
 	AssetEntries           float64
 	LiabilityEntries       float64
@@ -64,7 +66,15 @@ func buildCashFlowData(year int) (CashFlowData, error) {
 	if err != nil {
 		return CashFlowData{}, err
 	}
-	data.IncomeLessExpenditure = data.IncomeEntries - data.ExpenditureEntries
+	// Imprest payments are real cash outflows held in their own table. Keeping them on a
+	// separate line preserves the two books while making income less expenditure match the
+	// surplus the annual statement reports.
+	data.ImprestEntries, err = loadImprestTotal(yearBounds(year))
+	if err != nil {
+		return CashFlowData{}, err
+	}
+	data.TotalExpenditure = data.ExpenditureEntries + data.ImprestEntries
+	data.IncomeLessExpenditure = data.IncomeEntries - data.TotalExpenditure
 
 	data.PPEEntries, err = loadTrialBalanceNoteTotal(year, "asset", "21")
 	if err != nil {

@@ -19,7 +19,9 @@
     <h3>Income and Expenditure</h3>
     <table class="data-table"><tbody>
         <tr><td>Income entries</td><td class="text-right">{{formatMoney .IncomeEntries}}</td></tr>
-        <tr><td>Expenditure entries</td><td class="text-right">{{formatMoney .ExpenditureEntries}}</td></tr>
+        <tr><td>Main expenditure entries</td><td class="text-right">{{formatMoney .ExpenditureEntries}}</td></tr>
+        <tr><td>Imprest expenses</td><td class="text-right">{{formatMoney .ImprestEntries}}</td></tr>
+        <tr><td>Total expenditure</td><td class="text-right">{{formatMoney .TotalExpenditure}}</td></tr>
         <tr class="total-row"><td>Income less expenditure</td><td class="text-right">{{formatMoney .IncomeLessExpenditure}}</td></tr>
     </tbody></table>
 </div>

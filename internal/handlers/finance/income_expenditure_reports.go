@@ -11,31 +11,36 @@ import (
 
 // MonthlyData carries the template variables for the monthly breakdown report page. It
 // includes the year label, the list of available years for the picker dropdown, the twelve
-// month rows with income/expense/surplus figures, the year-to-date running totals, and the
-// chart data for the monthly income-vs-expense bar chart with a surplus trend line. The
-// YTD totals accumulate month by month within buildMonthlyData so they reflect the sum of
-// all months from January through December of the selected year.
+// month rows with income, main expenditure, imprest, combined expenditure, and surplus
+// figures, the year-to-date running totals, and the chart data for the monthly
+// income-vs-expenditure bar chart with a surplus trend line. The YTD totals accumulate month
+// by month within buildMonthlyData so they reflect the sum of all months from January
+// through December of the selected year.
 type MonthlyData struct {
-	Active     string
-	Year       string
-	Years      []int
-	Months     []MonthRow
-	Chart      viewmodels.ChartData
-	YTDIncome  float64
-	YTDExpense float64
-	YTDSurplus float64
+	Active          string
+	Year            string
+	Years           []int
+	Months          []MonthRow
+	Chart           viewmodels.ChartData
+	YTDIncome       float64
+	YTDMainExpense  float64
+	YTDImprest      float64
+	YTDTotalExpense float64
+	YTDSurplus      float64
 }
 
 // MonthRow represents a single month's financial summary in the monthly report table. It
-// pairs the full month name with the aggregated income, expense, and computed surplus
-// (income minus expense) for that month. A month with no transactions will show zeros
-// across all three columns rather than being omitted, keeping the table structurally
-// consistent for all twelve months.
+// pairs the full month name with the aggregated income, main expenditure, imprest, combined
+// expenditure, and computed surplus (income minus combined expenditure) for that month. A
+// month with no transactions will show zeros across every column rather than being omitted,
+// keeping the table structurally consistent for all twelve months.
 type MonthRow struct {
-	Month   string
-	Income  float64
-	Expense float64
-	Surplus float64
+	Month        string
+	Income       float64
+	MainExpense  float64
+	Imprest      float64
+	TotalExpense float64
+	Surplus      float64
 }
 
 // MonthlyReport serves the monthly breakdown report for a given year. It parses the "year"
@@ -59,31 +64,35 @@ func MonthlyReport(w http.ResponseWriter, r *http.Request) {
 
 // QuarterlyData carries the template variables for the quarterly breakdown report page.
 // It includes the year label, the list of available years, the four quarter rows with
-// aggregated income/expense/surplus figures, the chart data for the quarterly bar chart,
-// and the full-year totals. Each quarter aggregates three months of data from the same
-// underlying monthly rollup used by the monthly report, ensuring consistency between the
-// two views.
+// aggregated income, main expenditure, imprest, combined expenditure, and surplus figures,
+// the chart data for the quarterly bar chart, and the full-year totals. Each quarter
+// aggregates three months of data from the same underlying monthly rollup used by the
+// monthly report, ensuring consistency between the two views.
 type QuarterlyData struct {
-	Active       string
-	Year         string
-	Years        []int
-	Quarters     []QuarterRow
-	Chart        viewmodels.ChartData
-	TotalIncome  float64
-	TotalExpense float64
-	TotalSurplus float64
+	Active           string
+	Year             string
+	Years            []int
+	Quarters         []QuarterRow
+	Chart            viewmodels.ChartData
+	TotalIncome      float64
+	TotalMainExpense float64
+	TotalImprest     float64
+	TotalExpense     float64
+	TotalSurplus     float64
 }
 
 // QuarterRow represents a single quarter's financial summary in the quarterly report table.
-// It pairs the quarter label (e.g., "Q1 (Jan-Mar)") with the aggregated income, expense,
-// and surplus for that three-month period. The quarter values are derived by summing the
-// monthly totals from the shared loadMonthlyTotals function, not by querying the database
-// with a separate quarterly grouping.
+// It pairs the quarter label (e.g., "Q1 (Jan-Mar)") with the aggregated income, main
+// expenditure, imprest, combined expenditure, and surplus for that three-month period. The
+// quarter values are derived by summing the monthly totals across the quarter's three
+// months rather than by a separate database query.
 type QuarterRow struct {
-	Quarter string
-	Income  float64
-	Expense float64
-	Surplus float64
+	Quarter      string
+	Income       float64
+	MainExpense  float64
+	Imprest      float64
+	TotalExpense float64
+	Surplus      float64
 }
 
 // QuarterlyReport serves the quarterly breakdown report for a given year. It parses the
@@ -110,29 +119,34 @@ func QuarterlyReport(w http.ResponseWriter, r *http.Request) {
 // It includes the current and prior year labels, the list of available years, any reporting
 // warnings (e.g., unclassified transactions), the detailed line-item breakdown for both
 // income and expenditure categories with comparative prior-year amounts and budget variance,
-// the chart data for the year-over-year comparison, and the summary totals. Each line item
-// includes a note_ref for cross-referencing with the notes report, the current and prior
-// year amounts, the budgeted amount, and the computed variance (actual minus budget).
+// the imprest book as its own expenditure line, the combined expenditure and surplus totals,
+// and the chart data for the year-over-year comparison. Each line item includes a note_ref
+// for cross-referencing with the notes report, the current and prior year amounts, the
+// budgeted amount, and the computed variance (actual minus budget).
 type AnnualData struct {
-	Active            string
-	Year              string
-	PriorYear         string
-	Years             []int
-	Warnings          []string
-	IncomeLines       []LineRow
-	ExpenseLines      []LineRow
-	Chart             viewmodels.ChartData
-	TotalIncome       float64
-	TotalPriorIncome  float64
-	TotalExpense      float64
-	TotalPriorExpense float64
-	Surplus           float64
-	PriorSurplus      float64
-	OpeningFund       float64
-	PriorAdjustment   float64
-	AdjustedFund      float64
-	ClosingFund       float64
-	FundConfigured    bool
+	Active                string
+	Year                  string
+	PriorYear             string
+	Years                 []int
+	Warnings              []string
+	IncomeLines           []LineRow
+	ExpenseLines          []LineRow
+	Chart                 viewmodels.ChartData
+	TotalIncome           float64
+	TotalPriorIncome      float64
+	TotalMainExpense      float64
+	TotalPriorMainExpense float64
+	TotalImprest          float64
+	TotalPriorImprest     float64
+	TotalExpense          float64
+	TotalPriorExpense     float64
+	Surplus               float64
+	PriorSurplus          float64
+	OpeningFund           float64
+	PriorAdjustment       float64
+	AdjustedFund          float64
+	ClosingFund           float64
+	FundConfigured        bool
 }
 
 // LineRow represents a single row in the annual income statement's line-item table. It
@@ -209,20 +223,28 @@ func buildMonthlyData(year int) (MonthlyData, error) {
 	var surplusSeries []float64
 	for monthIndex, name := range monthNames {
 		totals := monthlyTotals[monthIndex+1]
+		totalExpense := totals.Expense + totals.Imprest
 		data.YTDIncome += totals.Income
-		data.YTDExpense += totals.Expense
+		data.YTDMainExpense += totals.Expense
+		data.YTDImprest += totals.Imprest
+		data.YTDTotalExpense += totalExpense
 		incomeSeries = append(incomeSeries, totals.Income)
-		expenseSeries = append(expenseSeries, totals.Expense)
-		surplusSeries = append(surplusSeries, totals.Income-totals.Expense)
+		// The chart plots the combined expenditure because that is the figure the surplus
+		// line is measured against. Showing main expenditure alone would make the bars and
+		// the line disagree by the imprest amount.
+		expenseSeries = append(expenseSeries, totalExpense)
+		surplusSeries = append(surplusSeries, totals.Income-totalExpense)
 		data.Chart.Labels = append(data.Chart.Labels, name[:3])
 		data.Months = append(data.Months, MonthRow{
-			Month:   name,
-			Income:  totals.Income,
-			Expense: totals.Expense,
-			Surplus: totals.Income - totals.Expense,
+			Month:        name,
+			Income:       totals.Income,
+			MainExpense:  totals.Expense,
+			Imprest:      totals.Imprest,
+			TotalExpense: totalExpense,
+			Surplus:      totals.Income - totalExpense,
 		})
 	}
-	data.YTDSurplus = data.YTDIncome - data.YTDExpense
+	data.YTDSurplus = data.YTDIncome - data.YTDTotalExpense
 	// Chart colours match the dashboard: gold bars for income, green bars for expense,
 	// and a red line for surplus/deficit trend.
 	data.Chart.Datasets = []viewmodels.ChartDataset{
@@ -297,18 +319,22 @@ func buildQuarterlyData(year int) (QuarterlyData, error) {
 		row := QuarterRow{Quarter: quarter.Label}
 		for _, month := range quarter.Months {
 			row.Income += monthlyTotals[month].Income
-			row.Expense += monthlyTotals[month].Expense
+			row.MainExpense += monthlyTotals[month].Expense
+			row.Imprest += monthlyTotals[month].Imprest
 		}
-		row.Surplus = row.Income - row.Expense
+		row.TotalExpense = row.MainExpense + row.Imprest
+		row.Surplus = row.Income - row.TotalExpense
 		data.Quarters = append(data.Quarters, row)
 		data.Chart.Labels = append(data.Chart.Labels, quarter.Label[:2])
 		incomeSeries = append(incomeSeries, row.Income)
-		expenseSeries = append(expenseSeries, row.Expense)
+		expenseSeries = append(expenseSeries, row.TotalExpense)
 		surplusSeries = append(surplusSeries, row.Surplus)
 		// The full-year totals are the sum of all four quarters, which is equivalent to
 		// the sum of all twelve months. Computing them here avoids a separate query.
 		data.TotalIncome += row.Income
-		data.TotalExpense += row.Expense
+		data.TotalMainExpense += row.MainExpense
+		data.TotalImprest += row.Imprest
+		data.TotalExpense += row.TotalExpense
 	}
 	data.TotalSurplus = data.TotalIncome - data.TotalExpense
 	// Chart uses the same colour scheme as the monthly report for visual consistency
@@ -376,10 +402,30 @@ func buildAnnualData(year int) (AnnualData, error) {
 		IsBold:      true,
 	})
 
-	data.ExpenseLines, data.TotalExpense, data.TotalPriorExpense, err = loadAnnualLines(year, "expenditure")
+	data.ExpenseLines, data.TotalMainExpense, data.TotalPriorMainExpense, err = loadAnnualLines(year, "expenditure")
 	if err != nil {
 		return AnnualData{}, fmt.Errorf("load annual expenditure lines: %w", err)
 	}
+	yearStart, yearEnd := yearBounds(year)
+	data.TotalImprest, err = loadImprestTotal(yearStart, yearEnd)
+	if err != nil {
+		return AnnualData{}, fmt.Errorf("load annual imprest total: %w", err)
+	}
+	priorStart, priorEnd := yearBounds(year - 1)
+	data.TotalPriorImprest, err = loadImprestTotal(priorStart, priorEnd)
+	if err != nil {
+		return AnnualData{}, fmt.Errorf("load prior imprest total: %w", err)
+	}
+	// Imprest is its own book, so it gets one line rather than being merged into the
+	// expenditure categories above. The total row below still carries the combined figure
+	// because surplus has to include every payment the church made.
+	data.ExpenseLines = append(data.ExpenseLines, LineRow{
+		Name:        "Imprest Expenses",
+		Amount:      data.TotalImprest,
+		PriorAmount: data.TotalPriorImprest,
+	})
+	data.TotalExpense = data.TotalMainExpense + data.TotalImprest
+	data.TotalPriorExpense = data.TotalPriorMainExpense + data.TotalPriorImprest
 	data.ExpenseLines = append(data.ExpenseLines, LineRow{
 		Name:        "TOTAL EXPENDITURE",
 		Amount:      data.TotalExpense,
@@ -431,6 +477,9 @@ func buildAnnualData(year int) (AnnualData, error) {
 type amountTotals struct {
 	Income  float64
 	Expense float64
+	// Imprest rides beside the main expense instead of inside it so every report can show
+	// the two books separately and still hand the caller a combined total when it needs one.
+	Imprest float64
 }
 
 // loadMonthlyTotals queries the database for monthly income and expense totals within a
@@ -480,6 +529,18 @@ func loadMonthlyTotals(year int) (map[int]amountTotals, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	// The imprest book lives in its own table, so it needs its own month rollup. Merging it
+	// into the map here keeps the monthly and quarterly builders on one source of truth.
+	imprestTotals, err := loadMonthlyImprestTotals(year)
+	if err != nil {
+		return nil, err
+	}
+	for monthNumber, imprest := range imprestTotals {
+		current := totals[monthNumber]
+		current.Imprest = imprest
+		totals[monthNumber] = current
 	}
 
 	return totals, nil

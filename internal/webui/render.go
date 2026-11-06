@@ -32,6 +32,7 @@ var templateFolders = map[string]string{
 	"data-entry":    "pages",
 	"fixed-assets":  "reports",
 	"import":        "pages",
+	"imprest":       "pages",
 	"monthly":       "reports",
 	"notes":         "reports",
 	"quarterly":     "reports",

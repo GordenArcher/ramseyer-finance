@@ -200,8 +200,20 @@ func buildTrialBalancePositionData(year int) (BalanceData, error) {
 			data.PriorTotalLiabilities += value.prior
 		}
 	}
-	data.IncomeSurplus = currentIncome - currentExpense
-	data.PriorIncomeSurplus = priorIncome - priorExpense
+	// Imprest lives in its own table, so the Trial Balance loop above cannot see it. The
+	// payments still reduce the year's surplus, so both comparative columns subtract their
+	// own year's imprest total. Leaving this out would make the position statement disagree
+	// with the annual statement and the dashboard.
+	currentImprest, err := loadImprestTotal(yearBounds(year))
+	if err != nil {
+		return BalanceData{}, fmt.Errorf("load current imprest surplus for %d: %w", year, err)
+	}
+	priorImprest, err := loadImprestTotal(yearBounds(year - 1))
+	if err != nil {
+		return BalanceData{}, fmt.Errorf("load prior imprest surplus for %d: %w", year-1, err)
+	}
+	data.IncomeSurplus = currentIncome - currentExpense - currentImprest
+	data.PriorIncomeSurplus = priorIncome - priorExpense - priorImprest
 	// Net assets is a display subtotal only. It does not create an equity transaction or force
 	// the income/expenditure result to balance against asset categories the user never entered.
 	data.TotalEquity = data.TotalAssets - data.TotalLiabilities
@@ -420,7 +432,14 @@ func buildBalanceSnapshot(year int) (balanceSnapshot, error) {
 	if err := loadIncomeExpenseTotals(yearStart, yearEnd, &yearlyIncome, &yearlyExpense); err != nil {
 		return balanceSnapshot{}, fmt.Errorf("load income surplus for %d: %w", year, err)
 	}
-	snapshot.IncomeSurplus = yearlyIncome - yearlyExpense
+	// The imprest book is not in financial_postings, but its payments still reduce the
+	// year's surplus. Leaving it out here would make the balance sheet disagree with the
+	// annual statement and the dashboard.
+	imprestExpense, err := loadImprestTotal(yearStart, yearEnd)
+	if err != nil {
+		return balanceSnapshot{}, fmt.Errorf("load imprest surplus for %d: %w", year, err)
+	}
+	snapshot.IncomeSurplus = yearlyIncome - yearlyExpense - imprestExpense
 	snapshot.TotalEquity = snapshot.TotalAssets - snapshot.TotalLiabilities
 	snapshot.AccumulatedFund = snapshot.TotalEquity - snapshot.IncomeSurplus
 	snapshot.BalanceDifference = 0
