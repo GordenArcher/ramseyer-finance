@@ -78,6 +78,25 @@ func TestImprestCategoriesSeedWithTheCashBookHeads(t *testing.T) {
 	}
 }
 
+func TestReportYearsIncludeAnImprestOnlyYear(t *testing.T) {
+	setupTestDB(t)
+
+	insertImprestFixture(t, "2020-06-01", "T&T", "Old imprest payment", 25)
+
+	// The selected year's window is 2024 to 2028, so 2020 can only appear when the known
+	// years query reads the imprest table as well as the main register.
+	years, err := reportYears(2026)
+	if err != nil {
+		t.Fatalf("load report years: %v", err)
+	}
+	for _, year := range years {
+		if year == 2020 {
+			return
+		}
+	}
+	t.Fatalf("report years = %v, want the imprest-only 2020 year included", years)
+}
+
 func TestMatchImprestCategoryIsExactButCaseInsensitive(t *testing.T) {
 	setupTestDB(t)
 
@@ -456,6 +475,10 @@ func TestBulkImportImprestSavesMatchesAndReportsUnknownHeads(t *testing.T) {
 	}
 	if len(summary.Errors) != 1 || !strings.Contains(summary.Errors[0], "is not one of the imprest heads") {
 		t.Fatalf("summary errors = %v, want the unknown head refusal", summary.Errors)
+	}
+	// The refusal must point at the Excel row, not the slice index.
+	if !strings.Contains(summary.Errors[0], "Row 5:") {
+		t.Fatalf("summary error = %q, want the spreadsheet row number", summary.Errors[0])
 	}
 
 	var (

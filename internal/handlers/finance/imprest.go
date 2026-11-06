@@ -11,8 +11,8 @@ import (
 )
 
 // imprestEntryLimit bounds the working list on the imprest page. The page is a place to
-// check recent payments and correct the book, not a full register, so a fixed window keeps
-// the render cheap while the year total still covers every saved row.
+// review recent payments, not a full register, so a fixed window keeps the render cheap
+// while the year total still covers every saved row.
 const imprestEntryLimit = 100
 
 // ImprestData carries the imprest page's totals, category list, and working entries. The

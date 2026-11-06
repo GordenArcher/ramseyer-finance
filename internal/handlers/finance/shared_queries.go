@@ -182,10 +182,10 @@ func monthBounds(now time.Time) (string, string) {
 
 // reportYears builds the list of years available in the report page year-picker dropdown.
 // It merges three sources: the currently selected year (always included, even if it has no
-// data), the years that actually contain transactions or budgets
-// (loaded from the database), and a window of ±2 years around the selected year. This
-// approach ensures the picker includes both historical data years and near-future years
-// for planning, while never being completely empty even on a fresh database.
+// data), the years that actually contain transactions, imprest payments, or budgets (loaded
+// from the database), and a window of ±2 years around the selected year. This approach
+// ensures the picker includes both historical data years and near-future years for planning,
+// while never being completely empty even on a fresh database.
 func reportYears(selected int) ([]int, error) {
 	// I merge known data years with a small window around the selected year so the selector works
 	// both for historical browsing and near-future setup or planning.
@@ -240,13 +240,19 @@ func setupYears() ([]int, error) {
 // are returned in ascending order and used by both the report and setup year pickers to
 // ensure data-backed years are always selectable.
 func loadKnownYears() ([]int, error) {
-	// Dated entries determine reporting years. Budgets remain included because they are planning
-	// data for a selectable future year, not a competing source of actual financial figures.
+	// Dated entries determine reporting years. Imprest payments are dated financial records in
+	// their own table, so their years must appear too even when the main register has nothing
+	// for that year. Budgets remain included because they are planning data for a selectable
+	// future year, not a competing source of actual financial figures.
 	rows, err := db.DB.Query(`
 		SELECT DISTINCT year
 		FROM (
 			SELECT CAST(strftime('%Y', date) AS INTEGER) AS year
 			FROM transactions
+			WHERE date <> ''
+			UNION
+			SELECT CAST(strftime('%Y', date) AS INTEGER) AS year
+			FROM imprest_expenses
 			WHERE date <> ''
 			UNION
 			SELECT year FROM budgets

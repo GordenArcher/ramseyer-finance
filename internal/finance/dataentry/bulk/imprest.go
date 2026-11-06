@@ -308,9 +308,9 @@ func ReadImprestRows(rows [][]string, layout ImprestLayout) ([]ImprestEntry, []s
 	return entries, errors, skipped
 }
 
-// firstImprestDate returns the earliest readable date in the data rows. It exists for the
-// one case the carry cannot solve: a book whose first group has no date at all. The earliest
-// written date is the only defensible anchor for those rows.
+// firstImprestDate returns the first readable date in the data rows. It exists for the one
+// case the carry cannot solve: a book whose first group has no date at all. The first written
+// date is the only defensible anchor for those rows because the cash book is entered in order.
 func firstImprestDate(rows [][]string, layout ImprestLayout) string {
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
 		if parsed, ok := ParseDate(Cell(rows[index], layout.Date)); ok {

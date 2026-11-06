@@ -18,7 +18,7 @@
     <div class="card-header">
         <div>
             <h3>Rows that were not imported</h3>
-            <p class="section-copy">Nothing was saved for these rows. Fix them in the workbook and upload again.</p>
+            <p class="section-copy">These rows were skipped; the valid rows in the file were still saved. Uploading the whole workbook again would add the saved rows a second time, so correct only the skipped rows before re-uploading.</p>
         </div>
     </div>
     <ul class="section-copy data-entry-error-list">
@@ -123,7 +123,9 @@
                 The date is written once and carries down until the next date. Only the EXPENSE
                 amount and the DETAILS head are saved. The DETAILS value must match one of the
                 existing imprest heads exactly; uploading never creates one. Rows with no date
-                to carry, no amount, or no description are reported and skipped.
+                to carry, no amount, or no description are reported and skipped. The imprest
+                book can repeat the same day's payments, so the upload does not deduplicate:
+                uploading the same file again adds those rows again.
             </p>
         </div>
     </div>
@@ -133,7 +135,7 @@
     <div class="card-header">
         <div>
             <h3>Imprest entries for {{.CurrentYear}}</h3>
-            <p class="section-copy">Newest first. These are not part of the main transaction register.</p>
+            <p class="section-copy">Newest first. Up to 100 recent entries are shown; the year totals include every saved payment. These are not part of the main transaction register.</p>
         </div>
     </div>
     <div class="table-scroll">
