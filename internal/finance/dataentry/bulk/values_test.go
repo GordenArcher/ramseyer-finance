@@ -85,6 +85,22 @@ func TestMatchCategoryNeverGuessesBetweenTwoAccounts(t *testing.T) {
 	}
 }
 
+func TestMatchCategoryDoesNotFoldALongerHeadIntoAShorterAccount(t *testing.T) {
+	categories := []Category{
+		{ID: 1, Name: "Seminar"},
+		{ID: 2, Name: "Kutunse"},
+	}
+
+	// The office book keeps SEMINAR and SEMINAR & TRAINING as separate heads. A label that
+	// merely contains a shorter account name must become its own head, not be folded in.
+	if id, ok := MatchCategory(categories, "Seminar & Training"); ok {
+		t.Fatalf("longer head resolved to %d, want a separate head", id)
+	}
+	if id, ok := MatchCategory(categories, "Kutunse-To GM"); ok {
+		t.Fatalf("longer head resolved to %d, want a separate head", id)
+	}
+}
+
 func TestRowIsSummaryRecognisesTotalsAndBalances(t *testing.T) {
 	if !RowIsSummary([]string{"", "", "=SUM(C3:C4)", ""}) {
 		t.Fatalf("formula subtotal was not recognised")

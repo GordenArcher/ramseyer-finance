@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
-	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
+	expenseworkbook "ramseyer-finance/internal/finance/dataentry/expense/workbook"
 	"strings"
 )
 
@@ -32,7 +32,7 @@ func ExportDataEntryExcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	workbook, err := dataentrybulk.BuildExpenseWorkbook(year, rows)
+	workbook, err := expenseworkbook.Build(year, rows)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -55,7 +55,7 @@ func ExportDataEntryExcel(w http.ResponseWriter, r *http.Request) {
 // loadExpenseExportRows reads the saved postings in date order. The category falls back to
 // the joined account name for older rows that predate the denormalised column, so the
 // workbook never leaves the account label blank.
-func loadExpenseExportRows(transactionType string, year int) ([]dataentrybulk.ExpenseRow, error) {
+func loadExpenseExportRows(transactionType string, year int) ([]expenseworkbook.Row, error) {
 	startDate, endDate := yearBounds(year)
 	rows, err := db.DB.Query(`
 		SELECT t.date, t.description, COALESCE(NULLIF(t.category, ''), c.name, ''), t.amount
@@ -69,9 +69,9 @@ func loadExpenseExportRows(transactionType string, year int) ([]dataentrybulk.Ex
 	}
 	defer rows.Close()
 
-	var entries []dataentrybulk.ExpenseRow
+	var entries []expenseworkbook.Row
 	for rows.Next() {
-		var entry dataentrybulk.ExpenseRow
+		var entry expenseworkbook.Row
 		if err := rows.Scan(&entry.Date, &entry.Description, &entry.Category, &entry.Amount); err != nil {
 			return nil, fmt.Errorf("scan expenditure export row: %w", err)
 		}

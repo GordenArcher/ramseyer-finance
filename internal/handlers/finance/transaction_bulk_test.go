@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"ramseyer-finance/internal/db"
+	"strings"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -211,15 +212,15 @@ func TestBulkImportRejectsTheBankBookForExpenditure(t *testing.T) {
 	}
 }
 
-func TestBulkImportReportsUnknownCategoryWithoutCreatingOne(t *testing.T) {
+func TestBulkImportStillRefusesUnknownIncomeCategories(t *testing.T) {
 	setupTestDB(t)
 
 	workbook := expenseLedgerWorkbook(t, [][]any{
-		{"2026-01-04", "MYSTERY ITEM", 500, "Not A Real Account"},
+		{"2026-01-04", "MYSTERY INCOME", 500, "Not A Real Income Account"},
 	})
 	defer workbook.Close()
 
-	recorder := uploadWorkbook(t, workbook, "expenditure")
+	recorder := uploadWorkbook(t, workbook, "income")
 	if recorder.Code != http.StatusSeeOther {
 		t.Fatalf("bulk import status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
@@ -232,17 +233,278 @@ func TestBulkImportReportsUnknownCategoryWithoutCreatingOne(t *testing.T) {
 		t.Fatalf("imported rows = %d, want 0", summary.Imported)
 	}
 	if len(summary.Errors) == 0 {
-		t.Fatalf("unknown category produced no explanation")
+		t.Fatalf("unknown income category produced no explanation")
+	}
+	if len(summary.Created) != 0 {
+		t.Fatalf("income upload created %v, want no accounts", summary.Created)
 	}
 
 	var created int
 	if err := db.DB.QueryRow(
-		`SELECT COUNT(*) FROM categories WHERE type = 'expenditure' AND name = 'Not A Real Account'`,
+		`SELECT COUNT(*) FROM categories WHERE type = 'income' AND name = 'Not A Real Income Account'`,
 	).Scan(&created); err != nil {
 		t.Fatalf("count categories: %v", err)
 	}
 	if created != 0 {
-		t.Fatalf("bulk import created %d accounts, want 0", created)
+		t.Fatalf("income upload created %d accounts, want 0", created)
+	}
+}
+
+func TestBulkImportCreatesUnknownExpenditureHeadsUnderOtherExpenditure(t *testing.T) {
+	setupTestDB(t)
+
+	workbook := expenseLedgerWorkbook(t, [][]any{
+		{"2026-01-04", "ASSESSMENT", 500, "Not A Real Account"},
+		{"2026-01-05", "ASSESSMENT AGAIN", 250, "Not A Real Account"},
+		{"2026-01-06", "MYSTERY", 100, "Another New Head"},
+	})
+	defer workbook.Close()
+
+	recorder := uploadWorkbook(t, workbook, "expenditure")
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("bulk import status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("import summary was not stored")
+	}
+	if summary.Imported != 3 {
+		t.Fatalf("imported rows = %d, want 3 (%v)", summary.Imported, summary.Errors)
+	}
+	if len(summary.Created) != 2 || summary.Created[0] != "Not A Real Account" || summary.Created[1] != "Another New Head" {
+		t.Fatalf("created heads = %v, want the two new heads once each", summary.Created)
+	}
+
+	var (
+		parentID int64
+		noteRef  string
+	)
+	if err := db.DB.QueryRow(
+		`SELECT id, note_ref FROM categories WHERE type = 'expenditure' AND name = 'Other Expenditure' AND parent_id = 0`,
+	).Scan(&parentID, &noteRef); err != nil {
+		t.Fatalf("load Other Expenditure parent: %v", err)
+	}
+	if noteRef != "20" {
+		t.Fatalf("Other Expenditure note = %q, want 20", noteRef)
+	}
+
+	for _, name := range []string{"Not A Real Account", "Another New Head"} {
+		var (
+			headType   string
+			headParent int64
+			headNote   string
+		)
+		if err := db.DB.QueryRow(
+			`SELECT type, parent_id, note_ref FROM categories WHERE name = ?`,
+			name,
+		).Scan(&headType, &headParent, &headNote); err != nil {
+			t.Fatalf("load created head %q: %v", name, err)
+		}
+		if headType != "expenditure" || headParent != parentID || headNote != "20" {
+			t.Fatalf("head %q type/parent/note = %s/%d/%s, want expenditure/%d/20", name, headType, headParent, headNote, parentID)
+		}
+	}
+}
+
+func TestBulkImportReusesExpenseHeadsOnASecondUpload(t *testing.T) {
+	setupTestDB(t)
+
+	rows := [][]any{
+		{"2026-01-04", "MYSTERY ITEM", 500, "Not A Real Account"},
+	}
+
+	first := expenseLedgerWorkbook(t, rows)
+	recorder := uploadWorkbook(t, first, "expenditure")
+	first.Close()
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("first upload status = %d", recorder.Code)
+	}
+
+	second := expenseLedgerWorkbook(t, rows)
+	recorder = uploadWorkbook(t, second, "expenditure")
+	second.Close()
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("second upload status = %d", recorder.Code)
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("second import summary was not stored")
+	}
+	if summary.Imported != 0 {
+		t.Fatalf("second upload imported %d rows, want 0", summary.Imported)
+	}
+	if len(summary.Created) != 0 {
+		t.Fatalf("second upload created %v, want no new heads", summary.Created)
+	}
+
+	var heads int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM categories WHERE name = 'Not A Real Account'`).Scan(&heads); err != nil {
+		t.Fatalf("count expense heads: %v", err)
+	}
+	if heads != 1 {
+		t.Fatalf("expense head count = %d, want 1", heads)
+	}
+
+	var saved int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM transactions WHERE type = 'expenditure'`).Scan(&saved); err != nil {
+		t.Fatalf("count expenditure rows: %v", err)
+	}
+	if saved != 1 {
+		t.Fatalf("expenditure rows after re-upload = %d, want 1", saved)
+	}
+}
+
+func TestBulkImportNormalisesExpenseHeadVariants(t *testing.T) {
+	setupTestDB(t)
+
+	workbook := expenseLedgerWorkbook(t, [][]any{
+		{"2026-02-01", "TEA", 10, "T & T"},
+		{"2026-02-01", "TEA AGAIN", 20, "T&T"},
+		{"2026-02-02", "TIER", 30, "TIER2"},
+		{"2026-02-02", "TIER AGAIN", 40, "TIER 2"},
+		{"2026-02-03", "REFRESH", 50, "REFESHMENT"},
+	})
+	defer workbook.Close()
+
+	recorder := uploadWorkbook(t, workbook, "expenditure")
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("bulk import status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("import summary was not stored")
+	}
+	if summary.Imported != 5 {
+		t.Fatalf("imported rows = %d, want 5 (%v)", summary.Imported, summary.Errors)
+	}
+	if len(summary.Created) != 2 || summary.Created[0] != "T&T" || summary.Created[1] != "TIER 2" {
+		t.Fatalf("created heads = %v, want T&T and TIER 2", summary.Created)
+	}
+
+	for _, head := range []struct {
+		name string
+		rows int
+	}{
+		{"T&T", 2},
+		{"TIER 2", 2},
+	} {
+		var heads int
+		if err := db.DB.QueryRow(
+			`SELECT COUNT(*) FROM categories WHERE type = 'expenditure' AND name = ?`,
+			head.name,
+		).Scan(&heads); err != nil {
+			t.Fatalf("count head %q: %v", head.name, err)
+		}
+		if heads != 1 {
+			t.Fatalf("head %q count = %d, want 1", head.name, heads)
+		}
+
+		var rows int
+		if err := db.DB.QueryRow(
+			`SELECT COUNT(*) FROM transactions WHERE category = ?`,
+			head.name,
+		).Scan(&rows); err != nil {
+			t.Fatalf("count rows for head %q: %v", head.name, err)
+		}
+		if rows != head.rows {
+			t.Fatalf("rows for head %q = %d, want %d", head.name, rows, head.rows)
+		}
+	}
+
+	// REFESHMENT is repaired to REFRESHMENT, and that spelling resolves to the chart's
+	// existing refreshments account instead of adding another head.
+	var refreshRows int
+	if err := db.DB.QueryRow(
+		`SELECT COUNT(*) FROM transactions WHERE category = 'General Refreshments/Hospitality'`,
+	).Scan(&refreshRows); err != nil {
+		t.Fatalf("count refreshment rows: %v", err)
+	}
+	if refreshRows != 1 {
+		t.Fatalf("refreshment rows = %d, want the row matched to General Refreshments/Hospitality", refreshRows)
+	}
+	var refreshHeads int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM categories WHERE name = 'REFRESHMENT'`).Scan(&refreshHeads); err != nil {
+		t.Fatalf("count REFRESHMENT head: %v", err)
+	}
+	if refreshHeads != 0 {
+		t.Fatalf("REFRESHMENT head count = %d, want the existing chart account reused", refreshHeads)
+	}
+}
+
+func TestBulkImportSkipsImprestRowsInTheExpenseSheet(t *testing.T) {
+	setupTestDB(t)
+
+	workbook := expenseLedgerWorkbook(t, [][]any{
+		{"2026-01-04", "IMPREST TOP-UP", 1000, "IMPREST"},
+		{"2026-01-05", "STATIONERY", 50, "STATIONERY"},
+	})
+	defer workbook.Close()
+
+	recorder := uploadWorkbook(t, workbook, "expenditure")
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("bulk import status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("import summary was not stored")
+	}
+	if summary.Imported != 1 || summary.Skipped != 1 {
+		t.Fatalf("imported/skipped = %d/%d, want 1/1 (%v)", summary.Imported, summary.Skipped, summary.Errors)
+	}
+	if !strings.Contains(strings.Join(summary.Errors, " "), "float top-ups") {
+		t.Fatalf("skipped IMPREST row produced no float-top-up explanation: %v", summary.Errors)
+	}
+
+	var heads int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM categories WHERE name = 'IMPREST'`).Scan(&heads); err != nil {
+		t.Fatalf("count IMPREST heads: %v", err)
+	}
+	if heads != 0 {
+		t.Fatalf("IMPREST head count = %d, want 0", heads)
+	}
+}
+
+func TestBulkImportAllCreatesExpenditureHeadsFromOneSheet(t *testing.T) {
+	setupTestDB(t)
+	tithes := categoryID(t, "income", "Tithes")
+
+	workbook := combinedWorkbook(t, [][]any{
+		{"2026-01-04", "income", "Sunday offering", 1000, "Tithes", "cash"},
+		{"2026-01-04", "expenditure", "New office line", 50, "Office New Head", "cash"},
+	})
+	recorder := uploadCombinedWorkbook(t, workbook)
+	workbook.Close()
+
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("all-types import status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("all-types summary was not stored")
+	}
+	if summary.Imported != 2 {
+		t.Fatalf("imported rows = %d, want 2 (%v)", summary.Imported, summary.Errors)
+	}
+	if len(summary.Created) != 1 || summary.Created[0] != "Office New Head" {
+		t.Fatalf("created heads = %v, want Office New Head", summary.Created)
+	}
+	if got := countTransactionsForCategory(t, tithes); got != 1 {
+		t.Fatalf("income rows = %d, want 1", got)
+	}
+
+	var headID int64
+	if err := db.DB.QueryRow(
+		`SELECT id FROM categories WHERE type = 'expenditure' AND name = 'Office New Head'`,
+	).Scan(&headID); err != nil {
+		t.Fatalf("load created head: %v", err)
+	}
+	if got := countTransactionsForCategory(t, headID); got != 1 {
+		t.Fatalf("expenditure rows for the new head = %d, want 1", got)
 	}
 }
 
@@ -270,6 +532,52 @@ func TestBulkImportSkipsTheSecondUploadOfTheSameFile(t *testing.T) {
 
 	if got := countTransactionsForCategory(t, stationery); got != 1 {
 		t.Fatalf("stationery rows after re-upload = %d, want 1", got)
+	}
+}
+
+func TestBulkImportKeepsIdenticalRowsInOneSheetButRefusesAReload(t *testing.T) {
+	setupTestDB(t)
+	stationery := categoryID(t, "expenditure", "Printing & Stationery")
+
+	rows := [][]any{
+		{"2026-01-04", "PLAN OF WORK", 456, "Printing & Stationery"},
+		{"2026-01-04", "PLAN OF WORK", 456, "Printing & Stationery"},
+	}
+
+	first := expenseLedgerWorkbook(t, rows)
+	recorder := uploadWorkbook(t, first, "expenditure")
+	first.Close()
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("first upload status = %d", recorder.Code)
+	}
+
+	summary, ok := bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("first import summary was not stored")
+	}
+	if summary.Imported != 2 {
+		t.Fatalf("first upload imported = %d, want both identical rows (%v)", summary.Imported, summary.Errors)
+	}
+	if got := countTransactionsForCategory(t, stationery); got != 2 {
+		t.Fatalf("stationery rows after first upload = %d, want 2", got)
+	}
+
+	second := expenseLedgerWorkbook(t, rows)
+	recorder = uploadWorkbook(t, second, "expenditure")
+	second.Close()
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("second upload status = %d", recorder.Code)
+	}
+
+	summary, ok = bulkResultStore.Get(summaryTokenFromRedirect(t, recorder.Header().Get("Location")))
+	if !ok {
+		t.Fatalf("second import summary was not stored")
+	}
+	if summary.Imported != 0 {
+		t.Fatalf("second upload imported = %d, want the reload refused (%v)", summary.Imported, summary.Errors)
+	}
+	if got := countTransactionsForCategory(t, stationery); got != 2 {
+		t.Fatalf("stationery rows after re-upload = %d, want 2", got)
 	}
 }
 

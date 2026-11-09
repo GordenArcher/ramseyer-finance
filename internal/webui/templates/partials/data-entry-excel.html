@@ -3,7 +3,11 @@
     <div class="card-header">
         <div>
             <h3>Import {{.Label}} from Excel</h3>
+            {{if eq .Type "expenditure"}}
+            <p class="section-copy">Upload the office EXPENSES sheet to save many expenditure entries at once. Each head is matched to the chart; a head the chart does not have is added under Other Expenditure.</p>
+            {{else}}
             <p class="section-copy">Upload a workbook to save many {{.LowerLabel}} entries at once. Rows are matched to existing accounts; uploads never create new accounts.</p>
+            {{end}}
         </div>
         <div class="data-entry-excel-actions">
             <a class="btn btn-secondary" href="{{.TemplateURL}}" download>Download Template</a>
@@ -64,10 +68,11 @@
             </div>
             <p class="section-copy bulk-entry-note">
                 Use the EXPENSES {{.Year}} sheet. The importer reads that sheet and ignores the
-                bank book tabs. Dates can be real Excel dates or <code>YYYY-MM-DD</code>. The
-                account name goes in column D and must match an existing expenditure account;
-                uploading never creates one. Blank rows, subtotals, and opening or closing
-                balance lines are skipped.
+                bank book tabs. Dates can be real Excel dates or <code>YYYY-MM-DD</code>. Column D
+                is the office expense head: a known head is matched to its account, and an unknown
+                head is added under <strong>Other Expenditure</strong> so the line keeps its name.
+                IMPREST rows are skipped here because they belong on the Imprest Expenses page.
+                Blank rows, subtotals, and opening or closing balance lines are skipped.
             </p>
             {{else}}
             <div class="bulk-entry-table">

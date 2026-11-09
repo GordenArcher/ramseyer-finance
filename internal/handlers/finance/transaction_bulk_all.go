@@ -62,6 +62,14 @@ func BulkImportAllTransactions(w http.ResponseWriter, r *http.Request) {
 	sections := make(map[string]*bulk.ImportSection, len(bulkImportTypes))
 	categoryCache := make(map[string][]bulk.Category, len(bulkImportTypes))
 
+	// The boundary is captured once for the whole sheet so two identical lines inside this
+	// workbook are both saved, while a repeated upload still sees them as existing rows.
+	baselineID, err := lastTransactionID()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
 		row := rows[index]
 		if bulk.RowIsBlank(row) {
@@ -122,11 +130,16 @@ func BulkImportAllTransactions(w http.ResponseWriter, r *http.Request) {
 		description := strings.TrimSpace(bulk.Cell(row, layout.Description))
 		categoryLabel := strings.TrimSpace(bulk.Cell(row, layout.Category))
 		paymentMethod := strings.TrimSpace(bulk.Cell(row, layout.Payment))
-		if reason := saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod, amount, categories); reason != "" {
+		result := saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod, amount, categories, baselineID)
+		if result.Reason != "" {
 			section.Skipped++
-			section.AppendRowError(index, reason)
+			section.AppendRowError(index, result.Reason)
 			continue
 		}
+		if result.ResolvedID != 0 {
+			categoryCache[transactionType] = append(categories, bulk.Category{ID: result.ResolvedID, Name: result.ResolvedName})
+		}
+		section.AppendCreated(result.AddedHead)
 		section.Imported++
 	}
 
@@ -174,6 +187,9 @@ func assembleCombinedSummary(summary *bulk.ImportSummary, sections map[string]*b
 		summary.Sections = append(summary.Sections, *section)
 		summary.Imported += section.Imported
 		summary.Skipped += section.Skipped
+		for _, name := range section.Created {
+			summary.AppendCreated(name)
+		}
 		for _, message := range section.Errors {
 			summary.Errors = append(summary.Errors, entry.Label+": "+message)
 		}

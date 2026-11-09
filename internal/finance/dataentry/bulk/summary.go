@@ -31,6 +31,10 @@ type ImportSummary struct {
 	Imported int
 	Skipped  int
 	Errors   []string
+	// Created lists the expense heads the upload added to the chart. Only expenditure
+	// uploads create accounts, so the slice stays empty for the other types. Reporting the
+	// names once lets the operator see exactly what the workbook introduced.
+	Created []string
 	// Sections is populated only by the all-types upload. Each entry is one type's share
 	// of the submission, so the operator can tell which workbook landed and which one still
 	// needs attention without opening four separate reports.
@@ -47,6 +51,32 @@ type ImportSection struct {
 	Imported int
 	Skipped  int
 	Errors   []string
+	Created  []string
+}
+
+// AppendCreated records one added expense head without repeating a name that appeared on
+// several rows. The all-types upload folds each section's list into the combined report, so
+// the same dedupe rule serves both paths.
+func (s *ImportSummary) AppendCreated(name string) {
+	s.Created = appendCreated(s.Created, name)
+}
+
+// AppendCreated mirrors the summary method so a section can collect its own added heads
+// before the combined report is assembled.
+func (s *ImportSection) AppendCreated(name string) {
+	s.Created = appendCreated(s.Created, name)
+}
+
+func appendCreated(names []string, name string) []string {
+	if name == "" {
+		return names
+	}
+	for _, existing := range names {
+		if existing == name {
+			return names
+		}
+	}
+	return append(names, name)
 }
 
 // AppendRowError records one refusal with the row number the operator sees in Excel.

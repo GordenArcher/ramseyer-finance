@@ -232,16 +232,16 @@ func TestAddImprestExpenseRejectsBadForms(t *testing.T) {
 func TestMainExpenditureImportRefusesImprestTopUps(t *testing.T) {
 	setupTestDB(t)
 
-	reason := saveImportedRow("expenditure", "2026-01-04", "IMPREST", "IMPREST", "", 1000, nil)
-	if !strings.Contains(reason, "float top-ups") {
-		t.Fatalf("IMPREST expenditure reason = %q, want a float-top-up refusal", reason)
+	reason := saveImportedRow("expenditure", "2026-01-04", "IMPREST", "IMPREST", "", 1000, nil, 0)
+	if !strings.Contains(reason.Reason, "float top-ups") {
+		t.Fatalf("IMPREST expenditure reason = %q, want a float-top-up refusal", reason.Reason)
 	}
 
 	// The refusal is specific to expenditure. An income label with the same word is not a
 	// float top-up and must still go through the normal category lookup.
-	reason = saveImportedRow("income", "2026-01-04", "IMPREST refund", "IMPREST", "", 1000, nil)
-	if strings.Contains(reason, "float top-ups") {
-		t.Fatalf("income row was refused as a float top-up: %q", reason)
+	reason = saveImportedRow("income", "2026-01-04", "IMPREST refund", "IMPREST", "", 1000, nil, 0)
+	if strings.Contains(reason.Reason, "float top-ups") {
+		t.Fatalf("income row was refused as a float top-up: %q", reason.Reason)
 	}
 
 	var rows int

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"ramseyer-finance/internal/db"
 	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
+	expenseheadparser "ramseyer-finance/internal/finance/dataentry/expense/head"
+	"ramseyer-finance/internal/handlers/finance/expensehead"
 	transactionsaudit "ramseyer-finance/internal/transactions/audit"
 	"strings"
 	"time"
@@ -142,6 +144,14 @@ func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk
 		return dataentrybulk.ImportSummary{}, err
 	}
 
+	// Rows already in the ledger keep their ids below this boundary. The save path uses it
+	// to refuse a repeated upload without refusing two identical lines that the workbook
+	// itself contains.
+	baselineID, err := lastTransactionID()
+	if err != nil {
+		return dataentrybulk.ImportSummary{}, err
+	}
+
 	summary := dataentrybulk.ImportSummary{Sheet: sheet.Name}
 	for index := sheet.Layout.HeaderRow + 1; index < len(sheet.Rows); index++ {
 		row := sheet.Rows[index]
@@ -186,57 +196,99 @@ func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk
 		description := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Description))
 		categoryLabel := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Category))
 		paymentMethod := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Payment))
-		if reason := saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod, amount, categories); reason != "" {
+		result := saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod, amount, categories, baselineID)
+		if result.Reason != "" {
 			summary.Skipped++
-			summary.AppendRowError(index, reason)
+			summary.AppendRowError(index, result.Reason)
 			continue
 		}
+		// A head that was not in the loaded slice is now a real account. Adding it here
+		// keeps the next row with the same head on the in-memory match instead of asking
+		// the database again for every line in the workbook.
+		if result.ResolvedID != 0 {
+			categories = append(categories, dataentrybulk.Category{ID: result.ResolvedID, Name: result.ResolvedName})
+		}
+		summary.AppendCreated(result.AddedHead)
 		summary.Imported++
 	}
 
 	return summary, nil
 }
 
-// saveImportedRow validates and inserts one parsed row. An empty return means the row was
+// importedRowResult is the outcome of saving one parsed row. Reason is empty when the row
+// was saved. AddedHead names an expense head this row created, while ResolvedID carries a
+// head that already existed but was missing from the loaded category slice. Keeping the two
+// apart lets the report list each new account once without confusing it with a cache miss.
+type importedRowResult struct {
+	Reason       string
+	AddedHead    string
+	ResolvedID   int64
+	ResolvedName string
+}
+
+// saveImportedRow validates and inserts one parsed row. An empty Reason means the row was
 // saved; anything else is the operator-facing reason it was refused. Keeping the insert,
 // duplicate, and audit rules in one function is what stops the per-type upload and the
 // all-types upload from posting different results for the same row.
-func saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod string, amount float64, categories []dataentrybulk.Category) string {
+func saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod string, amount float64, categories []dataentrybulk.Category, baselineID int64) importedRowResult {
+	categoryLabel = strings.TrimSpace(categoryLabel)
+	// Expenditure heads are the office's own shorthand, so they get the spelling rules and
+	// the create-on-missing behaviour. The other three types keep the strict chart match
+	// because their accounts are structural, not free text from a workbook.
+	if transactionType == "expenditure" {
+		categoryLabel = expenseheadparser.Normalize(categoryLabel)
+	}
+
 	// The client's main expenditure book carries 11 GHS 1,000 IMPREST lines. Those are float
 	// top-ups, not payments: the imprest cash book already records what the float bought.
 	// Refusing the label here stops the top-up from being counted as expenditure if someone
 	// later adds an IMPREST account to the chart.
-	if transactionType == "expenditure" && strings.EqualFold(strings.TrimSpace(categoryLabel), "imprest") {
-		return "IMPREST lines are float top-ups, not expenditure; upload the imprest cash book on the Imprest Expenses page"
+	if transactionType == "expenditure" && strings.EqualFold(categoryLabel, "imprest") {
+		return importedRowResult{Reason: "IMPREST lines are float top-ups, not expenditure; upload the imprest cash book on the Imprest Expenses page"}
 	}
 
 	categoryID, matched := dataentrybulk.MatchCategory(categories, categoryLabel)
+	var result importedRowResult
 	if !matched {
-		// Uploading must never create an account as a side effect. An unknown label is
-		// reported so the chart of accounts stays an explicit operator decision.
 		if categoryLabel == "" {
-			return "category is missing; add a category column or name the account"
+			return importedRowResult{Reason: "category is missing; add a category column or name the account"}
 		}
-		return "category \"" + categoryLabel + "\" does not match an existing account"
+		if transactionType != "expenditure" {
+			// Other types must never create an account as a side effect. An unknown label is
+			// reported so the chart of accounts stays an explicit operator decision.
+			return importedRowResult{Reason: "category \"" + categoryLabel + "\" does not match an existing account"}
+		}
+
+		headID, created, err := expensehead.Ensure(categoryLabel)
+		if err != nil {
+			return importedRowResult{Reason: "the expense head \"" + categoryLabel + "\" could not be added"}
+		}
+		categoryID = headID
+		result.ResolvedID = headID
+		result.ResolvedName = categoryLabel
+		if created {
+			result.AddedHead = categoryLabel
+		}
 	}
 
 	categoryMeta, err := lookupTransactionCategoryMeta(categoryID, transactionType)
 	if err != nil {
-		return "matched account is no longer available"
+		return importedRowResult{Reason: "matched account is no longer available"}
 	}
 
 	normalizedPayment, err := normalizePaymentMethod(strings.TrimSpace(paymentMethod))
 	if err != nil {
-		return "payment method must be cash, momo, cheque, or bank"
+		return importedRowResult{Reason: "payment method must be cash, momo, cheque, or bank"}
 	}
 
 	// Running the same rule check as manual entry means uploading one workbook twice
-	// refuses the second pass instead of double posting every row.
-	if err := validateTransactionBusinessRules(0, dateValue, transactionType, categoryID, description, amount, false); err != nil {
-		return err.Error()
+	// refuses the second pass instead of double posting every row. The baseline keeps two
+	// identical lines inside the uploaded workbook from being treated as that second pass.
+	if err := validateImportedRow(dateValue, transactionType, categoryID, description, amount, baselineID); err != nil {
+		return importedRowResult{Reason: err.Error()}
 	}
 
-	result, err := db.DB.Exec(
+	inserted, err := db.DB.Exec(
 		`INSERT INTO transactions (date, type, category, category_id, payment_method, description, amount, note_ref, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))`,
 		dateValue,
@@ -249,17 +301,17 @@ func saveImportedRow(transactionType, dateValue, description, categoryLabel, pay
 		categoryMeta.NoteRef,
 	)
 	if err != nil {
-		return "could not be saved"
+		return importedRowResult{Reason: "could not be saved"}
 	}
 
 	// Bulk rows share the audit trail with typed rows so the register can still explain
 	// where a posting came from after an import.
-	if transactionID, idErr := result.LastInsertId(); idErr == nil {
+	if transactionID, idErr := inserted.LastInsertId(); idErr == nil {
 		if snapshot, snapshotErr := loadTransactionSnapshot(transactionID); snapshotErr == nil {
 			_ = recordTransactionAudit(transactionsaudit.ActionCreated, snapshot)
 		}
 	}
-	return ""
+	return result
 }
 
 // loadBulkCategories reads every active account of one type once, so a three hundred row

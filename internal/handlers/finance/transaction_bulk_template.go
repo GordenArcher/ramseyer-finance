@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
+	expenseworkbook "ramseyer-finance/internal/finance/dataentry/expense/workbook"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
@@ -36,7 +37,7 @@ func DownloadDataEntryTemplate(w http.ResponseWriter, r *http.Request) {
 		categories, err = loadBulkCategories(transactionType)
 		if err == nil {
 			if transactionType == "expenditure" {
-				workbook, err = dataentrybulk.BuildExpenseWorkbook(year, nil)
+				workbook, err = expenseworkbook.Build(year, nil)
 				if err == nil {
 					err = dataentrybulk.AddEntryTemplateInstructions(workbook, transactionType, categories)
 				}

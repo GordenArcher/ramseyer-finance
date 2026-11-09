@@ -19,6 +19,14 @@
     <strong>Import from {{.BulkImport.Sheet}}: {{.BulkImport.Imported}} saved{{if .BulkImport.Skipped}}, {{.BulkImport.Skipped}} skipped{{end}}.</strong>
     {{end}}
 </div>
+{{if .BulkImport.Created}}
+<div class="alert alert-success">
+    <strong>{{len .BulkImport.Created}} new expense head{{if gt (len .BulkImport.Created) 1}}s{{end}} added under Other Expenditure.</strong>
+    <ul class="section-copy data-entry-import-sections">
+        {{range .BulkImport.Created}}<li>{{.}}</li>{{end}}
+    </ul>
+</div>
+{{end}}
 {{if .BulkImport.Errors}}
 <div class="card">
     <div class="card-header">
@@ -89,8 +97,10 @@
             </div>
             <p class="section-copy bulk-entry-note">
                 Type must be income, expenditure, asset, or liability. Category must already
-                exist under that type; uploading never creates one. Payment method is optional
-                and defaults to cash. Blank rows and subtotals are skipped.
+                exist under income, asset, and liability; uploading never creates those
+                accounts. An unknown expenditure head is added under Other Expenditure so the
+                office's own head name is kept. Payment method is optional and defaults to
+                cash. Blank rows and subtotals are skipped.
             </p>
         </div>
     </div>

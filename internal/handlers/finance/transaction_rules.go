@@ -115,3 +115,58 @@ func transactionDuplicateExists(transactionID int64, transactionDate, transactio
 	}
 	return count > 0, nil
 }
+
+// transactionDuplicateExistsBefore reports whether a matching transaction already existed
+// before an upload started. Rows saved by the current upload have ids above baselineID and
+// are ignored, which lets the client's book keep two identical payments on the same day.
+// A second upload of the same file still finds those rows below the new baseline and is
+// refused, so the duplicate guard keeps its original job.
+func transactionDuplicateExistsBefore(transactionDate, transactionType string, categoryID int64, description string, amount float64, baselineID int64) (bool, error) {
+	var count int
+	err := db.DB.QueryRow(`
+		SELECT COUNT(*)
+		FROM transactions
+		WHERE date = ?
+			AND type = ?
+			AND category_id = ?
+			AND COALESCE(description, '') = ?
+			AND amount = ?
+			AND id <= ?
+	`,
+		transactionDate,
+		transactionType,
+		categoryID,
+		normalizeTransactionDescription(description),
+		amount,
+		baselineID,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check imported duplicate transaction: %w", err)
+	}
+	return count > 0, nil
+}
+
+// validateImportedRow applies the manual-entry rules to one uploaded row. Duplicates are
+// checked only against transactions that existed before the upload, so identical lines
+// inside one workbook are all saved. The remaining rules, including the asset and liability
+// description requirement, still run through the shared validator.
+func validateImportedRow(dateValue, transactionType string, categoryID int64, description string, amount float64, baselineID int64) error {
+	duplicate, err := transactionDuplicateExistsBefore(dateValue, transactionType, categoryID, description, amount, baselineID)
+	if err != nil {
+		return err
+	}
+	if duplicate {
+		return fmt.Errorf("This looks like a duplicate transaction. Enable the duplicate override if this entry is intentional")
+	}
+	return validateTransactionBusinessRules(0, dateValue, transactionType, categoryID, description, amount, true)
+}
+
+// lastTransactionID reads the highest transaction id before an upload starts. It is the
+// boundary that separates rows already in the ledger from rows the current workbook adds.
+func lastTransactionID() (int64, error) {
+	var id int64
+	if err := db.DB.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM transactions`).Scan(&id); err != nil {
+		return 0, fmt.Errorf("read last transaction id: %w", err)
+	}
+	return id, nil
+}
