@@ -28,12 +28,6 @@ const (
 	sheetScoreFloor = 1
 )
 
-// expenseSheetMarkers names the tabs the office uses for the expenditure ledger. The client
-// file also carries bank book tabs named Sheet1 and Sheet3 with the same date and amount
-// columns, so the name check is what keeps an expenditure upload off the bank book when the
-// ledger tab is present.
-var expenseSheetMarkers = []string{"expense", "expenditure"}
-
 // headerAliases maps a semantic column to the words real workbooks use for it.
 // Substring matching is deliberate: the office file spells the description column
 // "DESCRIP TION" and the amount column "AMOUNT(GHC)", so exact header equality would
@@ -102,34 +96,27 @@ func ChooseSheet(workbook *excelize.File, requested, transactionType string) (st
 			if layout.Category < 0 {
 				return "", ColumnLayout{}, nil, fmt.Errorf("worksheet %q has no category column", requested)
 			}
-			if !sheetFitsType(name, layout, transactionType) {
-				return "", ColumnLayout{}, nil, fmt.Errorf("worksheet %q is not an expenditure ledger; upload the EXPENSES sheet", requested)
+			if transactionType == "expenditure" && sheetLooksLikeBankBook(rows, layout) {
+				return "", ColumnLayout{}, nil, fmt.Errorf("worksheet %q looks like a bank book, not an expense ledger", requested)
 			}
 			return name, layout, rows, nil
 		}
 		return "", ColumnLayout{}, nil, fmt.Errorf("worksheet %q was not found in the workbook", requested)
 	}
 
-	// Expenditure gets two passes. The client's bank book has date and amount headers that
-	// score well, so the EXPENSES tab must win before any other tab is considered. A generic
-	// workbook is still accepted in the second pass, but only when it labels a category
-	// column, which is an explicit statement that the sheet carries account heads.
-	if transactionType == "expenditure" {
-		if candidate, ok := bestScoringSheet(workbook, sheetNames, func(name string, _ ColumnLayout) bool {
-			return sheetNameMatchesExpense(name)
-		}); ok && candidate.Score >= sheetScoreFloor {
-			return candidate.Name, candidate.Layout, candidate.Rows, nil
+	// The sheet is chosen by its contents, not its tab name. A bank book also has date,
+	// description, and amount columns, so the cheque, deposit, and balance labels are what
+	// keep it out of the candidate set.
+	candidate, ok := bestScoringSheet(workbook, sheetNames, func(_ string, layout ColumnLayout, rows [][]string) bool {
+		if transactionType == "expenditure" && sheetLooksLikeBankBook(rows, layout) {
+			return false
 		}
-		if candidate, ok := bestScoringSheet(workbook, sheetNames, func(_ string, layout ColumnLayout) bool {
-			return layout.CategoryLabeled
-		}); ok && candidate.Score >= sheetScoreFloor {
-			return candidate.Name, candidate.Layout, candidate.Rows, nil
-		}
-		return "", ColumnLayout{}, nil, fmt.Errorf("no worksheet named like an expenditure ledger with a date, description, amount, and category column was found")
-	}
-
-	candidate, ok := bestScoringSheet(workbook, sheetNames, func(string, ColumnLayout) bool { return true })
+		return true
+	})
 	if !ok || candidate.Score < sheetScoreFloor {
+		if transactionType == "expenditure" {
+			return "", ColumnLayout{}, nil, fmt.Errorf("no expense sheet was found. The sheet needs a date column, a description column, an amount column, and an expense head column; the bank book tabs are ignored")
+		}
 		return "", ColumnLayout{}, nil, fmt.Errorf("no worksheet with a date, description, amount, and category column was found")
 	}
 	return candidate.Name, candidate.Layout, candidate.Rows, nil
@@ -145,9 +132,8 @@ type Candidate struct {
 }
 
 // bestScoringSheet inspects the sheets the caller accepts and returns the one with the most
-// importable rows. The accept callback keeps the expenditure preference rule out of the
-// scoring loop, so the same scan serves both passes.
-func bestScoringSheet(workbook *excelize.File, names []string, accept func(string, ColumnLayout) bool) (Candidate, bool) {
+// importable rows. The accept callback keeps the bank-book rule out of the scoring loop.
+func bestScoringSheet(workbook *excelize.File, names []string, accept func(string, ColumnLayout, [][]string) bool) (Candidate, bool) {
 	best := Candidate{Score: -1}
 	found := false
 	for _, name := range names {
@@ -155,7 +141,7 @@ func bestScoringSheet(workbook *excelize.File, names []string, accept func(strin
 		if err != nil || layout.HeaderRow < 0 || layout.Category < 0 {
 			continue
 		}
-		if !accept(name, layout) {
+		if !accept(name, layout, rows) {
 			continue
 		}
 		score := ScoreSheet(rows, layout)
@@ -167,21 +153,19 @@ func bestScoringSheet(workbook *excelize.File, names []string, accept func(strin
 	return best, found
 }
 
-// sheetFitsType rejects the bank book tabs for expenditure. A sheet that labels a category
-// column is always accepted because that label is an explicit statement of intent, even when
-// the operator named the tab something generic.
-func sheetFitsType(name string, layout ColumnLayout, transactionType string) bool {
-	if transactionType != "expenditure" {
-		return true
+// sheetLooksLikeBankBook rejects the bank book tabs that sit beside the expense ledger.
+// Those tabs also have a date, a description, and an amount, so the cheque, deposit, and
+// balance labels are what separate them from an expense ledger.
+func sheetLooksLikeBankBook(rows [][]string, layout ColumnLayout) bool {
+	if layout.HeaderRow < 0 || layout.HeaderRow >= len(rows) {
+		return false
 	}
-	return layout.CategoryLabeled || sheetNameMatchesExpense(name)
-}
-
-func sheetNameMatchesExpense(name string) bool {
-	lowered := strings.ToLower(name)
-	for _, marker := range expenseSheetMarkers {
-		if strings.Contains(lowered, marker) {
-			return true
+	for _, value := range rows[layout.HeaderRow] {
+		label := strings.ToLower(strings.TrimSpace(value))
+		for _, marker := range []string{"cheque", "checque", "check", "balance", "deposit"} {
+			if strings.Contains(label, marker) {
+				return true
+			}
 		}
 	}
 	return false

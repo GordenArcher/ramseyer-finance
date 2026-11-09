@@ -207,8 +207,36 @@ func TestBulkImportRejectsTheBankBookForExpenditure(t *testing.T) {
 	defer workbook.Close()
 
 	recorder := uploadWorkbook(t, workbook, "expenditure")
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("bank book upload status = %d, want 400", recorder.Code)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("bank book upload status = %d, want 303", recorder.Code)
+	}
+	location := recorder.Header().Get("Location")
+	if !strings.Contains(location, "/data-entry?tab=expenditure") || !strings.Contains(location, "tone=warning") || !strings.Contains(location, "msg=") {
+		t.Fatalf("bank book redirect = %q, want the expenditure page with a warning", location)
+	}
+}
+
+func TestDataEntryPageRendersAnUploadErrorAsAWarning(t *testing.T) {
+	setupTestDB(t)
+
+	recorder := httptest.NewRecorder()
+	DataEntryPage(recorder, httptest.NewRequest(
+		http.MethodGet,
+		"/data-entry?tab=expenditure&tone=warning&msg=Choose+an+Excel+file+before+uploading.",
+		nil,
+	))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("data entry status = %d, want 200", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, marker := range []string{
+		"alert-warning",
+		"Choose an Excel file before uploading.",
+		"expenditure-panel",
+	} {
+		if !strings.Contains(body, marker) {
+			t.Fatalf("data entry page missing %q", marker)
+		}
 	}
 }
 
@@ -632,8 +660,12 @@ func TestBulkImportAllRequiresAFile(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	BulkImportAllTransactions(recorder, request)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("empty all-types upload status = %d, want 400", recorder.Code)
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("empty all-types upload status = %d, want 303", recorder.Code)
+	}
+	location := recorder.Header().Get("Location")
+	if !strings.Contains(location, "/data-entry?") || !strings.Contains(location, "tone=warning") || !strings.Contains(location, "msg=") {
+		t.Fatalf("empty all-types upload redirect = %q, want the data-entry page with a warning", location)
 	}
 }
 

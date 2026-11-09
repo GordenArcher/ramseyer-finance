@@ -38,27 +38,27 @@ func BulkImportAllTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(uploadMemoryLimit); err != nil {
-		badRequest(w, "Invalid form submission")
+		redirectDataEntryError(w, r, "", "The upload could not be read. Choose an .xlsx or .xlsm file and try again.")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		badRequest(w, "Excel file required")
+		redirectDataEntryError(w, r, "", "Choose an Excel file before uploading.")
 		return
 	}
 	defer file.Close()
 
 	workbook, err := openUploadedWorkbook(file, header)
 	if err != nil {
-		badRequest(w, err.Error())
+		redirectDataEntryError(w, r, "", err.Error())
 		return
 	}
 	defer workbook.Close()
 
 	sheetName, layout, rows, err := combined.ChooseCombinedSheet(workbook, strings.TrimSpace(r.FormValue("sheet")))
 	if err != nil {
-		badRequest(w, err.Error())
+		redirectDataEntryError(w, r, "", err.Error())
 		return
 	}
 

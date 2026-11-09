@@ -30,6 +30,21 @@ const (
 // bulkResultStore is the process-wide store the import handler and page handler share.
 var bulkResultStore = report.NewSummaryStore(report.ResultTTL, report.MaxResults, time.Now)
 
+// redirectDataEntryError sends the operator back to the page with the upload error in the
+// normal warning alert. The form posts to an API route, so without this the browser stays
+// on the JSON-free API URL and the operator loses the page and the rest of the form.
+func redirectDataEntryError(w http.ResponseWriter, r *http.Request, transactionType, message string) {
+	target := "/data-entry"
+	if transactionType != "" {
+		target += "?tab=" + transactionType
+	}
+	separator := "?"
+	if strings.Contains(target, "?") {
+		separator = "&"
+	}
+	http.Redirect(w, r, target+separator+"msg="+queryEscape(message)+"&tone=warning", http.StatusSeeOther)
+}
+
 // BulkImportTransaction imports dated entries from an uploaded workbook.
 //
 // The parser is header driven rather than position driven. The client's ledger puts the
@@ -43,33 +58,33 @@ func BulkImportTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(uploadMemoryLimit); err != nil {
-		badRequest(w, "Invalid form submission")
+		redirectDataEntryError(w, r, "", "The upload could not be read. Choose an .xlsx or .xlsm file and try again.")
 		return
 	}
 
 	transactionType, ok := normalizeBulkTransactionType(r.FormValue("type"))
 	if !ok {
-		badRequest(w, "Invalid transaction type")
+		redirectDataEntryError(w, r, "", "Invalid transaction type.")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		badRequest(w, "Excel file required")
+		redirectDataEntryError(w, r, transactionType, "Choose an Excel file before uploading.")
 		return
 	}
 	defer file.Close()
 
 	workbook, err := openUploadedWorkbook(file, header)
 	if err != nil {
-		badRequest(w, err.Error())
+		redirectDataEntryError(w, r, transactionType, err.Error())
 		return
 	}
 	defer workbook.Close()
 
 	sheet, err := parseBulkSheet(workbook, strings.TrimSpace(r.FormValue("sheet")), transactionType)
 	if err != nil {
-		badRequest(w, err.Error())
+		redirectDataEntryError(w, r, transactionType, err.Error())
 		return
 	}
 
