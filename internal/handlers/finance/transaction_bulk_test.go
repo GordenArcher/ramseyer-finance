@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"ramseyer-finance/internal/db"
 	"strings"
 	"testing"
@@ -210,19 +211,26 @@ func TestBulkImportRejectsTheBankBookForExpenditure(t *testing.T) {
 	if recorder.Code != http.StatusSeeOther {
 		t.Fatalf("bank book upload status = %d, want 303", recorder.Code)
 	}
-	location := recorder.Header().Get("Location")
-	if !strings.Contains(location, "/data-entry?tab=expenditure") || !strings.Contains(location, "tone=warning") || !strings.Contains(location, "msg=") {
+	location, err := url.Parse(recorder.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse bank book redirect: %v", err)
+	}
+	if location.Path != "/data-entry" || location.Query().Get("tab") != "expenditure" || location.Query().Get("tone") != "warning" {
 		t.Fatalf("bank book redirect = %q, want the expenditure page with a warning", location)
+	}
+	if message := location.Query().Get("msg"); !strings.Contains(message, "bank book") {
+		t.Fatalf("bank book error message = %q, want a readable explanation", message)
 	}
 }
 
 func TestDataEntryPageRendersAnUploadErrorAsAWarning(t *testing.T) {
 	setupTestDB(t)
 
+	message := "no expense sheet was found. The sheet needs a date column; the bank book tabs are ignored"
 	recorder := httptest.NewRecorder()
 	DataEntryPage(recorder, httptest.NewRequest(
 		http.MethodGet,
-		"/data-entry?tab=expenditure&tone=warning&msg=Choose+an+Excel+file+before+uploading.",
+		"/data-entry?tab=expenditure&tone=warning&msg="+url.QueryEscape(message),
 		nil,
 	))
 	if recorder.Code != http.StatusOK {
@@ -231,7 +239,7 @@ func TestDataEntryPageRendersAnUploadErrorAsAWarning(t *testing.T) {
 	body := recorder.Body.String()
 	for _, marker := range []string{
 		"alert-warning",
-		"Choose an Excel file before uploading.",
+		message,
 		"expenditure-panel",
 	} {
 		if !strings.Contains(body, marker) {

@@ -115,7 +115,10 @@ func ChooseSheet(workbook *excelize.File, requested, transactionType string) (st
 	})
 	if !ok || candidate.Score < sheetScoreFloor {
 		if transactionType == "expenditure" {
-			return "", ColumnLayout{}, nil, fmt.Errorf("no expense sheet was found. The sheet needs a date column, a description column, an amount column, and an expense head column; the bank book tabs are ignored")
+			if hasBankBookSheet(workbook, sheetNames) {
+				return "", ColumnLayout{}, nil, fmt.Errorf("this workbook only contains a bank book. Upload the EXPENSES sheet, not the bank book")
+			}
+			return "", ColumnLayout{}, nil, fmt.Errorf("no expense sheet was found. The sheet needs a date column, a description column, an amount column, and an expense head column")
 		}
 		return "", ColumnLayout{}, nil, fmt.Errorf("no worksheet with a date, description, amount, and category column was found")
 	}
@@ -151,6 +154,22 @@ func bestScoringSheet(workbook *excelize.File, names []string, accept func(strin
 		}
 	}
 	return best, found
+}
+
+// hasBankBookSheet reports whether the workbook contains a sheet that looks like a bank
+// book. It only runs on the no-candidate path so the operator gets a message that names the
+// actual problem instead of a generic missing-column warning.
+func hasBankBookSheet(workbook *excelize.File, names []string) bool {
+	for _, name := range names {
+		layout, rows, err := InspectSheet(workbook, name)
+		if err != nil || layout.HeaderRow < 0 {
+			continue
+		}
+		if sheetLooksLikeBankBook(rows, layout) {
+			return true
+		}
+	}
+	return false
 }
 
 // sheetLooksLikeBankBook rejects the bank book tabs that sit beside the expense ledger.

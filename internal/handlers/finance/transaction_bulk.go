@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
 	"ramseyer-finance/internal/finance/dataentry/category"
@@ -42,7 +43,7 @@ func redirectDataEntryError(w http.ResponseWriter, r *http.Request, transactionT
 	if strings.Contains(target, "?") {
 		separator = "&"
 	}
-	http.Redirect(w, r, target+separator+"msg="+queryEscape(message)+"&tone=warning", http.StatusSeeOther)
+	http.Redirect(w, r, target+separator+"msg="+url.QueryEscape(message)+"&tone=warning", http.StatusSeeOther)
 }
 
 // BulkImportTransaction imports dated entries from an uploaded workbook.
