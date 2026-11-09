@@ -1,13 +1,14 @@
-// Package bulk holds the pure workbook logic behind data-entry Excel uploads and exports.
-// The HTTP handlers stay thin: they own request parsing, database writes, and audit records,
-// while this package decides which sheet is the ledger, how a header maps to columns, and
-// how a cell becomes a date or an amount. Keeping that split makes the parser testable
-// without a request or a database.
-package bulk
+// Package sheet resolves an uploaded workbook into the worksheet and column layout the
+// importer reads. It decides which tab is the ledger, how a header maps to columns, and
+// which rows are real entries, keeping that logic testable without a request or database.
+package sheet
 
 import (
 	"fmt"
 	"strings"
+
+	"ramseyer-finance/internal/finance/dataentry/row"
+	"ramseyer-finance/internal/finance/dataentry/value"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -27,14 +28,14 @@ const (
 	sheetScoreFloor = 1
 )
 
-// expenseSheetMarkers names the tabs the client uses for the expenditure ledger. The client
+// expenseSheetMarkers names the tabs the office uses for the expenditure ledger. The client
 // file also carries bank book tabs named Sheet1 and Sheet3 with the same date and amount
 // columns, so the name check is what keeps an expenditure upload off the bank book when the
 // ledger tab is present.
 var expenseSheetMarkers = []string{"expense", "expenditure"}
 
 // headerAliases maps a semantic column to the words real workbooks use for it.
-// Substring matching is deliberate: the client file spells the description column
+// Substring matching is deliberate: the office file spells the description column
 // "DESCRIP TION" and the amount column "AMOUNT(GHC)", so exact header equality would
 // miss both.
 var headerAliases = map[string][]string{
@@ -116,36 +117,38 @@ func ChooseSheet(workbook *excelize.File, requested, transactionType string) (st
 	if transactionType == "expenditure" {
 		if candidate, ok := bestScoringSheet(workbook, sheetNames, func(name string, _ ColumnLayout) bool {
 			return sheetNameMatchesExpense(name)
-		}); ok && candidate.score >= sheetScoreFloor {
-			return candidate.name, candidate.layout, candidate.rows, nil
+		}); ok && candidate.Score >= sheetScoreFloor {
+			return candidate.Name, candidate.Layout, candidate.Rows, nil
 		}
 		if candidate, ok := bestScoringSheet(workbook, sheetNames, func(_ string, layout ColumnLayout) bool {
 			return layout.CategoryLabeled
-		}); ok && candidate.score >= sheetScoreFloor {
-			return candidate.name, candidate.layout, candidate.rows, nil
+		}); ok && candidate.Score >= sheetScoreFloor {
+			return candidate.Name, candidate.Layout, candidate.Rows, nil
 		}
 		return "", ColumnLayout{}, nil, fmt.Errorf("no worksheet named like an expenditure ledger with a date, description, amount, and category column was found")
 	}
 
 	candidate, ok := bestScoringSheet(workbook, sheetNames, func(string, ColumnLayout) bool { return true })
-	if !ok || candidate.score < sheetScoreFloor {
+	if !ok || candidate.Score < sheetScoreFloor {
 		return "", ColumnLayout{}, nil, fmt.Errorf("no worksheet with a date, description, amount, and category column was found")
 	}
-	return candidate.name, candidate.layout, candidate.rows, nil
+	return candidate.Name, candidate.Layout, candidate.Rows, nil
 }
 
-type sheetCandidate struct {
-	name   string
-	layout ColumnLayout
-	rows   [][]string
-	score  int
+// Candidate is one worksheet that scored well enough to be considered. The fields are
+// exported because the all-types sheet chooser reuses the same scoring result.
+type Candidate struct {
+	Name   string
+	Layout ColumnLayout
+	Rows   [][]string
+	Score  int
 }
 
 // bestScoringSheet inspects the sheets the caller accepts and returns the one with the most
 // importable rows. The accept callback keeps the expenditure preference rule out of the
 // scoring loop, so the same scan serves both passes.
-func bestScoringSheet(workbook *excelize.File, names []string, accept func(string, ColumnLayout) bool) (sheetCandidate, bool) {
-	best := sheetCandidate{score: -1}
+func bestScoringSheet(workbook *excelize.File, names []string, accept func(string, ColumnLayout) bool) (Candidate, bool) {
+	best := Candidate{Score: -1}
 	found := false
 	for _, name := range names {
 		layout, rows, err := InspectSheet(workbook, name)
@@ -156,8 +159,8 @@ func bestScoringSheet(workbook *excelize.File, names []string, accept func(strin
 			continue
 		}
 		score := ScoreSheet(rows, layout)
-		if score > best.score {
-			best = sheetCandidate{name: name, layout: layout, rows: rows, score: score}
+		if score > best.Score {
+			best = Candidate{Name: name, Layout: layout, Rows: rows, Score: score}
 			found = true
 		}
 	}
@@ -281,12 +284,12 @@ func inferDateColumn(rows [][]string, layout ColumnLayout) int {
 		return layout.Date
 	}
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
-		row := rows[index]
-		for column := range row {
+		cells := rows[index]
+		for column := range cells {
 			if column == layout.Description || column == layout.Amount || column == layout.Category || column == layout.Payment || column == layout.TransactionType {
 				continue
 			}
-			if _, ok := ParseDate(Cell(row, column)); ok {
+			if _, ok := value.ParseDate(row.Cell(cells, column)); ok {
 				return column
 			}
 		}
@@ -321,11 +324,11 @@ func inferCategoryColumn(rows [][]string, layout ColumnLayout) int {
 			if column == layout.Description || column == layout.Payment || column == layout.Date || column == layout.TransactionType {
 				continue
 			}
-			value := strings.TrimSpace(Cell(rows[index], column))
-			if value == "" {
+			cellValue := strings.TrimSpace(row.Cell(rows[index], column))
+			if cellValue == "" {
 				continue
 			}
-			if _, err := ParseAmount(value); err != nil {
+			if _, err := value.ParseAmount(cellValue); err != nil {
 				textHits++
 			} else {
 				numericHits++
@@ -343,53 +346,17 @@ func inferCategoryColumn(rows [][]string, layout ColumnLayout) int {
 func ScoreSheet(rows [][]string, layout ColumnLayout) int {
 	score := 0
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
-		row := rows[index]
-		if RowIsBlank(row) || RowIsSummary(row) {
+		cells := rows[index]
+		if row.IsBlank(cells) || row.IsSummary(cells) {
 			continue
 		}
-		if _, ok := DateValue(row, layout.Date); !ok {
+		if _, ok := value.DateValue(cells, layout.Date); !ok {
 			continue
 		}
-		if _, ok := AmountValue(row, layout.Amount); !ok {
+		if _, ok := value.AmountValue(cells, layout.Amount); !ok {
 			continue
 		}
 		score++
 	}
 	return score
-}
-
-// Cell returns one column from a row without making every caller repeat the bounds check.
-func Cell(row []string, index int) string {
-	if index < 0 || index >= len(row) {
-		return ""
-	}
-	return row[index]
-}
-
-// RowIsBlank reports whether every cell in the row is empty or whitespace.
-func RowIsBlank(row []string) bool {
-	for _, value := range row {
-		if strings.TrimSpace(value) != "" {
-			return false
-		}
-	}
-	return true
-}
-
-// RowIsSummary recognises the subtotal and opening balance rows that appear between
-// real entries. They carry a formula or a running total in the amount column, so they must
-// never become postings.
-func RowIsSummary(row []string) bool {
-	for _, value := range row {
-		trimmed := strings.ToLower(strings.TrimSpace(value))
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "=") ||
-			strings.HasPrefix(trimmed, "closing bal") ||
-			strings.HasPrefix(trimmed, "opening bal") {
-			return true
-		}
-	}
-	return false
 }

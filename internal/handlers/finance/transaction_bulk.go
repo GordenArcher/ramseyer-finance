@@ -7,8 +7,12 @@ import (
 	"net/http"
 	"path/filepath"
 	"ramseyer-finance/internal/db"
-	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
+	"ramseyer-finance/internal/finance/dataentry/category"
 	expenseheadparser "ramseyer-finance/internal/finance/dataentry/expense/head"
+	"ramseyer-finance/internal/finance/dataentry/report"
+	rowdata "ramseyer-finance/internal/finance/dataentry/row"
+	"ramseyer-finance/internal/finance/dataentry/sheet"
+	"ramseyer-finance/internal/finance/dataentry/value"
 	"ramseyer-finance/internal/handlers/finance/expensehead"
 	transactionsaudit "ramseyer-finance/internal/transactions/audit"
 	"strings"
@@ -24,7 +28,7 @@ const (
 )
 
 // bulkResultStore is the process-wide store the import handler and page handler share.
-var bulkResultStore = dataentrybulk.NewSummaryStore(dataentrybulk.ResultTTL, dataentrybulk.MaxResults, time.Now)
+var bulkResultStore = report.NewSummaryStore(report.ResultTTL, report.MaxResults, time.Now)
 
 // BulkImportTransaction imports dated entries from an uploaded workbook.
 //
@@ -121,14 +125,14 @@ func openUploadedWorkbook(file multipart.File, header *multipart.FileHeader) (*e
 // rules stay identical no matter how many files the operator submitted at once.
 type parsedSheet struct {
 	Name   string
-	Layout dataentrybulk.ColumnLayout
+	Layout sheet.ColumnLayout
 	Rows   [][]string
 }
 
 // parseBulkSheet resolves the worksheet and layout for one type. Errors returned here come
 // from the uploaded workbook, so the handler can show them to the operator directly.
 func parseBulkSheet(workbook *excelize.File, requestedSheet, transactionType string) (parsedSheet, error) {
-	name, layout, rows, err := dataentrybulk.ChooseSheet(workbook, requestedSheet, transactionType)
+	name, layout, rows, err := sheet.ChooseSheet(workbook, requestedSheet, transactionType)
 	if err != nil {
 		return parsedSheet{}, err
 	}
@@ -138,10 +142,10 @@ func parseBulkSheet(workbook *excelize.File, requestedSheet, transactionType str
 // importParsedSheet writes the parsed rows through the same insert, duplicate, and audit
 // path as manual entry. Errors returned here are internal failures, not row-level refusals;
 // row-level refusals are recorded in the summary so one bad row never discards the rest.
-func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk.ImportSummary, error) {
+func importParsedSheet(transactionType string, sheet parsedSheet) (report.ImportSummary, error) {
 	categories, err := loadBulkCategories(transactionType)
 	if err != nil {
-		return dataentrybulk.ImportSummary{}, err
+		return report.ImportSummary{}, err
 	}
 
 	// Rows already in the ledger keep their ids below this boundary. The save path uses it
@@ -149,32 +153,32 @@ func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk
 	// itself contains.
 	baselineID, err := lastTransactionID()
 	if err != nil {
-		return dataentrybulk.ImportSummary{}, err
+		return report.ImportSummary{}, err
 	}
 
-	summary := dataentrybulk.ImportSummary{Sheet: sheet.Name}
+	summary := report.ImportSummary{Sheet: sheet.Name}
 	for index := sheet.Layout.HeaderRow + 1; index < len(sheet.Rows); index++ {
 		row := sheet.Rows[index]
-		if dataentrybulk.RowIsBlank(row) {
+		if rowdata.IsBlank(row) {
 			continue
 		}
 
 		// The client's books interleave subtotal and opening balance rows with real
 		// entries. Posting those would inflate every report, so they are counted as
 		// skipped and never reach the insert below.
-		if dataentrybulk.RowIsSummary(row) {
+		if rowdata.IsSummary(row) {
 			summary.Skipped++
 			continue
 		}
 
-		dateValue, ok := dataentrybulk.DateValue(row, sheet.Layout.Date)
+		dateValue, ok := value.DateValue(row, sheet.Layout.Date)
 		if !ok {
 			summary.Skipped++
 			summary.AppendRowError(index, "date is missing or not a real date")
 			continue
 		}
 
-		amount, ok := dataentrybulk.AmountValue(row, sheet.Layout.Amount)
+		amount, ok := value.AmountValue(row, sheet.Layout.Amount)
 		if !ok {
 			summary.Skipped++
 			summary.AppendRowError(index, "amount is missing or not a number")
@@ -193,9 +197,9 @@ func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk
 			continue
 		}
 
-		description := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Description))
-		categoryLabel := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Category))
-		paymentMethod := strings.TrimSpace(dataentrybulk.Cell(row, sheet.Layout.Payment))
+		description := strings.TrimSpace(rowdata.Cell(row, sheet.Layout.Description))
+		categoryLabel := strings.TrimSpace(rowdata.Cell(row, sheet.Layout.Category))
+		paymentMethod := strings.TrimSpace(rowdata.Cell(row, sheet.Layout.Payment))
 		result := saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod, amount, categories, baselineID)
 		if result.Reason != "" {
 			summary.Skipped++
@@ -206,7 +210,7 @@ func importParsedSheet(transactionType string, sheet parsedSheet) (dataentrybulk
 		// keeps the next row with the same head on the in-memory match instead of asking
 		// the database again for every line in the workbook.
 		if result.ResolvedID != 0 {
-			categories = append(categories, dataentrybulk.Category{ID: result.ResolvedID, Name: result.ResolvedName})
+			categories = append(categories, category.Category{ID: result.ResolvedID, Name: result.ResolvedName})
 		}
 		summary.AppendCreated(result.AddedHead)
 		summary.Imported++
@@ -230,7 +234,7 @@ type importedRowResult struct {
 // saved; anything else is the operator-facing reason it was refused. Keeping the insert,
 // duplicate, and audit rules in one function is what stops the per-type upload and the
 // all-types upload from posting different results for the same row.
-func saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod string, amount float64, categories []dataentrybulk.Category, baselineID int64) importedRowResult {
+func saveImportedRow(transactionType, dateValue, description, categoryLabel, paymentMethod string, amount float64, categories []category.Category, baselineID int64) importedRowResult {
 	categoryLabel = strings.TrimSpace(categoryLabel)
 	// Expenditure heads are the office's own shorthand, so they get the spelling rules and
 	// the create-on-missing behaviour. The other three types keep the strict chart match
@@ -247,7 +251,7 @@ func saveImportedRow(transactionType, dateValue, description, categoryLabel, pay
 		return importedRowResult{Reason: "IMPREST lines are float top-ups, not expenditure; upload the imprest cash book on the Imprest Expenses page"}
 	}
 
-	categoryID, matched := dataentrybulk.MatchCategory(categories, categoryLabel)
+	categoryID, matched := category.MatchCategory(categories, categoryLabel)
 	var result importedRowResult
 	if !matched {
 		if categoryLabel == "" {
@@ -316,7 +320,7 @@ func saveImportedRow(transactionType, dateValue, description, categoryLabel, pay
 
 // loadBulkCategories reads every active account of one type once, so a three hundred row
 // sheet does not issue three hundred lookups against the same table.
-func loadBulkCategories(transactionType string) ([]dataentrybulk.Category, error) {
+func loadBulkCategories(transactionType string) ([]category.Category, error) {
 	rows, err := db.DB.Query(
 		`SELECT id, name FROM categories WHERE type = ? AND COALESCE(is_active, 1) = 1 ORDER BY id`,
 		transactionType,
@@ -326,9 +330,9 @@ func loadBulkCategories(transactionType string) ([]dataentrybulk.Category, error
 	}
 	defer rows.Close()
 
-	var categories []dataentrybulk.Category
+	var categories []category.Category
 	for rows.Next() {
-		var category dataentrybulk.Category
+		var category category.Category
 		if err := rows.Scan(&category.ID, &category.Name); err != nil {
 			return nil, fmt.Errorf("scan bulk import category: %w", err)
 		}

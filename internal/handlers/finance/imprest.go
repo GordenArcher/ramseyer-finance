@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"ramseyer-finance/internal/finance/dataentry/bulk"
+	"ramseyer-finance/internal/finance/dataentry/imprest"
+	"ramseyer-finance/internal/finance/dataentry/report"
 	"strconv"
 	"strings"
 	"time"
@@ -42,7 +43,7 @@ type ImprestData struct {
 	PageLinks        []PageLink
 	ReturnTo         string
 	EditForm         EditableImprestEntry
-	BulkImport       *bulk.ImportSummary
+	BulkImport       *report.ImportSummary
 }
 
 // imprestEntryInput is the validated set of values shared by the add and update handlers.
@@ -398,19 +399,19 @@ func BulkImportImprest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sheetName, layout, rows, err := bulk.ChooseImprestSheet(workbook, year)
+	sheetName, layout, rows, err := imprest.ChooseImprestSheet(workbook, year)
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
 
-	entries, rowErrors, skipped := bulk.ReadImprestRows(rows, layout)
-	summary := bulk.ImportSummary{Sheet: sheetName, Skipped: skipped}
+	entries, rowErrors, skipped := imprest.ReadImprestRows(rows, layout)
+	summary := report.ImportSummary{Sheet: sheetName, Skipped: skipped}
 	// ReadImprestRows returns every refusal so tests can see the whole sheet. The page only
 	// needs the first few, and the shared limit is what keeps a structurally wrong sheet from
 	// filling the report with hundreds of identical messages.
 	for _, rowError := range rowErrors {
-		if len(summary.Errors) >= bulk.RowErrorLimit {
+		if len(summary.Errors) >= report.RowErrorLimit {
 			break
 		}
 		summary.Errors = append(summary.Errors, rowError)

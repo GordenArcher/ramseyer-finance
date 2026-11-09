@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"ramseyer-finance/internal/db"
-	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
+	report "ramseyer-finance/internal/finance/dataentry/report"
 	"ramseyer-finance/internal/handlers/viewmodels"
 	"time"
 )
@@ -60,7 +60,7 @@ type DashboardData struct {
 	AssetCats         []CatOption
 	LiabilityCats     []CatOption
 	ActiveTab         string
-	BulkImport        *dataentrybulk.ImportSummary
+	BulkImport        *report.ImportSummary
 	DataEntryExcel    map[string]DataEntryExcelControl
 	DailyTransactions []RecentTx
 	Chart             viewmodels.ChartData

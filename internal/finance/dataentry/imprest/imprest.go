@@ -1,9 +1,12 @@
-package bulk
+package imprest
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"ramseyer-finance/internal/finance/dataentry/row"
+	"ramseyer-finance/internal/finance/dataentry/value"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -146,7 +149,7 @@ func findImprestExpenseColumn(rows [][]string, headerRow, categoryColumn int) in
 	}
 	for index := headerRow; index >= start; index-- {
 		for column := categoryColumn - 1; column >= 0; column-- {
-			label := strings.ToLower(strings.TrimSpace(Cell(rows[index], column)))
+			label := strings.ToLower(strings.TrimSpace(row.Cell(rows[index], column)))
 			if label == "expense" || label == "expenses" || label == "expenditure" {
 				return column
 			}
@@ -175,11 +178,11 @@ func inferImprestDescriptionColumn(rows [][]string, layout ImprestLayout) int {
 		textHits := 0
 		numericHits := 0
 		for index := layout.HeaderRow + 1; index < sampleEnd; index++ {
-			value := strings.TrimSpace(Cell(rows[index], column))
-			if value == "" {
+			cellValue := strings.TrimSpace(row.Cell(rows[index], column))
+			if cellValue == "" {
 				continue
 			}
-			if _, err := ParseAmount(value); err != nil {
+			if _, err := value.ParseAmount(cellValue); err != nil {
 				textHits++
 			} else {
 				numericHits++
@@ -202,7 +205,7 @@ func inferImprestDateColumn(rows [][]string, layout ImprestLayout) int {
 	}
 	for column := 0; column < limit; column++ {
 		for index := layout.HeaderRow + 1; index < len(rows); index++ {
-			if _, ok := ParseDate(Cell(rows[index], column)); ok {
+			if _, ok := value.ParseDate(row.Cell(rows[index], column)); ok {
 				return column
 			}
 		}
@@ -213,14 +216,14 @@ func inferImprestDateColumn(rows [][]string, layout ImprestLayout) int {
 func scoreImprestRows(rows [][]string, layout ImprestLayout) int {
 	score := 0
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
-		row := rows[index]
-		if RowIsBlank(row) || RowIsSummary(row) {
+		cells := rows[index]
+		if row.IsBlank(cells) || row.IsSummary(cells) {
 			continue
 		}
-		if strings.TrimSpace(Cell(row, layout.Category)) == "" {
+		if strings.TrimSpace(row.Cell(cells, layout.Category)) == "" {
 			continue
 		}
-		if _, ok := AmountValue(row, layout.Amount); !ok {
+		if _, ok := value.AmountValue(cells, layout.Amount); !ok {
 			continue
 		}
 		score++
@@ -245,22 +248,22 @@ func ReadImprestRows(rows [][]string, layout ImprestLayout) ([]ImprestEntry, []s
 	lastDate := firstImprestDate(rows, layout)
 
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
-		row := rows[index]
-		if RowIsBlank(row) {
+		cells := rows[index]
+		if row.IsBlank(cells) {
 			continue
 		}
-		if RowIsSummary(row) {
+		if row.IsSummary(cells) {
 			skipped++
 			continue
 		}
 
 		rowNumber := index + 1
-		category := strings.TrimSpace(Cell(row, layout.Category))
-		description := strings.TrimSpace(Cell(row, layout.Description))
+		category := strings.TrimSpace(row.Cell(cells, layout.Category))
+		description := strings.TrimSpace(row.Cell(cells, layout.Description))
 
-		rawDate := strings.TrimSpace(Cell(row, layout.Date))
+		rawDate := strings.TrimSpace(row.Cell(cells, layout.Date))
 		if rawDate != "" {
-			parsed, ok := ParseDate(rawDate)
+			parsed, ok := value.ParseDate(rawDate)
 			if !ok {
 				skipped++
 				errors = append(errors, imprestRowError(rowNumber, "date is not a real date"))
@@ -274,7 +277,7 @@ func ReadImprestRows(rows [][]string, layout ImprestLayout) ([]ImprestEntry, []s
 			continue
 		}
 
-		amount, ok := AmountValue(row, layout.Amount)
+		amount, ok := value.AmountValue(cells, layout.Amount)
 		if !ok {
 			skipped++
 			errors = append(errors, imprestRowError(rowNumber, "expense amount is missing or not a number"))
@@ -313,7 +316,7 @@ func ReadImprestRows(rows [][]string, layout ImprestLayout) ([]ImprestEntry, []s
 // date is the only defensible anchor for those rows because the cash book is entered in order.
 func firstImprestDate(rows [][]string, layout ImprestLayout) string {
 	for index := layout.HeaderRow + 1; index < len(rows); index++ {
-		if parsed, ok := ParseDate(Cell(rows[index], layout.Date)); ok {
+		if parsed, ok := value.ParseDate(row.Cell(rows[index], layout.Date)); ok {
 			return parsed
 		}
 	}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	dataentrybulk "ramseyer-finance/internal/finance/dataentry/bulk"
+	dataentryvalue "ramseyer-finance/internal/finance/dataentry/value"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -127,7 +127,7 @@ func Build(year int, rows []Row) (*excelize.File, error) {
 // the rest of the ledger, but it also must not be silently rewritten.
 func setDate(workbook *excelize.File, sheet string, rowNumber int, raw string) error {
 	cell, _ := excelize.CoordinatesToCellName(1, rowNumber)
-	canonical, ok := dataentrybulk.ParseDate(raw)
+	canonical, ok := dataentryvalue.ParseDate(raw)
 	if !ok {
 		return setText(workbook, sheet, rowNumber, 1, raw)
 	}

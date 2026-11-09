@@ -1,8 +1,11 @@
-package bulk
+package combined
 
 import (
 	"fmt"
 	"strings"
+
+	"ramseyer-finance/internal/finance/dataentry/sheet"
+	"ramseyer-finance/internal/finance/dataentry/template"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -38,10 +41,10 @@ func NormalizeTransactionType(raw string) (string, bool) {
 // ChooseCombinedSheet picks the worksheet that carries the six all-types columns. Unlike
 // ChooseSheet it cannot fall back to an inferred category column, because a wrong inference
 // would send a row to the wrong type's chart of accounts.
-func ChooseCombinedSheet(workbook *excelize.File, requested string) (string, ColumnLayout, [][]string, error) {
+func ChooseCombinedSheet(workbook *excelize.File, requested string) (string, sheet.ColumnLayout, [][]string, error) {
 	sheetNames := workbook.GetSheetList()
 	if len(sheetNames) == 0 {
-		return "", ColumnLayout{}, nil, fmt.Errorf("the workbook has no worksheets")
+		return "", sheet.ColumnLayout{}, nil, fmt.Errorf("the workbook has no worksheets")
 	}
 
 	if requested != "" {
@@ -49,39 +52,39 @@ func ChooseCombinedSheet(workbook *excelize.File, requested string) (string, Col
 			if !strings.EqualFold(name, requested) {
 				continue
 			}
-			layout, rows, err := InspectSheet(workbook, name)
+			layout, rows, err := sheet.InspectSheet(workbook, name)
 			if err != nil {
-				return "", ColumnLayout{}, nil, err
+				return "", sheet.ColumnLayout{}, nil, err
 			}
 			if !combinedLayoutReady(layout) {
-				return "", ColumnLayout{}, nil, fmt.Errorf("worksheet %q needs Date, Type, Description, Amount, and Category columns", requested)
+				return "", sheet.ColumnLayout{}, nil, fmt.Errorf("worksheet %q needs Date, Type, Description, Amount, and Category columns", requested)
 			}
 			return name, layout, rows, nil
 		}
-		return "", ColumnLayout{}, nil, fmt.Errorf("worksheet %q was not found in the workbook", requested)
+		return "", sheet.ColumnLayout{}, nil, fmt.Errorf("worksheet %q was not found in the workbook", requested)
 	}
 
-	best := sheetCandidate{score: -1}
+	best := sheet.Candidate{Score: -1}
 	for _, name := range sheetNames {
-		layout, rows, err := InspectSheet(workbook, name)
+		layout, rows, err := sheet.InspectSheet(workbook, name)
 		if err != nil || !combinedLayoutReady(layout) {
 			continue
 		}
-		score := ScoreSheet(rows, layout)
-		if score > best.score {
-			best = sheetCandidate{name: name, layout: layout, rows: rows, score: score}
+		score := sheet.ScoreSheet(rows, layout)
+		if score > best.Score {
+			best = sheet.Candidate{Name: name, Layout: layout, Rows: rows, Score: score}
 		}
 	}
-	if best.score < 0 {
-		return "", ColumnLayout{}, nil, fmt.Errorf("no worksheet with Date, Type, Description, Amount, and Category columns was found")
+	if best.Score < 0 {
+		return "", sheet.ColumnLayout{}, nil, fmt.Errorf("no worksheet with Date, Type, Description, Amount, and Category columns was found")
 	}
-	return best.name, best.layout, best.rows, nil
+	return best.Name, best.Layout, best.Rows, nil
 }
 
 // combinedLayoutReady is deliberately stricter than the per-type check. Type and Category
 // must be labelled in the sheet, because the upload has no other reliable way to know which
 // account namespace a row belongs to.
-func combinedLayoutReady(layout ColumnLayout) bool {
+func combinedLayoutReady(layout sheet.ColumnLayout) bool {
 	return layout.HeaderRow >= 0 &&
 		layout.Date >= 0 &&
 		layout.TransactionType >= 0 &&
@@ -121,12 +124,12 @@ func BuildCombinedTemplate() (*excelize.File, error) {
 		}
 	}
 
-	_ = workbook.SetColWidth(combinedSheetName, "A", "A", templateDateWidth)
+	_ = workbook.SetColWidth(combinedSheetName, "A", "A", template.DateWidth)
 	_ = workbook.SetColWidth(combinedSheetName, "B", "B", 18)
-	_ = workbook.SetColWidth(combinedSheetName, "C", "C", templateDescriptionWidth)
-	_ = workbook.SetColWidth(combinedSheetName, "D", "D", templateAmountWidth)
-	_ = workbook.SetColWidth(combinedSheetName, "E", "E", templateCategoryWidth)
-	_ = workbook.SetColWidth(combinedSheetName, "F", "F", templatePaymentWidth)
+	_ = workbook.SetColWidth(combinedSheetName, "C", "C", template.DescriptionWidth)
+	_ = workbook.SetColWidth(combinedSheetName, "D", "D", template.AmountWidth)
+	_ = workbook.SetColWidth(combinedSheetName, "E", "E", template.CategoryWidth)
+	_ = workbook.SetColWidth(combinedSheetName, "F", "F", template.PaymentWidth)
 
 	if err := addCombinedInstructions(workbook); err != nil {
 		_ = workbook.Close()
@@ -150,7 +153,7 @@ func addCombinedInstructions(workbook *excelize.File) error {
 		{"Type", "Required. One of income, expenditure, asset, or liability."},
 		{"Description", "Required for asset and liability entries, optional for income and expenditure."},
 		{"Amount", "Required. Numbers only. Income and expenditure must be greater than zero; asset and liability accept negative movements."},
-		{"Category", "Required. Must match an existing account under the row's Type. Uploading never creates an account."},
+		{"Category", "Required. Must match an existing account under the row's Type. An expenditure head missing from the chart is added under Other Expenditure."},
 		{"Payment Method", "Optional. One of cash, momo, cheque, or bank. Defaults to cash."},
 		{""},
 		{"Ignored rows", "Blank rows, subtotals, and opening or closing balance lines are skipped."},
@@ -168,7 +171,7 @@ func addCombinedInstructions(workbook *excelize.File) error {
 		}
 	}
 
-	_ = workbook.SetColWidth(sheetName, "A", "A", templateCategoryWidth)
-	_ = workbook.SetColWidth(sheetName, "B", "B", templateInstructionWidth)
+	_ = workbook.SetColWidth(sheetName, "A", "A", template.CategoryWidth)
+	_ = workbook.SetColWidth(sheetName, "B", "B", template.InstructionWidth)
 	return nil
 }

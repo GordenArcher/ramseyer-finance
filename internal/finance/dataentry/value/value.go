@@ -1,4 +1,4 @@
-package bulk
+package value
 
 import (
 	"fmt"
@@ -6,13 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"ramseyer-finance/internal/finance/dataentry/row"
+
 	"github.com/xuri/excelize/v2"
 )
 
-// dateLayouts covers the textual shapes an operator's workbook actually uses. The
-// day-first layouts come first because the church books are written in local day/month
-// order, so 04/01/2026 has to read as 4 January. Excel serial values are handled separately
-// because a date formatted cell has no reliable text form once raw values are requested.
+// dateLayouts covers the textual shapes an operator's workbook actually uses. The day-first
+// layouts come first because the church books are written in local day/month order, so
+// 04/01/2026 has to read as 4 January. Excel serial values are handled separately because a
+// date formatted cell has no reliable text form once raw values are requested.
 var dateLayouts = []string{
 	"2006-01-02",
 	"02/01/2006",
@@ -41,11 +43,11 @@ var amountDecoration = strings.NewReplacer(
 )
 
 // DateValue reads one date column from a row and reports whether it was usable.
-func DateValue(row []string, column int) (string, bool) {
+func DateValue(cells []string, column int) (string, bool) {
 	if column < 0 {
 		return "", false
 	}
-	return ParseDate(Cell(row, column))
+	return ParseDate(row.Cell(cells, column))
 }
 
 // ParseDate accepts Excel serial numbers and the textual date shapes an operator types.
@@ -76,11 +78,11 @@ func ParseDate(raw string) (string, bool) {
 }
 
 // AmountValue reads one amount column from a row and reports whether it was usable.
-func AmountValue(row []string, column int) (float64, bool) {
+func AmountValue(cells []string, column int) (float64, bool) {
 	if column < 0 {
 		return 0, false
 	}
-	amount, err := ParseAmount(Cell(row, column))
+	amount, err := ParseAmount(row.Cell(cells, column))
 	if err != nil {
 		return 0, false
 	}

@@ -1,9 +1,13 @@
-package bulk
+package template
 
-import "testing"
+import (
+	"testing"
+
+	"ramseyer-finance/internal/finance/dataentry/category"
+)
 
 func TestBuildEntryTemplateStartsWithTheHeaderRow(t *testing.T) {
-	workbook, err := BuildEntryTemplate("income", []Category{{ID: 1, Name: "Offerings"}})
+	workbook, err := BuildEntryTemplate("income", []category.Category{{ID: 1, Name: "Offerings"}})
 	if err != nil {
 		t.Fatalf("BuildEntryTemplate failed: %v", err)
 	}
